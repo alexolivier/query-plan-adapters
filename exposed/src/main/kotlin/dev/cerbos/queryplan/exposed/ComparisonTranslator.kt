@@ -358,7 +358,14 @@ internal class ComparisonTranslator(private val translation: Translation) {
                     ),
                     stringParam("false"),
                 )
-                ScalarColumnKind.TEXT, ScalarColumnKind.INTEGRAL, ScalarColumnKind.FLOATING ->
+                // string() of a string is the identity, so a text column is compared as itself.
+                // A CAST would be worse than redundant: MySQL gives `CAST(x AS CHAR)` the
+                // CONNECTION's collation, not the column's, so the case- and accent-sensitive
+                // collation the column declares is lost and `'Set' = 'set'` becomes true
+                // (`cast-not-string-missing` on MySQL).
+                ScalarColumnKind.TEXT -> target.expression
+                // Digits and a sign have no case, so the collation a cast lands in cannot matter.
+                ScalarColumnKind.INTEGRAL, ScalarColumnKind.FLOATING ->
                     TextCastExpression(target.expression)
                 else -> throw ScalarRefusals.textCastUnsupported(ScalarColumnTypes.describe(target.column))
             }

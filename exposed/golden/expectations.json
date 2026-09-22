@@ -635,7 +635,7 @@
       "kind": "KIND_CONDITIONAL",
       "rendered": {
         "sqlite": {
-          "sql": "NOT (CAST(adversarial_resources.a_optional_string AS VARCHAR) = ?)",
+          "sql": "NOT (adversarial_resources.a_optional_string = ?)",
           "params": [
             {
               "type": "TextColumnType",
@@ -644,7 +644,7 @@
           ]
         },
         "h2": {
-          "sql": "NOT (CAST(ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING AS VARCHAR) = ?)",
+          "sql": "NOT (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?)",
           "params": [
             {
               "type": "TextColumnType",
@@ -653,7 +653,7 @@
           ]
         },
         "postgresql": {
-          "sql": "NOT (CAST(adversarial_resources.a_optional_string AS VARCHAR) = ?)",
+          "sql": "NOT (adversarial_resources.a_optional_string = ?)",
           "params": [
             {
               "type": "TextColumnType",
@@ -662,7 +662,7 @@
           ]
         },
         "mysql": {
-          "sql": "NOT (CAST(adversarial_resources.a_optional_string AS CHAR) = ?)",
+          "sql": "NOT (adversarial_resources.a_optional_string = ?)",
           "params": [
             {
               "type": "TextColumnType",
@@ -676,7 +676,7 @@
       "kind": "KIND_CONDITIONAL",
       "rendered": {
         "sqlite": {
-          "sql": "NOT (CAST(adversarial_resources.a_optional_string AS VARCHAR) = ?)",
+          "sql": "NOT (adversarial_resources.a_optional_string = ?)",
           "params": [
             {
               "type": "TextColumnType",
@@ -685,7 +685,7 @@
           ]
         },
         "h2": {
-          "sql": "NOT (CAST(ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING AS VARCHAR) = ?)",
+          "sql": "NOT (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?)",
           "params": [
             {
               "type": "TextColumnType",
@@ -694,7 +694,7 @@
           ]
         },
         "postgresql": {
-          "sql": "NOT (CAST(adversarial_resources.a_optional_string AS VARCHAR) = ?)",
+          "sql": "NOT (adversarial_resources.a_optional_string = ?)",
           "params": [
             {
               "type": "TextColumnType",
@@ -703,7 +703,7 @@
           ]
         },
         "mysql": {
-          "sql": "NOT (CAST(adversarial_resources.a_optional_string AS CHAR) = ?)",
+          "sql": "NOT (adversarial_resources.a_optional_string = ?)",
           "params": [
             {
               "type": "TextColumnType",
