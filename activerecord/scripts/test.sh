@@ -32,9 +32,9 @@ export ACTIVERECORD_VERSION="${ACTIVERECORD_VERSION:-8.0}"
 # nothing executed. The offline suites refuse any store but SQLite themselves.
 export ADAPTER_TEST_DB="${ADAPTER_TEST_DB:-sqlite}"
 case "${ADAPTER_TEST_DB}" in
-  sqlite) export DATABASE_URL="" ;;
-  postgres) export DATABASE_URL="postgres://cerbos:cerbos@postgres-store:5432/cerbos" ;;
-  mysql) export DATABASE_URL="trilogy://root:cerbos@mysql-store:3306/cerbos" ;;
+  sqlite) export ADAPTER_TEST_DATABASE_URL="" ;;
+  postgres) export ADAPTER_TEST_DATABASE_URL="postgres://cerbos:cerbos@postgres-store:5432/cerbos" ;;
+  mysql) export ADAPTER_TEST_DATABASE_URL="trilogy://root:cerbos@mysql-store:3306/cerbos" ;;
   *) echo "ADAPTER_TEST_DB must be sqlite, postgres or mysql" >&2; exit 1 ;;
 esac
 

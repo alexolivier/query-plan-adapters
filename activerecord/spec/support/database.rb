@@ -32,9 +32,13 @@ module Database
 
   # The connection string of the real server. scripts/test.sh sets it for the compose service
   # it starts; a local run against a server of your own sets it by hand.
+  #
+  # Not DATABASE_URL, which Sequel's harness uses: ActiveRecord reads that variable itself when
+  # ActiveRecord::Base loads, and the empty value compose passes on a SQLite run makes it raise
+  # "Database URL cannot be empty" before any suite starts.
   def url
-    ENV.fetch("DATABASE_URL") {
-      raise "ADAPTER_TEST_DB=#{STORE} needs DATABASE_URL — run it through scripts/test.sh"
+    ENV.fetch("ADAPTER_TEST_DATABASE_URL") {
+      raise "ADAPTER_TEST_DB=#{STORE} needs ADAPTER_TEST_DATABASE_URL — run it through scripts/test.sh"
     }
   end
 
