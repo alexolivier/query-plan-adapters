@@ -73,6 +73,19 @@ internal object CerbosTestImage {
      */
     val CALL_TIMEOUT: Duration = Duration.ofSeconds(30)
 
+    /**
+     * The PDP's `engine.strictEvaluation` setting for this run, from `ADAPTER_TEST_STRICT_EVALUATION`
+     * (passed through by the build). The corpus's oracles must hold in both evaluation modes, so the
+     * workflow runs the differential once per mode; an unknown value fails rather than defaulting.
+     */
+    fun strictEvaluation(): String {
+        val strict = System.getProperty("adapter.test.strictEvaluation", "false")
+        require(strict == "false" || strict == "true") {
+            "ADAPTER_TEST_STRICT_EVALUATION must be false or true"
+        }
+        return strict
+    }
+
     /** A client for the PDP in [container], every call bounded by [CALL_TIMEOUT]. */
     fun client(container: GenericContainer<*>): CerbosBlockingClient =
         CerbosClientBuilder("${container.host}:${container.getMappedPort(GRPC_PORT)}")

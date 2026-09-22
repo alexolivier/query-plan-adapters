@@ -553,6 +553,19 @@ pinned where they were found):
     corpus carries no `except` action at all, so nothing else asks that the three sites raise one
     message rather than three spellings of it.
 
+  **Most of these now have corpus spellings**, from the #414 port and its September 18 follow-up,
+  and every one is classified for this adapter from a run: the operand-type rule (`type-*`,
+  `not-nan-order-string`), the field-pair temporal comparison without `timestamp()`
+  (`temporal-raw-eq`), the negated unsolvable concatenation and the hierarchy prefix whose list
+  still reads a column (`not-concat-unsolvable`, `not-concat-unsolvable-ne`,
+  `hier-overlaps-list-prefix`), the empty intersection through an absent parent
+  (`not-hasint-empty-chain`), a division as the divisor (`div-by-division`), a list constant against
+  a scalar column (`eq-list`, `ne-list`), and `except` in all three positions (`except-root`,
+  `except-size`, `except-eq`). The unit tests above still pin finer cells than those actions reach —
+  every operator in both operand orders, the membership half of the type rule, the timestamp pair
+  over an ambiguous column — so each bridge is retired only once the cells it holds beyond its
+  corpus action are either ported or re-labelled as a property no row can state.
+
   `ReviewPlannerShapeTest` is what keeps the hand-built plans under those bridges honest without
   editing the corpus: it loads a policy of its own into the pinned PDP and asserts the planner really
   ships each shape rather than folding it away, and writes the recorded plans to

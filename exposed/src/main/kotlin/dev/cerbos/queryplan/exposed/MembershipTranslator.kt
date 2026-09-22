@@ -43,7 +43,15 @@ internal class MembershipTranslator(private val translation: Translation) {
         if (member.nodeCase != Operand.NodeCase.VARIABLE || container.nodeCase != Operand.NodeCase.VALUE) {
             throw RelationRefusals.membershipOperands("in")
         }
-        val values = elementsOf(PlanValues.toKotlin(container.value))
+        val constant = PlanValues.toKotlin(container.value)
+        // Value-first, `<constant> in collection`, the constant is ONE element, not a list of
+        // candidates: `["public"] in tagNames` asks whether the list `["public"]` is itself an
+        // element, which a scalar element column can never hold. Spreading it into its elements
+        // would answer `"public" in tagNames` instead and return every row holding that tag.
+        if (operands[0].nodeCase == Operand.NodeCase.VALUE && (constant is List<*> || constant is Map<*, *>)) {
+            throw RelationRefusals.structuredMember("in")
+        }
+        val values = elementsOf(constant)
         return when (val resolved = scope.resolve(member.variable)) {
             is Resolution.Collection -> collectionContainsAny(resolved, values)
             is Resolution.Scalar -> scalarIsAnyOf(resolved, values)

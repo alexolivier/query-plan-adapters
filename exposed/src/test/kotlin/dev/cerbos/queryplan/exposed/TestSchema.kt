@@ -23,7 +23,7 @@ import org.jetbrains.exposed.v1.javatime.timestamp
 
 /**
  * The resource rows. Every nullable column is nullable BECAUSE the corpus discriminates on it: a
- * NULL `a_optional_string`, `scope`, `a_double` or `created_at` is a missing attribute on the check
+ * NULL `a_optional_string`, `scope`, `a_double`, `created_at` or `updated_at` is a missing attribute on the check
  * side, so both the predicate and its negation must exclude the row.
  */
 internal object Resources : Table("adversarial_resources") {
@@ -36,6 +36,7 @@ internal object Resources : Table("adversarial_resources") {
     val createdBy = varchar("created_by", 64)
     val scope = varchar("scope", 255).nullable()
     val createdAt = timestamp("created_at").nullable()
+    val updatedAt = timestamp("updated_at").nullable()
     override val primaryKey = PrimaryKey(id)
 }
 
@@ -128,6 +129,9 @@ internal val MAPPING: AttributeMappings = cerbosMapping {
     "request.resource.attr.scope" to Resources.scope
     // Instant column for the ts-* timestamp() comparison actions.
     "request.resource.attr.createdAt" to Resources.createdAt
+    // A second instant column, for `temporal-raw-eq`: two instants compared WITHOUT timestamp(),
+    // which CEL answers over their strings.
+    "request.resource.attr.updatedAt" to Resources.updatedAt
     // `owner` and `coOwner` alias columns that `aOptionalString` and `scope` also map, under the
     // OTHER null convention: the oracle sends a real null attribute for them rather than omitting
     // it. Declaring it here is what makes the equality family definite for these two attributes

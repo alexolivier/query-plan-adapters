@@ -67,6 +67,13 @@ internal object RelationRefusals {
             "$operator(map(collection, lambda), [values]) and in(attribute, collection-attribute)",
     )
 
+    /** `in` whose member is a list or map constant: an element no scalar column can hold. */
+    fun structuredMember(operator: String): UnsupportedPlanShapeException = Refusals.unsupported(
+        "$operator with a list or map as the member cannot be expressed: each element of a mapped " +
+            "collection is one scalar column value, which SQL equality cannot compare with a list " +
+            "or a map",
+    )
+
     /** `map()` whose lambda computes rather than projecting a member. */
     fun computedProjection(): UnsupportedPlanShapeException = Refusals.unsupported(
         "map() projects a computed expression rather than a member of the element, so there is no " +

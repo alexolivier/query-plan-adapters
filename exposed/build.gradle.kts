@@ -210,6 +210,16 @@ tasks.test {
         showStandardStreams = false
     }
 
+    // The PDP's evaluation mode: the corpus's oracles must hold under both, so the workflow replays
+    // the differential with it on. Validated here as well as in the harness, so a typo fails the
+    // build before a container starts.
+    val strictEvaluation = System.getenv("ADAPTER_TEST_STRICT_EVALUATION") ?: "false"
+    if (strictEvaluation !in listOf("false", "true")) {
+        throw GradleException("ADAPTER_TEST_STRICT_EVALUATION must be false or true, got '$strictEvaluation'")
+    }
+    inputs.property("strictEvaluation", strictEvaluation)
+    systemProperty("adapter.test.strictEvaluation", strictEvaluation)
+
     // The store behind the conformance harness: h2 (default), sqlite, postgres or mysql. Forwarded
     // only when set, so the harness's own default and its unknown-value failure stay in one place.
     mapOf(

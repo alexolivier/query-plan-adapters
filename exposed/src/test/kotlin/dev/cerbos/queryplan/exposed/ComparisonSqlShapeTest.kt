@@ -52,7 +52,7 @@ class ComparisonSqlShapeTest {
         // The mirror property, and the one `3989257` retired with the stale list it was written
         // against. It is the same hazard read the other way: an `IS NULL` the plan never asked for
         // is an assumption about a column, and under a negation it hands back exactly the rows a
-        // missing attribute makes check() deny. Four legitimate origins, and no fifth —
+        // missing attribute makes check() deny. Six legitimate origins, and no seventh —
         //
         //  - a NULL OPERAND in the plan: the null-constant leaf, or a null list element;
         //  - an attribute DECLARED explicit-null, whose equality expands to a definite one and
@@ -60,17 +60,24 @@ class ComparisonSqlShapeTest {
         //  - a COLUMN standing where a LIKE needle would otherwise be a constant, which
         //    `LikeEscaping.columnPattern` guards because a NULL needle must not match everything;
         //  - an operator whose own lowering is two-valued and therefore carries its own witness:
-        //    `string()`'s portable CASE, `size()`'s out-of-int-range fold, and the `map()`
-        //    projection's NULL-element subquery.
+        //    `string()`'s portable CASE, `size()`'s out-of-int-range fold, the `map()`
+        //    projection's NULL-element subquery, and a `list()`-built hierarchy's prefix fold;
+        //  - `in` between two attributes, whose EXISTS is two-valued in the member, so an
+        //    undeclared member carries its own missing-attribute witness (`in-var-var-omitted`);
+        //  - a string concatenation the comparison cannot solve, folded to a constant that still
+        //    carries the missing-attribute witness of the column it concatenates
+        //    (`not-concat-unsolvable`).
         //
         // Every disjunct names an operator or a declaration IN THE PLAN, never an action, so an
-        // action added tomorrow is covered and one that reaches a fifth source fails here.
+        // action added tomorrow is covered and one that reaches a seventh source fails here.
         val reached = sweepFor("IS NULL") { action, plan ->
             assertTrue(
                 carriesNullLiteral(plan.condition) ||
                     declaresExplicitNull(plan) ||
                     hasColumnNeedle(plan.condition) ||
-                    operatorsOf(plan.condition).any { it in SELF_GUARDING_OPERATORS },
+                    operatorsOf(plan.condition).any { it in SELF_GUARDING_OPERATORS } ||
+                    hasAttributeInAttribute(plan.condition) ||
+                    hasStringConcatenation(plan.condition),
                 "$action emits IS NULL with no null operand, no declared explicit-null attribute, " +
                     "no column LIKE needle and none of $SELF_GUARDING_OPERATORS",
             )
@@ -117,7 +124,41 @@ class ComparisonSqlShapeTest {
         variablesOf(plan.condition).any { reference ->
             (MAPPING.resolve(reference) as? AttributeMapping.Field)
                 ?.nullAttributeRepresentation == NullAttributeRepresentation.EXPLICIT
+        } || iteratesScalarCollection(plan.condition)
+
+    /** Whether the subtree holds a string `+`: an `add` with a string constant operand. */
+    private fun hasStringConcatenation(operand: Operand): Boolean {
+        if (operand.nodeCase != Operand.NodeCase.EXPRESSION) return false
+        val expression = operand.expression
+        val direct = expression.operator == "add" && expression.operandsList.any {
+            it.nodeCase == Operand.NodeCase.VALUE && it.value.kindCase == Value.KindCase.STRING_VALUE
         }
+        return direct || expression.operandsList.any(::hasStringConcatenation)
+    }
+
+    /** Whether the subtree holds `in(attribute, attribute)`: a member tested against a collection. */
+    private fun hasAttributeInAttribute(operand: Operand): Boolean {
+        if (operand.nodeCase != Operand.NodeCase.EXPRESSION) return false
+        val expression = operand.expression
+        val direct = expression.operator == "in" && expression.operandsCount == 2 &&
+            expression.operandsList.all { it.nodeCase == Operand.NodeCase.VARIABLE }
+        return direct || expression.operandsList.any(::hasAttributeInAttribute)
+    }
+
+    /**
+     * Whether a lambda in the subtree ranges over a SCALAR collection — a relation mapped with an
+     * element column. Its variable is a list element, which CEL never reads as missing, so the
+     * adapter reads its NULL as an explicit null exactly as if the element were declared EXPLICIT.
+     */
+    private fun iteratesScalarCollection(operand: Operand): Boolean {
+        if (operand.nodeCase != Operand.NodeCase.EXPRESSION) return false
+        val expression = operand.expression
+        val range = expression.operandsList.firstOrNull()
+        val scalarRange = expression.operator in LAMBDA_MACROS &&
+            range?.nodeCase == Operand.NodeCase.VARIABLE &&
+            (MAPPING.resolve(range.variable) as? AttributeMapping.Relation)?.element != null
+        return scalarRange || expression.operandsList.any(::iteratesScalarCollection)
+    }
 
     /** Every attribute reference in a plan subtree. */
     private fun variablesOf(operand: Operand): List<String> = when (operand.nodeCase) {
@@ -320,7 +361,12 @@ class ComparisonSqlShapeTest {
          * projection has no error absorption, so a NULL projected column makes the whole
          * intersection an evaluation error.
          */
-        val SELF_GUARDING_OPERATORS = setOf("string", "size", "map")
+        // `list` is a hierarchy assembled from a list holding a column: when the constant prefix
+        // alone decides the relation, the lowering is TRUE unless that column is missing, and the
+        // IS NULL is the witness for the column it never compares (`hier-overlaps-list-prefix`).
+        val SELF_GUARDING_OPERATORS = setOf("string", "size", "map", "list")
+
+        val LAMBDA_MACROS = setOf("exists", "all", "exists_one", "filter", "map")
 
         /** Anti-vacuity floors. 10 actions emit `IS NOT NULL` today and 27 emit `IS NULL`. */
         const val PRESENCE_TEST_FLOOR = 5

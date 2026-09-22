@@ -81,8 +81,8 @@ class ExposedTranslatorTest {
          * A count that moves without anyone noticing is how a shape gets dropped from an asset
          * nobody reads end to end.
          */
-        private const val CONDITIONAL_ACTIONS = 188
-        private const val UNCONDITIONAL_ACTIONS = 2
+        private const val CONDITIONAL_ACTIONS = 220
+        private const val UNCONDITIONAL_ACTIONS = 7
 
         /**
          * How many corpus actions this adapter must refuse, from `actions.json`.
@@ -92,7 +92,7 @@ class ExposedTranslatorTest {
          * the prose went stale the moment the composition moved while the total stayed pinned. The
          * split is asserted instead, from `Corpus`, beside this total in the completeness guard.
          */
-        private const val THROWING_ACTIONS = 15
+        private const val THROWING_ACTIONS = 74
 
         /**
          * Where in the walk each rejection happens, and how many corpus shapes reach each site.
@@ -101,16 +101,26 @@ class ExposedTranslatorTest {
          * each name stands for and the exception type it raises.
          */
         private val REFUSAL_SITE_COUNTS: Map<String, Int> = sortedMapOf(
-            "ambiguous temporal column" to 1,
-            "CEL numeric cast" to 3,
+            "ambiguous temporal column" to 2,
+            "assembled structured constant" to 3,
+            "CEL numeric cast" to 5,
             "empty hierarchy delimiter" to 1,
+            "exists_one over a literal list" to 1,
+            "list difference" to 4,
             "list-valued macro in boolean position" to 3,
+            "macro over a computed collection" to 3,
             "map projection compared directly" to 1,
-            "modulo" to 1,
+            "membership operands" to 3,
             "mixed null conventions across two columns" to 1,
-            "operator the adapter never translates" to 2,
-            "positional list access" to 1,
+            "modulo" to 1,
+            "non-finite arithmetic against a column" to 1,
+            "operand type the column does not hold" to 5,
+            "operator the adapter never translates" to 15,
+            "positional list access" to 12,
             "struct member access" to 1,
+            "structured membership member" to 1,
+            "text operator over a non-text column" to 9,
+            "whole-list equality" to 2,
         )
 
         /**
@@ -143,16 +153,14 @@ class ExposedTranslatorTest {
          * rule passing over nothing.
          */
         private val ACTIONS_EMITTING_LIKE: List<String> = listOf(
-            "cr-contains", "cr-endswith", "cr-startswith", "cr-startswith-concat",
-            "cs-contains", "cs-endswith", "cs-startswith",
-            "f2f-contains", "f2f-endswith", "f2f-startswith",
+            "cr-contains", "cr-endswith", "cr-startswith", "cr-startswith-concat", "cs-contains",
+            "cs-endswith", "cs-startswith", "f2f-contains", "f2f-endswith", "f2f-startswith",
             "hier-ancestor-cf", "hier-bracket", "hier-descendent-ff", "hier-meta-like",
-            "hier-overlaps-cf", "hier-overlaps-ff", "hier-overlaps-meta",
-            "like-backslash", "like-bracket", "like-percent", "like-underscore",
-            "not-contains", "not-startswith",
-            "p-deep-nest", "p-lambda-f2f-like", "p-startswith-concat",
-            "rel-contains-hop", "rel-hop-and-root", "rel-startswith-hop2",
-            "ternary-expr-cond",
+            "hier-overlaps-cf", "hier-overlaps-ff", "hier-overlaps-meta", "like-backslash",
+            "like-bracket", "like-percent", "like-underscore", "not-contains", "not-startswith",
+            "p-deep-nest", "p-lambda-f2f-like", "p-startswith-concat", "rel-contains-hop",
+            "rel-hop-and-root", "rel-not-contains-hop", "rel-not-hierarchy-hop",
+            "rel-startswith-hop2", "ternary-expr-cond", "wildcard-contains", "wildcard-endswith",
         )
 
         /**
@@ -162,21 +170,26 @@ class ExposedTranslatorTest {
          */
         private val ACTIONS_EMITTING_A_SUBQUERY_ALIAS: List<String> = listOf(
             "all-on-empty", "cr-size-frac-ge", "exists-on-empty", "exists-one-multi",
+            "hasint-map-null", "hasint-map-null-vf", "hasint-map-vf", "hasint-null-vf",
             "in-null-elem-hasint", "in-null-elem-rel", "in-null-elem-rel-neg", "in-var-var",
-            "in-var-var-neg", "lambda-field-to-field", "lambda-in-principal", "macro-depth3-all",
-            "macro-depth3-exists", "macro-depth3-not-exists", "n-all-mixed-null", "n-not-all-absorb",
-            "n-not-all-null", "n-not-exists-one-null", "not-empty", "not-exists", "or-eq-exists",
-            "or-eq-in", "outer-attr-depth2", "p-arith-in-lambda", "p-deep-nest",
-            "p-hasintersection-map", "p-lambda-f2f-like", "p-lambda-inner-f2f", "p-not-exists-empty",
-            "p-size-nested", "p-ternary-in-exists", "p-ternary-under-all", "rel-bool-hop",
-            "rel-bool-hop2", "rel-contains-hop", "rel-eq-hop", "rel-eq-num-hop", "rel-ge-hop",
-            "rel-gt-hop", "rel-hop-and-root", "rel-hop2-or-exists", "rel-le-hop", "rel-lt-hop",
-            "rel-ne-null-hop", "rel-not-bool-hop", "rel-range-hop", "rel-startswith-hop2",
-            "size-filter-count", "size-threshold", "vf-hasint", "vf-size", "w1-all-chain",
-            "w1-exists-chain", "w1-in-chain", "w1-not-exists-chain", "w1-not-hasint-chain",
-            "w1-not-in-chain", "w1-not-size-chain", "w1-size-chain", "w1-size-frac-chain",
-            "w1-size-frac-le-chain", "w1-size-nonneg-chain", "w1-size-zero-chain",
-            "w1-ternary-chain-cond", "w2-outer-relation",
+            "in-var-var-neg", "in-var-var-omitted", "in-var-var-omitted-neg",
+            "lambda-field-to-field", "lambda-in-literal", "lambda-in-literal-neg",
+            "lambda-in-principal", "lambda-ternary", "macro-depth3-all", "macro-depth3-exists",
+            "macro-depth3-not-exists", "n-all-mixed-null", "n-not-all-absorb", "n-not-all-null",
+            "n-not-exists-one-null", "not-empty", "not-exists", "not-hasint-empty-chain",
+            "not-ternary-parent", "or-eq-exists", "or-eq-in", "outer-attr-depth2",
+            "p-arith-in-lambda", "p-deep-nest", "p-hasintersection-map", "p-lambda-f2f-like",
+            "p-lambda-inner-f2f", "p-not-exists-empty", "p-size-nested", "p-ternary-in-exists",
+            "p-ternary-under-all", "projection-exists-eq", "projection-exists-not-eq", "pv-shadow",
+            "rel-bool-hop", "rel-bool-hop2", "rel-contains-hop", "rel-eq-hop", "rel-eq-num-hop",
+            "rel-ge-hop", "rel-gt-hop", "rel-hop-and-root", "rel-hop2-or-exists", "rel-le-hop",
+            "rel-lt-hop", "rel-ne-null-hop", "rel-not-bool-hop", "rel-not-contains-hop",
+            "rel-not-eq-hop", "rel-not-hierarchy-hop", "rel-range-hop", "rel-startswith-hop2",
+            "size-filter-count", "size-ge-one", "size-threshold", "vf-hasint", "vf-size",
+            "w1-all-chain", "w1-exists-chain", "w1-in-chain", "w1-not-exists-chain",
+            "w1-not-hasint-chain", "w1-not-in-chain", "w1-not-size-chain", "w1-size-chain",
+            "w1-size-frac-chain", "w1-size-frac-le-chain", "w1-size-nonneg-chain",
+            "w1-size-zero-chain", "w1-ternary-chain-cond", "w2-outer-relation",
         )
 
         /**
@@ -555,9 +568,26 @@ class ExposedTranslatorTest {
         // `in-empty` is the other: `x in []` is constant-false in CEL, so the planner folds the
         // whole plan to ALWAYS_DENIED and the caller can skip the query. Both are properties of the
         // PLANNER rather than of this translator, so the pair is permanent rather than provisional.
-        assertEquals(listOf("in-empty", "p-has"), unconditionalActions())
+        //
+        // The other five are folds the planner performs over a PRINCIPAL value: the four macro
+        // identities over the empty `emptyTeams` list (exists is false and all is true, whatever
+        // the body reads), and a projection of a member every one of the `missingStructs` lacks,
+        // which is a CEL error for every row.
+        assertEquals(
+            listOf(
+                "in-empty", "p-has", "pv-empty-all", "pv-empty-exists", "pv-empty-not-all",
+                "pv-empty-not-exists", "pv-structs-missing",
+            ),
+            unconditionalActions(),
+        )
         assertEquals(Golden.KIND_ALWAYS_ALLOWED, recorded.getValue("p-has").path(Golden.KIND_KEY).asText())
         assertEquals(Golden.KIND_ALWAYS_DENIED, recorded.getValue("in-empty").path(Golden.KIND_KEY).asText())
+        for (allowed in listOf("pv-empty-all", "pv-empty-not-exists")) {
+            assertEquals(Golden.KIND_ALWAYS_ALLOWED, recorded.getValue(allowed).path(Golden.KIND_KEY).asText())
+        }
+        for (denied in listOf("pv-empty-exists", "pv-empty-not-all", "pv-structs-missing")) {
+            assertEquals(Golden.KIND_ALWAYS_DENIED, recorded.getValue(denied).path(Golden.KIND_KEY).asText())
+        }
         assertTrue(ACTIONS.skippedDivergences(ADAPTER).contains("p-has"))
     }
 
@@ -640,6 +670,62 @@ class ExposedTranslatorTest {
                 "ambiguous temporal column",
                 "requires a column that stores an absolute instant",
                 UnmappedAttributeException::class,
+            ),
+            // ScalarRefusals.exceptUnsupported, from every position the walk meets except(): a list
+            // difference has no row-filter form.
+            RefusalSite("list difference", "except() computes a list difference", UnsupportedPlanShapeException::class),
+            // The operand-type guard, comparison half: a constant or a second column whose type the
+            // mapped column does not hold, including two temporal columns without timestamp().
+            RefusalSite(
+                "operand type the column does not hold",
+                "CEL decides a comparison between those from the values alone",
+                UnmappedAttributeException::class,
+            ),
+            // The operand-type guard, text half: a string match, size() or a hierarchy operator
+            // over a column CEL has no overload of it for.
+            RefusalSite("text operator over a non-text column", "requires a text column", UnmappedAttributeException::class),
+            // Whole-list equality: a relation read through a subquery compared with a list value.
+            RefusalSite(
+                "whole-list equality",
+                "Whole-list equality is not translatable",
+                UnsupportedPlanShapeException::class,
+            ),
+            // A map or list the planner assembles with struct() or list(), compared with a column.
+            RefusalSite(
+                "assembled structured constant",
+                "Cannot compare a column with a",
+                UnsupportedPlanShapeException::class,
+            ),
+            // A list or map constant as the MEMBER of `in`: an element no scalar column holds.
+            RefusalSite(
+                "structured membership member",
+                "with a list or map as the member cannot be expressed",
+                UnsupportedPlanShapeException::class,
+            ),
+            // A membership pair with no column-and-constant reading.
+            RefusalSite(
+                "membership operands",
+                "cannot read as one mapped operand against a constant list",
+                UnsupportedPlanShapeException::class,
+            ),
+            // A macro whose range is computed by another macro, or exists_one over a literal list:
+            // there is no table for a correlated subquery to range over, and no flat fold.
+            RefusalSite(
+                "macro over a computed collection",
+                "ranges over a collection computed by another macro",
+                UnsupportedPlanShapeException::class,
+            ),
+            RefusalSite(
+                "exists_one over a literal list",
+                "exists_one over a literal collection value is not supported",
+                UnsupportedPlanShapeException::class,
+            ),
+            // A non-finite division meeting a column: SQL has no literal for NaN or an infinity,
+            // and the sign of the result depends on the column.
+            RefusalSite(
+                "non-finite arithmetic against a column",
+                "arithmetic between a column and the NaN or infinity",
+                UnsupportedPlanShapeException::class,
             ),
         )
 

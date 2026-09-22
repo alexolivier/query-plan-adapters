@@ -525,6 +525,15 @@ internal class ComparisonTranslator(private val translation: Translation) {
                             "[...]) instead.",
                     )
                     "except" -> ScalarRefusals.exceptUnsupported()
+                    // `matches(...) == true` keeps its wrapper on the wire; the refusal is the
+                    // regex one, wherever in the walk the matches() arrives.
+                    "matches" -> ScalarRefusals.unsupportedOperator(inner)
+                    // A map or list the planner assembles rather than ships as a constant.
+                    "struct", "list" -> Refusals.unsupported(
+                        "Cannot compare a column with a $inner() value: it builds a map or list, " +
+                            "and a mapped column holds one scalar, which SQL equality cannot " +
+                            "compare with either.",
+                    )
                     "int", "double" -> ScalarRefusals.numericCastUnsupported(inner)
                     "index" -> Refusals.unsupported(
                         "Cannot translate index(): a list element is addressed by position, and " +

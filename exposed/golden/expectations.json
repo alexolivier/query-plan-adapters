@@ -631,6 +631,88 @@
         }
       }
     },
+    "cast-not-string-missing": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "NOT (CAST(adversarial_resources.a_optional_string AS VARCHAR) = ?)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            }
+          ]
+        },
+        "h2": {
+          "sql": "NOT (CAST(ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING AS VARCHAR) = ?)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            }
+          ]
+        },
+        "postgresql": {
+          "sql": "NOT (CAST(adversarial_resources.a_optional_string AS VARCHAR) = ?)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            }
+          ]
+        },
+        "mysql": {
+          "sql": "NOT (CAST(adversarial_resources.a_optional_string AS CHAR) = ?)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            }
+          ]
+        }
+      }
+    },
+    "cast-not-string-null": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "NOT (CAST(adversarial_resources.a_optional_string AS VARCHAR) = ?)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            }
+          ]
+        },
+        "h2": {
+          "sql": "NOT (CAST(ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING AS VARCHAR) = ?)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            }
+          ]
+        },
+        "postgresql": {
+          "sql": "NOT (CAST(adversarial_resources.a_optional_string AS VARCHAR) = ?)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            }
+          ]
+        },
+        "mysql": {
+          "sql": "NOT (CAST(adversarial_resources.a_optional_string AS CHAR) = ?)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            }
+          ]
+        }
+      }
+    },
     "cast-string-bool": {
       "note": "`string(boolColumn)` lowers to a portable CASE rather than a CAST, because no two dialects agree on the text a boolean casts to. The first arm is the load-bearing one: a NULL column yields NULL, not the string 'false'. Without it a missing attribute would compare definitely and the row would be admitted or excluded instead of denied under both polarities.",
       "kind": "KIND_CONDITIONAL",
@@ -4541,6 +4623,186 @@
         }
       }
     },
+    "hasint-map-null": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "(EXISTS (SELECT 1 FROM adversarial_tags cerbos_1 WHERE (cerbos_1.resource_id = adversarial_resources.id) AND (cerbos_1.\"name\" = ?)) AND NOT (EXISTS (SELECT 1 FROM adversarial_tags cerbos_2 WHERE (cerbos_2.resource_id = adversarial_resources.id) AND (cerbos_2.\"name\" IS NULL)))) OR (EXISTS (SELECT 1 FROM adversarial_tags cerbos_2 WHERE (cerbos_2.resource_id = adversarial_resources.id) AND (cerbos_2.\"name\" IS NULL)) AND (1 = NULL))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            }
+          ]
+        },
+        "h2": {
+          "sql": "(EXISTS (SELECT 1 FROM ADVERSARIAL_TAGS cerbos_1 WHERE (cerbos_1.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) AND (cerbos_1.\"name\" = ?)) AND NOT (EXISTS (SELECT 1 FROM ADVERSARIAL_TAGS cerbos_2 WHERE (cerbos_2.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) AND (cerbos_2.\"name\" IS NULL)))) OR (EXISTS (SELECT 1 FROM ADVERSARIAL_TAGS cerbos_2 WHERE (cerbos_2.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) AND (cerbos_2.\"name\" IS NULL)) AND (1 = NULL))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            }
+          ]
+        },
+        "postgresql": {
+          "sql": "(EXISTS (SELECT 1 FROM adversarial_tags cerbos_1 WHERE (cerbos_1.resource_id = adversarial_resources.id) AND (cerbos_1.\"name\" = ?)) AND NOT (EXISTS (SELECT 1 FROM adversarial_tags cerbos_2 WHERE (cerbos_2.resource_id = adversarial_resources.id) AND (cerbos_2.\"name\" IS NULL)))) OR (EXISTS (SELECT 1 FROM adversarial_tags cerbos_2 WHERE (cerbos_2.resource_id = adversarial_resources.id) AND (cerbos_2.\"name\" IS NULL)) AND (1 = NULL))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            }
+          ]
+        },
+        "mysql": {
+          "sql": "(EXISTS (SELECT 1 FROM adversarial_tags cerbos_1 WHERE (cerbos_1.resource_id = adversarial_resources.id) AND (cerbos_1.`name` = ?)) AND NOT (EXISTS (SELECT 1 FROM adversarial_tags cerbos_2 WHERE (cerbos_2.resource_id = adversarial_resources.id) AND (cerbos_2.`name` IS NULL)))) OR (EXISTS (SELECT 1 FROM adversarial_tags cerbos_2 WHERE (cerbos_2.resource_id = adversarial_resources.id) AND (cerbos_2.`name` IS NULL)) AND (1 = NULL))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            }
+          ]
+        }
+      }
+    },
+    "hasint-map-null-vf": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "(EXISTS (SELECT 1 FROM adversarial_tags cerbos_1 WHERE (cerbos_1.resource_id = adversarial_resources.id) AND (cerbos_1.\"name\" = ?)) AND NOT (EXISTS (SELECT 1 FROM adversarial_tags cerbos_2 WHERE (cerbos_2.resource_id = adversarial_resources.id) AND (cerbos_2.\"name\" IS NULL)))) OR (EXISTS (SELECT 1 FROM adversarial_tags cerbos_2 WHERE (cerbos_2.resource_id = adversarial_resources.id) AND (cerbos_2.\"name\" IS NULL)) AND (1 = NULL))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            }
+          ]
+        },
+        "h2": {
+          "sql": "(EXISTS (SELECT 1 FROM ADVERSARIAL_TAGS cerbos_1 WHERE (cerbos_1.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) AND (cerbos_1.\"name\" = ?)) AND NOT (EXISTS (SELECT 1 FROM ADVERSARIAL_TAGS cerbos_2 WHERE (cerbos_2.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) AND (cerbos_2.\"name\" IS NULL)))) OR (EXISTS (SELECT 1 FROM ADVERSARIAL_TAGS cerbos_2 WHERE (cerbos_2.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) AND (cerbos_2.\"name\" IS NULL)) AND (1 = NULL))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            }
+          ]
+        },
+        "postgresql": {
+          "sql": "(EXISTS (SELECT 1 FROM adversarial_tags cerbos_1 WHERE (cerbos_1.resource_id = adversarial_resources.id) AND (cerbos_1.\"name\" = ?)) AND NOT (EXISTS (SELECT 1 FROM adversarial_tags cerbos_2 WHERE (cerbos_2.resource_id = adversarial_resources.id) AND (cerbos_2.\"name\" IS NULL)))) OR (EXISTS (SELECT 1 FROM adversarial_tags cerbos_2 WHERE (cerbos_2.resource_id = adversarial_resources.id) AND (cerbos_2.\"name\" IS NULL)) AND (1 = NULL))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            }
+          ]
+        },
+        "mysql": {
+          "sql": "(EXISTS (SELECT 1 FROM adversarial_tags cerbos_1 WHERE (cerbos_1.resource_id = adversarial_resources.id) AND (cerbos_1.`name` = ?)) AND NOT (EXISTS (SELECT 1 FROM adversarial_tags cerbos_2 WHERE (cerbos_2.resource_id = adversarial_resources.id) AND (cerbos_2.`name` IS NULL)))) OR (EXISTS (SELECT 1 FROM adversarial_tags cerbos_2 WHERE (cerbos_2.resource_id = adversarial_resources.id) AND (cerbos_2.`name` IS NULL)) AND (1 = NULL))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            }
+          ]
+        }
+      }
+    },
+    "hasint-map-vf": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "(EXISTS (SELECT 1 FROM adversarial_tags cerbos_1 WHERE (cerbos_1.resource_id = adversarial_resources.id) AND ((cerbos_1.\"name\" = ?) OR (cerbos_1.\"name\" = ?))) AND NOT (EXISTS (SELECT 1 FROM adversarial_tags cerbos_2 WHERE (cerbos_2.resource_id = adversarial_resources.id) AND (cerbos_2.\"name\" IS NULL)))) OR (EXISTS (SELECT 1 FROM adversarial_tags cerbos_2 WHERE (cerbos_2.resource_id = adversarial_resources.id) AND (cerbos_2.\"name\" IS NULL)) AND (1 = NULL))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "other"
+            }
+          ]
+        },
+        "h2": {
+          "sql": "(EXISTS (SELECT 1 FROM ADVERSARIAL_TAGS cerbos_1 WHERE (cerbos_1.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) AND ((cerbos_1.\"name\" = ?) OR (cerbos_1.\"name\" = ?))) AND NOT (EXISTS (SELECT 1 FROM ADVERSARIAL_TAGS cerbos_2 WHERE (cerbos_2.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) AND (cerbos_2.\"name\" IS NULL)))) OR (EXISTS (SELECT 1 FROM ADVERSARIAL_TAGS cerbos_2 WHERE (cerbos_2.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) AND (cerbos_2.\"name\" IS NULL)) AND (1 = NULL))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "other"
+            }
+          ]
+        },
+        "postgresql": {
+          "sql": "(EXISTS (SELECT 1 FROM adversarial_tags cerbos_1 WHERE (cerbos_1.resource_id = adversarial_resources.id) AND ((cerbos_1.\"name\" = ?) OR (cerbos_1.\"name\" = ?))) AND NOT (EXISTS (SELECT 1 FROM adversarial_tags cerbos_2 WHERE (cerbos_2.resource_id = adversarial_resources.id) AND (cerbos_2.\"name\" IS NULL)))) OR (EXISTS (SELECT 1 FROM adversarial_tags cerbos_2 WHERE (cerbos_2.resource_id = adversarial_resources.id) AND (cerbos_2.\"name\" IS NULL)) AND (1 = NULL))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "other"
+            }
+          ]
+        },
+        "mysql": {
+          "sql": "(EXISTS (SELECT 1 FROM adversarial_tags cerbos_1 WHERE (cerbos_1.resource_id = adversarial_resources.id) AND ((cerbos_1.`name` = ?) OR (cerbos_1.`name` = ?))) AND NOT (EXISTS (SELECT 1 FROM adversarial_tags cerbos_2 WHERE (cerbos_2.resource_id = adversarial_resources.id) AND (cerbos_2.`name` IS NULL)))) OR (EXISTS (SELECT 1 FROM adversarial_tags cerbos_2 WHERE (cerbos_2.resource_id = adversarial_resources.id) AND (cerbos_2.`name` IS NULL)) AND (1 = NULL))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "other"
+            }
+          ]
+        }
+      }
+    },
+    "hasint-null-vf": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "EXISTS (SELECT 1 FROM adversarial_tags cerbos_1 WHERE (cerbos_1.resource_id = adversarial_resources.id) AND ((cerbos_1.\"name\" = ?) OR (cerbos_1.\"name\" IS NULL)))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            }
+          ]
+        },
+        "h2": {
+          "sql": "EXISTS (SELECT 1 FROM ADVERSARIAL_TAGS cerbos_1 WHERE (cerbos_1.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) AND ((cerbos_1.\"name\" = ?) OR (cerbos_1.\"name\" IS NULL)))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            }
+          ]
+        },
+        "postgresql": {
+          "sql": "EXISTS (SELECT 1 FROM adversarial_tags cerbos_1 WHERE (cerbos_1.resource_id = adversarial_resources.id) AND ((cerbos_1.\"name\" = ?) OR (cerbos_1.\"name\" IS NULL)))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            }
+          ]
+        },
+        "mysql": {
+          "sql": "EXISTS (SELECT 1 FROM adversarial_tags cerbos_1 WHERE (cerbos_1.resource_id = adversarial_resources.id) AND ((cerbos_1.`name` = ?) OR (cerbos_1.`name` IS NULL)))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            }
+          ]
+        }
+      }
+    },
     "hier-ancestor-cf": {
       "kind": "KIND_CONDITIONAL",
       "rendered": {
@@ -5159,6 +5421,27 @@
         }
       }
     },
+    "hier-overlaps-list-prefix": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "(1 AND NOT (adversarial_resources.scope IS NULL)) OR ((adversarial_resources.scope IS NULL) AND (1 = NULL))",
+          "params": [ ]
+        },
+        "h2": {
+          "sql": "(TRUE AND NOT (ADVERSARIAL_RESOURCES.SCOPE IS NULL)) OR ((ADVERSARIAL_RESOURCES.SCOPE IS NULL) AND (1 = NULL))",
+          "params": [ ]
+        },
+        "postgresql": {
+          "sql": "(TRUE AND NOT (adversarial_resources.scope IS NULL)) OR ((adversarial_resources.scope IS NULL) AND (1 = NULL))",
+          "params": [ ]
+        },
+        "mysql": {
+          "sql": "(TRUE AND NOT (adversarial_resources.scope IS NULL)) OR ((adversarial_resources.scope IS NULL) AND (1 = NULL))",
+          "params": [ ]
+        }
+      }
+    },
     "hier-overlaps-meta": {
       "kind": "KIND_CONDITIONAL",
       "rendered": {
@@ -5712,6 +5995,79 @@
         }
       }
     },
+    "in-numbers": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "(adversarial_resources.a_number = ?) OR (adversarial_resources.a_number = ?) OR (adversarial_resources.a_number = ?)",
+          "params": [
+            {
+              "type": "LongColumnType",
+              "value": 2
+            },
+            {
+              "type": "LongColumnType",
+              "value": 3
+            },
+            {
+              "type": "LongColumnType",
+              "value": 5
+            }
+          ]
+        },
+        "h2": {
+          "sql": "(ADVERSARIAL_RESOURCES.A_NUMBER = ?) OR (ADVERSARIAL_RESOURCES.A_NUMBER = ?) OR (ADVERSARIAL_RESOURCES.A_NUMBER = ?)",
+          "params": [
+            {
+              "type": "LongColumnType",
+              "value": 2
+            },
+            {
+              "type": "LongColumnType",
+              "value": 3
+            },
+            {
+              "type": "LongColumnType",
+              "value": 5
+            }
+          ]
+        },
+        "postgresql": {
+          "sql": "(adversarial_resources.a_number = ?) OR (adversarial_resources.a_number = ?) OR (adversarial_resources.a_number = ?)",
+          "params": [
+            {
+              "type": "LongColumnType",
+              "value": 2
+            },
+            {
+              "type": "LongColumnType",
+              "value": 3
+            },
+            {
+              "type": "LongColumnType",
+              "value": 5
+            }
+          ]
+        },
+        "mysql": {
+          "sql": "(adversarial_resources.a_number = ?) OR (adversarial_resources.a_number = ?) OR (adversarial_resources.a_number = ?)",
+          "params": [
+            {
+              "type": "LongColumnType",
+              "value": 2
+            },
+            {
+              "type": "LongColumnType",
+              "value": 3
+            },
+            {
+              "type": "LongColumnType",
+              "value": 5
+            }
+          ]
+        }
+      }
+    },
     "in-single": {
       "kind": "KIND_CONDITIONAL",
       "rendered": {
@@ -5795,6 +6151,48 @@
         }
       }
     },
+    "in-var-var-omitted": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "(EXISTS (SELECT 1 FROM adversarial_tags cerbos_1 WHERE (cerbos_1.resource_id = adversarial_resources.id) AND (cerbos_1.\"name\" = adversarial_resources.a_optional_string)) AND NOT (adversarial_resources.a_optional_string IS NULL)) OR ((adversarial_resources.a_optional_string IS NULL) AND (1 = NULL))",
+          "params": [ ]
+        },
+        "h2": {
+          "sql": "(EXISTS (SELECT 1 FROM ADVERSARIAL_TAGS cerbos_1 WHERE (cerbos_1.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) AND (cerbos_1.\"name\" = ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING)) AND NOT (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING IS NULL)) OR ((ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING IS NULL) AND (1 = NULL))",
+          "params": [ ]
+        },
+        "postgresql": {
+          "sql": "(EXISTS (SELECT 1 FROM adversarial_tags cerbos_1 WHERE (cerbos_1.resource_id = adversarial_resources.id) AND (cerbos_1.\"name\" = adversarial_resources.a_optional_string)) AND NOT (adversarial_resources.a_optional_string IS NULL)) OR ((adversarial_resources.a_optional_string IS NULL) AND (1 = NULL))",
+          "params": [ ]
+        },
+        "mysql": {
+          "sql": "(EXISTS (SELECT 1 FROM adversarial_tags cerbos_1 WHERE (cerbos_1.resource_id = adversarial_resources.id) AND (cerbos_1.`name` = adversarial_resources.a_optional_string)) AND NOT (adversarial_resources.a_optional_string IS NULL)) OR ((adversarial_resources.a_optional_string IS NULL) AND (1 = NULL))",
+          "params": [ ]
+        }
+      }
+    },
+    "in-var-var-omitted-neg": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "NOT ((EXISTS (SELECT 1 FROM adversarial_tags cerbos_1 WHERE (cerbos_1.resource_id = adversarial_resources.id) AND (cerbos_1.\"name\" = adversarial_resources.a_optional_string)) AND NOT (adversarial_resources.a_optional_string IS NULL)) OR ((adversarial_resources.a_optional_string IS NULL) AND (1 = NULL)))",
+          "params": [ ]
+        },
+        "h2": {
+          "sql": "NOT ((EXISTS (SELECT 1 FROM ADVERSARIAL_TAGS cerbos_1 WHERE (cerbos_1.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) AND (cerbos_1.\"name\" = ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING)) AND NOT (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING IS NULL)) OR ((ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING IS NULL) AND (1 = NULL)))",
+          "params": [ ]
+        },
+        "postgresql": {
+          "sql": "NOT ((EXISTS (SELECT 1 FROM adversarial_tags cerbos_1 WHERE (cerbos_1.resource_id = adversarial_resources.id) AND (cerbos_1.\"name\" = adversarial_resources.a_optional_string)) AND NOT (adversarial_resources.a_optional_string IS NULL)) OR ((adversarial_resources.a_optional_string IS NULL) AND (1 = NULL)))",
+          "params": [ ]
+        },
+        "mysql": {
+          "sql": "NOT ((EXISTS (SELECT 1 FROM adversarial_tags cerbos_1 WHERE (cerbos_1.resource_id = adversarial_resources.id) AND (cerbos_1.`name` = adversarial_resources.a_optional_string)) AND NOT (adversarial_resources.a_optional_string IS NULL)) OR ((adversarial_resources.a_optional_string IS NULL) AND (1 = NULL)))",
+          "params": [ ]
+        }
+      }
+    },
     "lambda-field-to-field": {
       "kind": "KIND_CONDITIONAL",
       "rendered": {
@@ -5813,6 +6211,184 @@
         "mysql": {
           "sql": "(SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_1.`name` = adversarial_resources.a_string) THEN 2 WHEN NOT (cerbos_1.`name` = adversarial_resources.a_string) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = 2",
           "params": [ ]
+        }
+      }
+    },
+    "lambda-in-literal": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "(SELECT NULLIF(COALESCE(MAX(CASE WHEN (((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?)) OR ((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?))) THEN 2 WHEN NOT (((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?)) OR ((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?))) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = 2",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "other"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "other"
+            }
+          ]
+        },
+        "h2": {
+          "sql": "(SELECT NULLIF(COALESCE(MAX(CASE WHEN (((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?)) OR ((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?))) THEN 2 WHEN NOT (((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?)) OR ((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?))) THEN 0 ELSE 1 END), 0), 1) FROM ADVERSARIAL_TAGS cerbos_1 WHERE cerbos_1.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) = 2",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "other"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "other"
+            }
+          ]
+        },
+        "postgresql": {
+          "sql": "(SELECT NULLIF(COALESCE(MAX(CASE WHEN (((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?)) OR ((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?))) THEN 2 WHEN NOT (((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?)) OR ((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?))) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = 2",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "other"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "other"
+            }
+          ]
+        },
+        "mysql": {
+          "sql": "(SELECT NULLIF(COALESCE(MAX(CASE WHEN (((cerbos_1.`name` IS NOT NULL) AND (cerbos_1.`name` = ?)) OR ((cerbos_1.`name` IS NOT NULL) AND (cerbos_1.`name` = ?))) THEN 2 WHEN NOT (((cerbos_1.`name` IS NOT NULL) AND (cerbos_1.`name` = ?)) OR ((cerbos_1.`name` IS NOT NULL) AND (cerbos_1.`name` = ?))) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = 2",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "other"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "other"
+            }
+          ]
+        }
+      }
+    },
+    "lambda-in-literal-neg": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "NOT ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?)) OR ((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?))) THEN 2 WHEN NOT (((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?)) OR ((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?))) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = 2)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "other"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "other"
+            }
+          ]
+        },
+        "h2": {
+          "sql": "NOT ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?)) OR ((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?))) THEN 2 WHEN NOT (((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?)) OR ((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?))) THEN 0 ELSE 1 END), 0), 1) FROM ADVERSARIAL_TAGS cerbos_1 WHERE cerbos_1.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) = 2)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "other"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "other"
+            }
+          ]
+        },
+        "postgresql": {
+          "sql": "NOT ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?)) OR ((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?))) THEN 2 WHEN NOT (((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?)) OR ((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?))) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = 2)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "other"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "other"
+            }
+          ]
+        },
+        "mysql": {
+          "sql": "NOT ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (((cerbos_1.`name` IS NOT NULL) AND (cerbos_1.`name` = ?)) OR ((cerbos_1.`name` IS NOT NULL) AND (cerbos_1.`name` = ?))) THEN 2 WHEN NOT (((cerbos_1.`name` IS NOT NULL) AND (cerbos_1.`name` = ?)) OR ((cerbos_1.`name` IS NOT NULL) AND (cerbos_1.`name` = ?))) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = 2)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "other"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "other"
+            }
+          ]
         }
       }
     },
@@ -5900,6 +6476,223 @@
             {
               "type": "TextColumnType",
               "value": "special"
+            }
+          ]
+        }
+      }
+    },
+    "lambda-ternary": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "(SELECT NULLIF(COALESCE(MAX(CASE WHEN (((cerbos_1.\"name\" = ?) AND (adversarial_resources.a_bool = ?)) OR (NOT (cerbos_1.\"name\" = ?) AND NOT (adversarial_resources.a_bool = ?)) OR NOT ((cerbos_1.\"name\" = ?) OR NOT (cerbos_1.\"name\" = ?))) THEN 2 WHEN NOT (((cerbos_1.\"name\" = ?) AND (adversarial_resources.a_bool = ?)) OR (NOT (cerbos_1.\"name\" = ?) AND NOT (adversarial_resources.a_bool = ?)) OR NOT ((cerbos_1.\"name\" = ?) OR NOT (cerbos_1.\"name\" = ?))) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = 2",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            }
+          ]
+        },
+        "h2": {
+          "sql": "(SELECT NULLIF(COALESCE(MAX(CASE WHEN (((cerbos_1.\"name\" = ?) AND (ADVERSARIAL_RESOURCES.A_BOOL = ?)) OR (NOT (cerbos_1.\"name\" = ?) AND NOT (ADVERSARIAL_RESOURCES.A_BOOL = ?)) OR NOT ((cerbos_1.\"name\" = ?) OR NOT (cerbos_1.\"name\" = ?))) THEN 2 WHEN NOT (((cerbos_1.\"name\" = ?) AND (ADVERSARIAL_RESOURCES.A_BOOL = ?)) OR (NOT (cerbos_1.\"name\" = ?) AND NOT (ADVERSARIAL_RESOURCES.A_BOOL = ?)) OR NOT ((cerbos_1.\"name\" = ?) OR NOT (cerbos_1.\"name\" = ?))) THEN 0 ELSE 1 END), 0), 1) FROM ADVERSARIAL_TAGS cerbos_1 WHERE cerbos_1.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) = 2",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            }
+          ]
+        },
+        "postgresql": {
+          "sql": "(SELECT NULLIF(COALESCE(MAX(CASE WHEN (((cerbos_1.\"name\" = ?) AND (adversarial_resources.a_bool = ?)) OR (NOT (cerbos_1.\"name\" = ?) AND NOT (adversarial_resources.a_bool = ?)) OR NOT ((cerbos_1.\"name\" = ?) OR NOT (cerbos_1.\"name\" = ?))) THEN 2 WHEN NOT (((cerbos_1.\"name\" = ?) AND (adversarial_resources.a_bool = ?)) OR (NOT (cerbos_1.\"name\" = ?) AND NOT (adversarial_resources.a_bool = ?)) OR NOT ((cerbos_1.\"name\" = ?) OR NOT (cerbos_1.\"name\" = ?))) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = 2",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            }
+          ]
+        },
+        "mysql": {
+          "sql": "(SELECT NULLIF(COALESCE(MAX(CASE WHEN (((cerbos_1.`name` = ?) AND (adversarial_resources.a_bool = ?)) OR (NOT (cerbos_1.`name` = ?) AND NOT (adversarial_resources.a_bool = ?)) OR NOT ((cerbos_1.`name` = ?) OR NOT (cerbos_1.`name` = ?))) THEN 2 WHEN NOT (((cerbos_1.`name` = ?) AND (adversarial_resources.a_bool = ?)) OR (NOT (cerbos_1.`name` = ?) AND NOT (adversarial_resources.a_bool = ?)) OR NOT ((cerbos_1.`name` = ?) OR NOT (cerbos_1.`name` = ?))) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = 2",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
             }
           ]
         }
@@ -7550,6 +8343,48 @@
         }
       }
     },
+    "not-concat-unsolvable": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "NOT ((0 AND NOT (adversarial_resources.a_optional_string IS NULL)) OR ((adversarial_resources.a_optional_string IS NULL) AND (1 = NULL)))",
+          "params": [ ]
+        },
+        "h2": {
+          "sql": "NOT ((FALSE AND NOT (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING IS NULL)) OR ((ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING IS NULL) AND (1 = NULL)))",
+          "params": [ ]
+        },
+        "postgresql": {
+          "sql": "NOT ((FALSE AND NOT (adversarial_resources.a_optional_string IS NULL)) OR ((adversarial_resources.a_optional_string IS NULL) AND (1 = NULL)))",
+          "params": [ ]
+        },
+        "mysql": {
+          "sql": "NOT ((FALSE AND NOT (adversarial_resources.a_optional_string IS NULL)) OR ((adversarial_resources.a_optional_string IS NULL) AND (1 = NULL)))",
+          "params": [ ]
+        }
+      }
+    },
+    "not-concat-unsolvable-ne": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "(1 AND NOT (adversarial_resources.a_optional_string IS NULL)) OR ((adversarial_resources.a_optional_string IS NULL) AND (1 = NULL))",
+          "params": [ ]
+        },
+        "h2": {
+          "sql": "(TRUE AND NOT (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING IS NULL)) OR ((ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING IS NULL) AND (1 = NULL))",
+          "params": [ ]
+        },
+        "postgresql": {
+          "sql": "(TRUE AND NOT (adversarial_resources.a_optional_string IS NULL)) OR ((adversarial_resources.a_optional_string IS NULL) AND (1 = NULL))",
+          "params": [ ]
+        },
+        "mysql": {
+          "sql": "(TRUE AND NOT (adversarial_resources.a_optional_string IS NULL)) OR ((adversarial_resources.a_optional_string IS NULL) AND (1 = NULL))",
+          "params": [ ]
+        }
+      }
+    },
     "not-contains": {
       "kind": "KIND_CONDITIONAL",
       "rendered": {
@@ -7871,6 +8706,27 @@
         }
       }
     },
+    "not-hasint-empty-chain": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "NOT ((CASE WHEN EXISTS (SELECT 1 FROM adversarial_categories cerbos_3 WHERE cerbos_3.resource_id = adversarial_resources.id) THEN (SELECT COUNT(1) FROM adversarial_categories cerbos_1 INNER JOIN adversarial_sub_categories cerbos_2 ON cerbos_1.id = cerbos_2.category_id WHERE (cerbos_1.resource_id = adversarial_resources.id) AND 0) END) > 0)",
+          "params": [ ]
+        },
+        "h2": {
+          "sql": "NOT ((CASE WHEN EXISTS (SELECT 1 FROM ADVERSARIAL_CATEGORIES cerbos_3 WHERE cerbos_3.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) THEN (SELECT COUNT(1) FROM ADVERSARIAL_CATEGORIES cerbos_1 INNER JOIN ADVERSARIAL_SUB_CATEGORIES cerbos_2 ON cerbos_1.ID = cerbos_2.CATEGORY_ID WHERE (cerbos_1.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) AND FALSE) END) > 0)",
+          "params": [ ]
+        },
+        "postgresql": {
+          "sql": "NOT ((CASE WHEN EXISTS (SELECT 1 FROM adversarial_categories cerbos_3 WHERE cerbos_3.resource_id = adversarial_resources.id) THEN (SELECT COUNT(1) FROM adversarial_categories cerbos_1 INNER JOIN adversarial_sub_categories cerbos_2 ON cerbos_1.id = cerbos_2.category_id WHERE (cerbos_1.resource_id = adversarial_resources.id) AND FALSE) END) > 0)",
+          "params": [ ]
+        },
+        "mysql": {
+          "sql": "NOT ((CASE WHEN EXISTS (SELECT 1 FROM adversarial_categories cerbos_3 WHERE cerbos_3.resource_id = adversarial_resources.id) THEN (SELECT COUNT(1) FROM adversarial_categories cerbos_1 INNER JOIN adversarial_sub_categories cerbos_2 ON cerbos_1.id = cerbos_2.category_id WHERE (cerbos_1.resource_id = adversarial_resources.id) AND FALSE) END) > 0)",
+          "params": [ ]
+        }
+      }
+    },
     "not-lt": {
       "kind": "KIND_CONDITIONAL",
       "rendered": {
@@ -7907,6 +8763,223 @@
             {
               "type": "LongColumnType",
               "value": 2
+            }
+          ]
+        }
+      }
+    },
+    "not-nan-ord-le": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "NOT (((adversarial_resources.a_bool = ?) AND (((adversarial_resources.a_bool = ?) AND 1) OR (NOT (adversarial_resources.a_bool = ?) AND 0) OR NOT ((adversarial_resources.a_bool = ?) OR NOT (adversarial_resources.a_bool = ?)))) OR (NOT (adversarial_resources.a_bool = ?) AND (((adversarial_resources.a_bool = ?) AND 1) OR (NOT (adversarial_resources.a_bool = ?) AND 0) OR NOT ((adversarial_resources.a_bool = ?) OR NOT (adversarial_resources.a_bool = ?)))) OR NOT ((adversarial_resources.a_bool = ?) OR NOT (adversarial_resources.a_bool = ?)))",
+          "params": [
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            }
+          ]
+        },
+        "h2": {
+          "sql": "NOT (((ADVERSARIAL_RESOURCES.A_BOOL = ?) AND (((ADVERSARIAL_RESOURCES.A_BOOL = ?) AND TRUE) OR (NOT (ADVERSARIAL_RESOURCES.A_BOOL = ?) AND FALSE) OR NOT ((ADVERSARIAL_RESOURCES.A_BOOL = ?) OR NOT (ADVERSARIAL_RESOURCES.A_BOOL = ?)))) OR (NOT (ADVERSARIAL_RESOURCES.A_BOOL = ?) AND (((ADVERSARIAL_RESOURCES.A_BOOL = ?) AND TRUE) OR (NOT (ADVERSARIAL_RESOURCES.A_BOOL = ?) AND FALSE) OR NOT ((ADVERSARIAL_RESOURCES.A_BOOL = ?) OR NOT (ADVERSARIAL_RESOURCES.A_BOOL = ?)))) OR NOT ((ADVERSARIAL_RESOURCES.A_BOOL = ?) OR NOT (ADVERSARIAL_RESOURCES.A_BOOL = ?)))",
+          "params": [
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            }
+          ]
+        },
+        "postgresql": {
+          "sql": "NOT (((adversarial_resources.a_bool = ?) AND (((adversarial_resources.a_bool = ?) AND TRUE) OR (NOT (adversarial_resources.a_bool = ?) AND FALSE) OR NOT ((adversarial_resources.a_bool = ?) OR NOT (adversarial_resources.a_bool = ?)))) OR (NOT (adversarial_resources.a_bool = ?) AND (((adversarial_resources.a_bool = ?) AND TRUE) OR (NOT (adversarial_resources.a_bool = ?) AND FALSE) OR NOT ((adversarial_resources.a_bool = ?) OR NOT (adversarial_resources.a_bool = ?)))) OR NOT ((adversarial_resources.a_bool = ?) OR NOT (adversarial_resources.a_bool = ?)))",
+          "params": [
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            }
+          ]
+        },
+        "mysql": {
+          "sql": "NOT (((adversarial_resources.a_bool = ?) AND (((adversarial_resources.a_bool = ?) AND TRUE) OR (NOT (adversarial_resources.a_bool = ?) AND FALSE) OR NOT ((adversarial_resources.a_bool = ?) OR NOT (adversarial_resources.a_bool = ?)))) OR (NOT (adversarial_resources.a_bool = ?) AND (((adversarial_resources.a_bool = ?) AND TRUE) OR (NOT (adversarial_resources.a_bool = ?) AND FALSE) OR NOT ((adversarial_resources.a_bool = ?) OR NOT (adversarial_resources.a_bool = ?)))) OR NOT ((adversarial_resources.a_bool = ?) OR NOT (adversarial_resources.a_bool = ?)))",
+          "params": [
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
             }
           ]
         }
@@ -8092,6 +9165,111 @@
             {
               "type": "TextColumnType",
               "value": "\\"
+            }
+          ]
+        }
+      }
+    },
+    "not-ternary-parent": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "NOT (((adversarial_resources.a_bool = ?) AND 0) OR (NOT (adversarial_resources.a_bool = ?) AND ((SELECT cerbos_1.a_optional_string FROM adversarial_parents cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = ?)) OR NOT ((adversarial_resources.a_bool = ?) OR NOT (adversarial_resources.a_bool = ?)))",
+          "params": [
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            }
+          ]
+        },
+        "h2": {
+          "sql": "NOT (((ADVERSARIAL_RESOURCES.A_BOOL = ?) AND FALSE) OR (NOT (ADVERSARIAL_RESOURCES.A_BOOL = ?) AND ((SELECT cerbos_1.A_OPTIONAL_STRING FROM ADVERSARIAL_PARENTS cerbos_1 WHERE cerbos_1.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) = ?)) OR NOT ((ADVERSARIAL_RESOURCES.A_BOOL = ?) OR NOT (ADVERSARIAL_RESOURCES.A_BOOL = ?)))",
+          "params": [
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            }
+          ]
+        },
+        "postgresql": {
+          "sql": "NOT (((adversarial_resources.a_bool = ?) AND FALSE) OR (NOT (adversarial_resources.a_bool = ?) AND ((SELECT cerbos_1.a_optional_string FROM adversarial_parents cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = ?)) OR NOT ((adversarial_resources.a_bool = ?) OR NOT (adversarial_resources.a_bool = ?)))",
+          "params": [
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            }
+          ]
+        },
+        "mysql": {
+          "sql": "NOT (((adversarial_resources.a_bool = ?) AND FALSE) OR (NOT (adversarial_resources.a_bool = ?) AND ((SELECT cerbos_1.a_optional_string FROM adversarial_parents cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = ?)) OR NOT ((adversarial_resources.a_bool = ?) OR NOT (adversarial_resources.a_bool = ?)))",
+          "params": [
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            },
+            {
+              "type": "BooleanColumnType",
+              "value": true
             }
           ]
         }
@@ -10940,6 +12118,120 @@
         }
       }
     },
+    "projection-exists-eq": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "(SELECT NULLIF(COALESCE(MAX(CASE WHEN ((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?)) THEN 2 WHEN NOT ((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?)) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = 2",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            }
+          ]
+        },
+        "h2": {
+          "sql": "(SELECT NULLIF(COALESCE(MAX(CASE WHEN ((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?)) THEN 2 WHEN NOT ((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?)) THEN 0 ELSE 1 END), 0), 1) FROM ADVERSARIAL_TAGS cerbos_1 WHERE cerbos_1.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) = 2",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            }
+          ]
+        },
+        "postgresql": {
+          "sql": "(SELECT NULLIF(COALESCE(MAX(CASE WHEN ((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?)) THEN 2 WHEN NOT ((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?)) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = 2",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            }
+          ]
+        },
+        "mysql": {
+          "sql": "(SELECT NULLIF(COALESCE(MAX(CASE WHEN ((cerbos_1.`name` IS NOT NULL) AND (cerbos_1.`name` = ?)) THEN 2 WHEN NOT ((cerbos_1.`name` IS NOT NULL) AND (cerbos_1.`name` = ?)) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = 2",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            }
+          ]
+        }
+      }
+    },
+    "projection-exists-not-eq": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "(SELECT NULLIF(COALESCE(MAX(CASE WHEN (NOT ((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?))) THEN 2 WHEN NOT (NOT ((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?))) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = 2",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            }
+          ]
+        },
+        "h2": {
+          "sql": "(SELECT NULLIF(COALESCE(MAX(CASE WHEN (NOT ((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?))) THEN 2 WHEN NOT (NOT ((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?))) THEN 0 ELSE 1 END), 0), 1) FROM ADVERSARIAL_TAGS cerbos_1 WHERE cerbos_1.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) = 2",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            }
+          ]
+        },
+        "postgresql": {
+          "sql": "(SELECT NULLIF(COALESCE(MAX(CASE WHEN (NOT ((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?))) THEN 2 WHEN NOT (NOT ((cerbos_1.\"name\" IS NOT NULL) AND (cerbos_1.\"name\" = ?))) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = 2",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            }
+          ]
+        },
+        "mysql": {
+          "sql": "(SELECT NULLIF(COALESCE(MAX(CASE WHEN (NOT ((cerbos_1.`name` IS NOT NULL) AND (cerbos_1.`name` = ?))) THEN 2 WHEN NOT (NOT ((cerbos_1.`name` IS NOT NULL) AND (cerbos_1.`name` = ?))) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = 2",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            }
+          ]
+        }
+      }
+    },
     "pv-all": {
       "kind": "KIND_CONDITIONAL",
       "rendered": {
@@ -11214,6 +12506,18 @@
         }
       }
     },
+    "pv-empty-all": {
+      "kind": "KIND_ALWAYS_ALLOWED"
+    },
+    "pv-empty-exists": {
+      "kind": "KIND_ALWAYS_DENIED"
+    },
+    "pv-empty-not-all": {
+      "kind": "KIND_ALWAYS_DENIED"
+    },
+    "pv-empty-not-exists": {
+      "kind": "KIND_ALWAYS_ALLOWED"
+    },
     "pv-exists": {
       "kind": "KIND_CONDITIONAL",
       "rendered": {
@@ -11487,6 +12791,1062 @@
           ]
         }
       }
+    },
+    "pv-in": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "(adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "same"
+            },
+            {
+              "type": "TextColumnType",
+              "value": ""
+            },
+            {
+              "type": "TextColumnType",
+              "value": "%_o"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "X"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "Y"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "MIRROR"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-1"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-2"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-3"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-4"
+            }
+          ]
+        },
+        "h2": {
+          "sql": "(ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) OR (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) OR (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) OR (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) OR (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) OR (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) OR (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) OR (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) OR (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) OR (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) OR (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "same"
+            },
+            {
+              "type": "TextColumnType",
+              "value": ""
+            },
+            {
+              "type": "TextColumnType",
+              "value": "%_o"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "X"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "Y"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "MIRROR"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-1"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-2"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-3"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-4"
+            }
+          ]
+        },
+        "postgresql": {
+          "sql": "(adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "same"
+            },
+            {
+              "type": "TextColumnType",
+              "value": ""
+            },
+            {
+              "type": "TextColumnType",
+              "value": "%_o"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "X"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "Y"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "MIRROR"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-1"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-2"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-3"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-4"
+            }
+          ]
+        },
+        "mysql": {
+          "sql": "(adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "same"
+            },
+            {
+              "type": "TextColumnType",
+              "value": ""
+            },
+            {
+              "type": "TextColumnType",
+              "value": "%_o"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "X"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "Y"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "MIRROR"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-1"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-2"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-3"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-4"
+            }
+          ]
+        }
+      }
+    },
+    "pv-in-unrolled": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "(adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            },
+            {
+              "type": "TextColumnType",
+              "value": ""
+            },
+            {
+              "type": "TextColumnType",
+              "value": "%_o"
+            }
+          ]
+        },
+        "h2": {
+          "sql": "(ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) OR (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) OR (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            },
+            {
+              "type": "TextColumnType",
+              "value": ""
+            },
+            {
+              "type": "TextColumnType",
+              "value": "%_o"
+            }
+          ]
+        },
+        "postgresql": {
+          "sql": "(adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            },
+            {
+              "type": "TextColumnType",
+              "value": ""
+            },
+            {
+              "type": "TextColumnType",
+              "value": "%_o"
+            }
+          ]
+        },
+        "mysql": {
+          "sql": "(adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            },
+            {
+              "type": "TextColumnType",
+              "value": ""
+            },
+            {
+              "type": "TextColumnType",
+              "value": "%_o"
+            }
+          ]
+        }
+      }
+    },
+    "pv-not-all": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "NOT ((adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "same"
+            },
+            {
+              "type": "TextColumnType",
+              "value": ""
+            },
+            {
+              "type": "TextColumnType",
+              "value": "%_o"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "X"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "Y"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "MIRROR"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-1"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-2"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-3"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-4"
+            }
+          ]
+        },
+        "h2": {
+          "sql": "NOT ((ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) AND (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) AND (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) AND (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) AND (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) AND (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) AND (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) AND (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) AND (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) AND (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) AND (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "same"
+            },
+            {
+              "type": "TextColumnType",
+              "value": ""
+            },
+            {
+              "type": "TextColumnType",
+              "value": "%_o"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "X"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "Y"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "MIRROR"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-1"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-2"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-3"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-4"
+            }
+          ]
+        },
+        "postgresql": {
+          "sql": "NOT ((adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "same"
+            },
+            {
+              "type": "TextColumnType",
+              "value": ""
+            },
+            {
+              "type": "TextColumnType",
+              "value": "%_o"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "X"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "Y"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "MIRROR"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-1"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-2"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-3"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-4"
+            }
+          ]
+        },
+        "mysql": {
+          "sql": "NOT ((adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?) AND (adversarial_resources.a_optional_string = ?))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "same"
+            },
+            {
+              "type": "TextColumnType",
+              "value": ""
+            },
+            {
+              "type": "TextColumnType",
+              "value": "%_o"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "X"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "Y"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "MIRROR"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-1"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-2"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-3"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-4"
+            }
+          ]
+        }
+      }
+    },
+    "pv-not-exists": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "NOT ((adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "same"
+            },
+            {
+              "type": "TextColumnType",
+              "value": ""
+            },
+            {
+              "type": "TextColumnType",
+              "value": "%_o"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "X"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "Y"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "MIRROR"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-1"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-2"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-3"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-4"
+            }
+          ]
+        },
+        "h2": {
+          "sql": "NOT ((ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) OR (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) OR (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) OR (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) OR (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) OR (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) OR (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) OR (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) OR (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) OR (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?) OR (ADVERSARIAL_RESOURCES.A_OPTIONAL_STRING = ?))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "same"
+            },
+            {
+              "type": "TextColumnType",
+              "value": ""
+            },
+            {
+              "type": "TextColumnType",
+              "value": "%_o"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "X"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "Y"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "MIRROR"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-1"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-2"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-3"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-4"
+            }
+          ]
+        },
+        "postgresql": {
+          "sql": "NOT ((adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "same"
+            },
+            {
+              "type": "TextColumnType",
+              "value": ""
+            },
+            {
+              "type": "TextColumnType",
+              "value": "%_o"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "X"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "Y"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "MIRROR"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-1"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-2"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-3"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-4"
+            }
+          ]
+        },
+        "mysql": {
+          "sql": "NOT ((adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?) OR (adversarial_resources.a_optional_string = ?))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "set"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "same"
+            },
+            {
+              "type": "TextColumnType",
+              "value": ""
+            },
+            {
+              "type": "TextColumnType",
+              "value": "%_o"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "X"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "Y"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "MIRROR"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-1"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-2"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-3"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "filler-4"
+            }
+          ]
+        }
+      }
+    },
+    "pv-shadow": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_1.\"name\" = ?) THEN 2 WHEN NOT (cerbos_1.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_2.\"name\" = ?) THEN 2 WHEN NOT (cerbos_2.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_2 WHERE cerbos_2.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_3.\"name\" = ?) THEN 2 WHEN NOT (cerbos_3.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_3 WHERE cerbos_3.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_4.\"name\" = ?) THEN 2 WHEN NOT (cerbos_4.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_4 WHERE cerbos_4.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_5.\"name\" = ?) THEN 2 WHEN NOT (cerbos_5.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_5 WHERE cerbos_5.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_6.\"name\" = ?) THEN 2 WHEN NOT (cerbos_6.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_6 WHERE cerbos_6.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_7.\"name\" = ?) THEN 2 WHEN NOT (cerbos_7.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_7 WHERE cerbos_7.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_8.\"name\" = ?) THEN 2 WHEN NOT (cerbos_8.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_8 WHERE cerbos_8.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_9.\"name\" = ?) THEN 2 WHEN NOT (cerbos_9.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_9 WHERE cerbos_9.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_10.\"name\" = ?) THEN 2 WHEN NOT (cerbos_10.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_10 WHERE cerbos_10.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_11.\"name\" = ?) THEN 2 WHEN NOT (cerbos_11.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_11 WHERE cerbos_11.resource_id = adversarial_resources.id) = 2)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            }
+          ]
+        },
+        "h2": {
+          "sql": "((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_1.\"name\" = ?) THEN 2 WHEN NOT (cerbos_1.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM ADVERSARIAL_TAGS cerbos_1 WHERE cerbos_1.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_2.\"name\" = ?) THEN 2 WHEN NOT (cerbos_2.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM ADVERSARIAL_TAGS cerbos_2 WHERE cerbos_2.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_3.\"name\" = ?) THEN 2 WHEN NOT (cerbos_3.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM ADVERSARIAL_TAGS cerbos_3 WHERE cerbos_3.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_4.\"name\" = ?) THEN 2 WHEN NOT (cerbos_4.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM ADVERSARIAL_TAGS cerbos_4 WHERE cerbos_4.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_5.\"name\" = ?) THEN 2 WHEN NOT (cerbos_5.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM ADVERSARIAL_TAGS cerbos_5 WHERE cerbos_5.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_6.\"name\" = ?) THEN 2 WHEN NOT (cerbos_6.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM ADVERSARIAL_TAGS cerbos_6 WHERE cerbos_6.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_7.\"name\" = ?) THEN 2 WHEN NOT (cerbos_7.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM ADVERSARIAL_TAGS cerbos_7 WHERE cerbos_7.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_8.\"name\" = ?) THEN 2 WHEN NOT (cerbos_8.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM ADVERSARIAL_TAGS cerbos_8 WHERE cerbos_8.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_9.\"name\" = ?) THEN 2 WHEN NOT (cerbos_9.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM ADVERSARIAL_TAGS cerbos_9 WHERE cerbos_9.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_10.\"name\" = ?) THEN 2 WHEN NOT (cerbos_10.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM ADVERSARIAL_TAGS cerbos_10 WHERE cerbos_10.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_11.\"name\" = ?) THEN 2 WHEN NOT (cerbos_11.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM ADVERSARIAL_TAGS cerbos_11 WHERE cerbos_11.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) = 2)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            }
+          ]
+        },
+        "postgresql": {
+          "sql": "((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_1.\"name\" = ?) THEN 2 WHEN NOT (cerbos_1.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_2.\"name\" = ?) THEN 2 WHEN NOT (cerbos_2.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_2 WHERE cerbos_2.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_3.\"name\" = ?) THEN 2 WHEN NOT (cerbos_3.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_3 WHERE cerbos_3.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_4.\"name\" = ?) THEN 2 WHEN NOT (cerbos_4.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_4 WHERE cerbos_4.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_5.\"name\" = ?) THEN 2 WHEN NOT (cerbos_5.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_5 WHERE cerbos_5.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_6.\"name\" = ?) THEN 2 WHEN NOT (cerbos_6.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_6 WHERE cerbos_6.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_7.\"name\" = ?) THEN 2 WHEN NOT (cerbos_7.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_7 WHERE cerbos_7.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_8.\"name\" = ?) THEN 2 WHEN NOT (cerbos_8.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_8 WHERE cerbos_8.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_9.\"name\" = ?) THEN 2 WHEN NOT (cerbos_9.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_9 WHERE cerbos_9.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_10.\"name\" = ?) THEN 2 WHEN NOT (cerbos_10.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_10 WHERE cerbos_10.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_11.\"name\" = ?) THEN 2 WHEN NOT (cerbos_11.\"name\" = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_11 WHERE cerbos_11.resource_id = adversarial_resources.id) = 2)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            }
+          ]
+        },
+        "mysql": {
+          "sql": "((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_1.`name` = ?) THEN 2 WHEN NOT (cerbos_1.`name` = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_2.`name` = ?) THEN 2 WHEN NOT (cerbos_2.`name` = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_2 WHERE cerbos_2.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_3.`name` = ?) THEN 2 WHEN NOT (cerbos_3.`name` = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_3 WHERE cerbos_3.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_4.`name` = ?) THEN 2 WHEN NOT (cerbos_4.`name` = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_4 WHERE cerbos_4.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_5.`name` = ?) THEN 2 WHEN NOT (cerbos_5.`name` = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_5 WHERE cerbos_5.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_6.`name` = ?) THEN 2 WHEN NOT (cerbos_6.`name` = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_6 WHERE cerbos_6.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_7.`name` = ?) THEN 2 WHEN NOT (cerbos_7.`name` = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_7 WHERE cerbos_7.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_8.`name` = ?) THEN 2 WHEN NOT (cerbos_8.`name` = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_8 WHERE cerbos_8.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_9.`name` = ?) THEN 2 WHEN NOT (cerbos_9.`name` = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_9 WHERE cerbos_9.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_10.`name` = ?) THEN 2 WHEN NOT (cerbos_10.`name` = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_10 WHERE cerbos_10.resource_id = adversarial_resources.id) = 2) OR ((SELECT NULLIF(COALESCE(MAX(CASE WHEN (cerbos_11.`name` = ?) THEN 2 WHEN NOT (cerbos_11.`name` = ?) THEN 0 ELSE 1 END), 0), 1) FROM adversarial_tags cerbos_11 WHERE cerbos_11.resource_id = adversarial_resources.id) = 2)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "public"
+            }
+          ]
+        }
+      }
+    },
+    "pv-structs-missing": {
+      "kind": "KIND_ALWAYS_DENIED"
     },
     "rel-bool-hop": {
       "kind": "KIND_CONDITIONAL",
@@ -12082,6 +14442,177 @@
         }
       }
     },
+    "rel-not-contains-hop": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "NOT ((SELECT cerbos_1.a_string FROM adversarial_parents cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) LIKE ? ESCAPE ?)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "%done%"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "\\"
+            }
+          ]
+        },
+        "h2": {
+          "sql": "NOT ((SELECT cerbos_1.A_STRING FROM ADVERSARIAL_PARENTS cerbos_1 WHERE cerbos_1.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) LIKE ? ESCAPE ?)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "%done%"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "\\"
+            }
+          ]
+        },
+        "postgresql": {
+          "sql": "NOT ((SELECT cerbos_1.a_string FROM adversarial_parents cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) LIKE ? ESCAPE ?)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "%done%"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "\\"
+            }
+          ]
+        },
+        "mysql": {
+          "sql": "NOT ((SELECT cerbos_1.a_string FROM adversarial_parents cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) LIKE ? ESCAPE ?)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "%done%"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "\\"
+            }
+          ]
+        }
+      }
+    },
+    "rel-not-eq-hop": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "NOT ((SELECT cerbos_1.a_string FROM adversarial_parents cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = ?)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "One"
+            }
+          ]
+        },
+        "h2": {
+          "sql": "NOT ((SELECT cerbos_1.A_STRING FROM ADVERSARIAL_PARENTS cerbos_1 WHERE cerbos_1.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) = ?)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "One"
+            }
+          ]
+        },
+        "postgresql": {
+          "sql": "NOT ((SELECT cerbos_1.a_string FROM adversarial_parents cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = ?)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "One"
+            }
+          ]
+        },
+        "mysql": {
+          "sql": "NOT ((SELECT cerbos_1.a_string FROM adversarial_parents cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = ?)",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "One"
+            }
+          ]
+        }
+      }
+    },
+    "rel-not-hierarchy-hop": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "NOT (((SELECT cerbos_1.a_string FROM adversarial_parents cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = ?) OR ((SELECT cerbos_1.a_string FROM adversarial_parents cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) LIKE ? ESCAPE ?))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "one"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "one.%"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "\\"
+            }
+          ]
+        },
+        "h2": {
+          "sql": "NOT (((SELECT cerbos_1.A_STRING FROM ADVERSARIAL_PARENTS cerbos_1 WHERE cerbos_1.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) = ?) OR ((SELECT cerbos_1.A_STRING FROM ADVERSARIAL_PARENTS cerbos_1 WHERE cerbos_1.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID) LIKE ? ESCAPE ?))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "one"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "one.%"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "\\"
+            }
+          ]
+        },
+        "postgresql": {
+          "sql": "NOT (((SELECT cerbos_1.a_string FROM adversarial_parents cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = ?) OR ((SELECT cerbos_1.a_string FROM adversarial_parents cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) LIKE ? ESCAPE ?))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "one"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "one.%"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "\\"
+            }
+          ]
+        },
+        "mysql": {
+          "sql": "NOT (((SELECT cerbos_1.a_string FROM adversarial_parents cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) = ?) OR ((SELECT cerbos_1.a_string FROM adversarial_parents cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id) LIKE ? ESCAPE ?))",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "one"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "one.%"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "\\"
+            }
+          ]
+        }
+      }
+    },
     "rel-range-hop": {
       "kind": "KIND_CONDITIONAL",
       "rendered": {
@@ -12228,6 +14759,47 @@
         },
         "mysql": {
           "sql": "adversarial_resources.a_bool = ?",
+          "params": [
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            }
+          ]
+        }
+      }
+    },
+    "root-not-bool": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "NOT (adversarial_resources.a_bool = ?)",
+          "params": [
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            }
+          ]
+        },
+        "h2": {
+          "sql": "NOT (ADVERSARIAL_RESOURCES.A_BOOL = ?)",
+          "params": [
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            }
+          ]
+        },
+        "postgresql": {
+          "sql": "NOT (adversarial_resources.a_bool = ?)",
+          "params": [
+            {
+              "type": "BooleanColumnType",
+              "value": true
+            }
+          ]
+        },
+        "mysql": {
+          "sql": "NOT (adversarial_resources.a_bool = ?)",
           "params": [
             {
               "type": "BooleanColumnType",
@@ -12396,6 +14968,27 @@
               "value": 1
             }
           ]
+        }
+      }
+    },
+    "size-ge-one": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "EXISTS (SELECT 1 FROM adversarial_tags cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id)",
+          "params": [ ]
+        },
+        "h2": {
+          "sql": "EXISTS (SELECT 1 FROM ADVERSARIAL_TAGS cerbos_1 WHERE cerbos_1.RESOURCE_ID = ADVERSARIAL_RESOURCES.ID)",
+          "params": [ ]
+        },
+        "postgresql": {
+          "sql": "EXISTS (SELECT 1 FROM adversarial_tags cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id)",
+          "params": [ ]
+        },
+        "mysql": {
+          "sql": "EXISTS (SELECT 1 FROM adversarial_tags cerbos_1 WHERE cerbos_1.resource_id = adversarial_resources.id)",
+          "params": [ ]
         }
       }
     },
@@ -14774,6 +17367,120 @@
             {
               "type": "TextColumnType",
               "value": "public"
+            }
+          ]
+        }
+      }
+    },
+    "wildcard-contains": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "adversarial_resources.a_string LIKE ? ESCAPE ?",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "%*?b%"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "\\"
+            }
+          ]
+        },
+        "h2": {
+          "sql": "ADVERSARIAL_RESOURCES.A_STRING LIKE ? ESCAPE ?",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "%*?b%"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "\\"
+            }
+          ]
+        },
+        "postgresql": {
+          "sql": "adversarial_resources.a_string LIKE ? ESCAPE ?",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "%*?b%"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "\\"
+            }
+          ]
+        },
+        "mysql": {
+          "sql": "adversarial_resources.a_string LIKE ? ESCAPE ?",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "%*?b%"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "\\"
+            }
+          ]
+        }
+      }
+    },
+    "wildcard-endswith": {
+      "kind": "KIND_CONDITIONAL",
+      "rendered": {
+        "sqlite": {
+          "sql": "adversarial_resources.a_string LIKE ? ESCAPE ?",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "%*?b"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "\\"
+            }
+          ]
+        },
+        "h2": {
+          "sql": "ADVERSARIAL_RESOURCES.A_STRING LIKE ? ESCAPE ?",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "%*?b"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "\\"
+            }
+          ]
+        },
+        "postgresql": {
+          "sql": "adversarial_resources.a_string LIKE ? ESCAPE ?",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "%*?b"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "\\"
+            }
+          ]
+        },
+        "mysql": {
+          "sql": "adversarial_resources.a_string LIKE ? ESCAPE ?",
+          "params": [
+            {
+              "type": "TextColumnType",
+              "value": "%*?b"
+            },
+            {
+              "type": "TextColumnType",
+              "value": "\\"
             }
           ]
         }

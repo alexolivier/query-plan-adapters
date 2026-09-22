@@ -258,11 +258,12 @@ class ColumnTypeGuardTest {
         }
 
         // A null element is still never refused: it is not a type mismatch, it renders IS NULL,
-        // and it coerces nothing.
+        // and it coerces nothing. Spelled as a value-first hasIntersection: `["a", null] in
+        // tagNames` would ask whether the LIST is an element, which is refused (`in-list-element`).
         val withNull = render(
             translate(
                 ReviewPlans.expression(
-                    "in",
+                    "hasIntersection",
                     ReviewPlans.value(listOf("a", null)),
                     ReviewPlans.variable("request.resource.attr.tagNames"),
                 ),

@@ -158,7 +158,13 @@ internal class LambdaScope(
     private fun classify(variable: String): Resolution {
         if (variable == lambdaVariable) {
             val element = relation.element ?: throw RelationRefusals.noElementColumn(variable, relation)
-            return Resolution.Scalar(variable, read(element.column), element.column, element)
+            // The lambda variable IS a list element, and CEL has no missing element: a NULL element
+            // column is an explicit null VALUE — `null == "x"` is a definite false, so its negation
+            // is true — whatever convention the element field was built with. It is the same
+            // reading `null in tagNames` already takes. Reading it as a missing attribute instead
+            // dropped exactly those rows from a negated body (`projection-exists-not-eq`).
+            val asValue = AttributeMapping.Field(element.column, NullAttributeRepresentation.EXPLICIT)
+            return Resolution.Scalar(variable, read(element.column), element.column, asValue)
         }
         val prefix = "$lambdaVariable."
         if (!variable.startsWith(prefix)) {

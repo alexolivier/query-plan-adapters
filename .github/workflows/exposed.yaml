@@ -91,7 +91,12 @@ jobs:
       # on every leg: it is the differential, and a differential that silently did not run reads as a
       # pass.
       - name: Build and test (${{ matrix.orm }}, JDK ${{ matrix.java-version }})
-        run: gradle build --no-daemon
+        # The corpus's oracles must hold in both PDP evaluation modes, so the differential is
+        # replayed with strict evaluation on after the build (conformance/README.md, "Evaluation
+        # modes and the 0.55 baseline").
+        run: |
+          ADAPTER_TEST_STRICT_EVALUATION=false gradle build --no-daemon
+          ADAPTER_TEST_STRICT_EVALUATION=true gradle test --tests '*AdversarialConformanceTest' --no-daemon
         env:
           ADAPTER_TEST_ORM: ${{ matrix.orm }}
           ADAPTER_TEST_CONTAINER_SUITES: ${{ matrix.java-version == '21' && 'skip' || 'run' }}
@@ -153,7 +158,9 @@ jobs:
           gradle-version: "8.12"
 
       - name: Build and test (${{ matrix.database }}${{ matrix.server-prep-stmts && ', server-side prepared statements' || '' }})
-        run: gradle build --no-daemon
+        run: |
+          ADAPTER_TEST_STRICT_EVALUATION=false gradle build --no-daemon
+          ADAPTER_TEST_STRICT_EVALUATION=true gradle test --tests '*AdversarialConformanceTest' --no-daemon
         env:
           ADAPTER_TEST_DB: ${{ matrix.database }}
           ADAPTER_TEST_MYSQL_SERVER_PREP_STMTS: ${{ matrix.server-prep-stmts || '' }}

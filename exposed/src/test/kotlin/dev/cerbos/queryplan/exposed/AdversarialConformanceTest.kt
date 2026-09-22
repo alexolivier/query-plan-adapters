@@ -77,6 +77,10 @@ class AdversarialConformanceTest {
      * One seeded row; the single source of truth for BOTH the database row and the oracle
      * attributes. [note] is corpus documentation this harness never reads; it is named so that
      * strict decoding accepts it, and it is the one seed key [SEED_KEYS] omits.
+     *
+     * [aNumberList] and [aBoolList] are the one exception to "both sides": they reach `check()` and
+     * nothing else (see [asCheckResource]). Their elements are nullable because the corpus carries
+     * null elements, and a null element is a value CEL compares.
      */
     private data class Seed(
         val id: String,
@@ -84,6 +88,8 @@ class AdversarialConformanceTest {
         val aString: String,
         val aNumber: Int,
         val aOptionalString: String?,
+        val aNumberList: List<Double?>,
+        val aBoolList: List<Boolean?>,
         val tags: List<Tag>,
         val subCategoryNames: List<String>,
         val parentSeedId: String?,
@@ -124,6 +130,7 @@ class AdversarialConformanceTest {
         val createdBy: String,
         val aDouble: Double?,
         val createdAt: String?,
+        val updatedAt: String?,
         val scope: String?,
         val labels: List<String?>,
     )
@@ -154,8 +161,8 @@ class AdversarialConformanceTest {
         // carries.
 
         private val SEED_KEYS = listOf(
-            "id", "aBool", "aString", "aNumber", "aOptionalString", "tags", "subCategoryNames",
-            "parentSeedId",
+            "id", "aBool", "aString", "aNumber", "aOptionalString", "aNumberList", "aBoolList",
+            "tags", "subCategoryNames", "parentSeedId",
         )
 
         /** Corpus prose, never read by a harness: the one documented exclusion from SEED_KEYS. */
@@ -168,7 +175,7 @@ class AdversarialConformanceTest {
          */
         private val TAG_KEYS = listOf("id", "name")
 
-        private val DERIVED_KEYS = listOf("createdBy", "aDouble", "createdAt", "scope", "labels")
+        private val DERIVED_KEYS = listOf("createdBy", "aDouble", "createdAt", "updatedAt", "scope", "labels")
 
         // The corpus principal is guarded the same way and for the same reason. It feeds the PLAN
         // under test AND the check() oracle, so an attribute dropped on the way in vanishes from
@@ -178,7 +185,10 @@ class AdversarialConformanceTest {
 
         private val PRINCIPAL_KEYS = listOf("id", "roles", "attr")
 
-        private val PRINCIPAL_ATTR_KEYS = listOf("allowedTags", "context", "fewTeams", "manyTeams")
+        private val PRINCIPAL_ATTR_KEYS = listOf(
+            "allowedTags", "context", "fewTeams", "manyTeams", "zero", "emptyTeams", "manyStructs",
+            "nullableStructs", "missingStructs",
+        )
 
         private lateinit var seedsFile: SeedsFile
         private lateinit var actionsFile: ActionsFile
@@ -223,7 +233,11 @@ class AdversarialConformanceTest {
             // Pinned PDP image — see CerbosTestImage for the pin rationale and bump policy.
             val container = GenericContainer(CerbosTestImage.IMAGE)
                 .withExposedPorts(CerbosTestImage.GRPC_PORT)
-                .withCommand("server", "--set=storage.disk.directory=/policies")
+                .withCommand(
+                    "server",
+                    "--set=storage.disk.directory=/policies",
+                    "--set=engine.strictEvaluation=${CerbosTestImage.strictEvaluation()}",
+                )
                 .withEnv("CERBOS_NO_TELEMETRY", "1")
                 .withLogConsumer(Slf4jLogConsumer(LoggerFactory.getLogger("cerbos-adversarial-pdp")))
                 .waitingFor(Wait.forLogMessage(".*Starting gRPC server.*", 1))
@@ -389,6 +403,9 @@ class AdversarialConformanceTest {
         /** Deterministic [Instant] per seed for the `ts-*` timestamp() comparison actions. */
         private fun tsFor(seed: Seed): Instant? = derivedFor(seed).createdAt?.let(Instant::parse)
 
+        /** The second instant column, for `temporal-raw-eq`. */
+        private fun updatedFor(seed: Seed): Instant? = derivedFor(seed).updatedAt?.let(Instant::parse)
+
         /** Deterministic fractional double per seed for the IEEE add-solve probes. */
         private fun doubleFor(seed: Seed): Double? = derivedFor(seed).aDouble
 
@@ -443,9 +460,9 @@ class AdversarialConformanceTest {
          * Asserted against the RAW JSON because [principal] rebuilds the principal from
          * [PrincipalSpec] — a rebuilt object could only ever report the keys this harness already
          * names. The attribute VALUES are asserted too: a key-set guard says nothing about a change
-         * inside one, and most of these attributes are lists. [asPrincipalAttribute] accepts
-         * exactly a string and a list of strings, so a third shape fails here, next to the
-         * declaration, rather than deep in the conversion.
+         * inside one. Each attribute is held to the shape the corpus declares for it — a string, a
+         * number, a list of strings, or a list of structs whose keys are pinned — so a reshaped one
+         * fails here, next to the declaration, rather than deep in the conversion.
          */
         private fun assertPrincipalCoverage(principal: JsonNode) {
             assertKeys("seeds.json principal", keysOf(principal), PRINCIPAL_KEYS, listOf())
@@ -454,11 +471,26 @@ class AdversarialConformanceTest {
             for (entry in attr.properties()) {
                 val label = "seeds.json principal.attr.${entry.key}"
                 val value = entry.value
-                val listOfStrings = value.isArray && value.all { it.isTextual }
-                assertTrue(value.isTextual || listOfStrings) {
-                    "$label is neither a string nor a list of strings, the only two shapes this" +
-                        " harness consumes: a reshaped principal attribute feeds the plan and the" +
-                        " check() oracle at once"
+                when (entry.key) {
+                    "context" -> assertTrue(value.isTextual, label)
+                    "zero" -> assertTrue(value.isNumber, label)
+                    "manyStructs", "nullableStructs", "missingStructs" -> {
+                        assertTrue(value.isArray, label)
+                        val structKeys =
+                            if (entry.key == "missingStructs") listOf() else listOf("name")
+                        for (element in value) {
+                            assertTrue(element.isObject, label)
+                            assertKeys("$label[]", keysOf(element), structKeys, listOf())
+                            if (structKeys.isNotEmpty()) {
+                                val name = element.get("name")
+                                assertTrue(name.isTextual || name.isNull, label)
+                            }
+                        }
+                    }
+                    else -> {
+                        assertTrue(value.isArray, label)
+                        for (element in value) assertTrue(element.isTextual, label)
+                    }
                 }
             }
         }
@@ -503,6 +535,7 @@ class AdversarialConformanceTest {
                     it[createdBy] = isoFor(s)
                     it[scope] = scopeFor(s)
                     it[createdAt] = tsFor(s)
+                    it[updatedAt] = updatedFor(s)
                 }
                 for (tag in s.tags) {
                     Tags.insert {
@@ -587,20 +620,24 @@ class AdversarialConformanceTest {
         }
 
         /**
-         * One principal attribute, converted by the JSON type the corpus actually carries. Strings
-         * and lists of strings are the two shapes today; anything else fails loudly rather than
-         * being coerced, because a silently reshaped principal attribute feeds the plan and the
-         * oracle at once and they would agree for the wrong reason.
+         * One principal attribute, converted by the JSON type the corpus actually carries. Scalars,
+         * lists and structs are preserved recursively, so the plan and the oracle receive the same
+         * unmodified principal; a shape with no conversion fails loudly rather than being coerced.
          */
-        private fun asPrincipalAttribute(key: String, value: Any): AttributeValue = when (value) {
+        private fun asPrincipalAttribute(key: String, value: Any?): AttributeValue = when (value) {
+            null -> nullAttributeValue()
             is String -> AttributeValue.stringValue(value)
-            is List<*> -> AttributeValue.listValue(
-                value.map {
-                    (it as? String)?.let(AttributeValue::stringValue)
-                        ?: error("seeds.json principal.attr.$key holds a non-string element")
+            is Number -> AttributeValue.doubleValue(value.toDouble())
+            is Boolean -> AttributeValue.boolValue(value)
+            is List<*> -> AttributeValue.listValue(value.map { asPrincipalAttribute(key, it) })
+            is Map<*, *> -> AttributeValue.mapValue(
+                value.entries.associate { (field, element) ->
+                    val name = field as? String
+                        ?: error("seeds.json principal.attr.$key has a non-string field")
+                    name to asPrincipalAttribute("$key.$name", element)
                 },
             )
-            else -> error("seeds.json principal.attr.$key is neither a string nor a list of strings")
+            else -> error("seeds.json principal.attr.$key has an unsupported shape")
         }
 
         /**
@@ -686,9 +723,33 @@ class AdversarialConformanceTest {
             scopeFor(s)?.let { r = r.withAttribute("scope", AttributeValue.stringValue(it)) }
             // A NULL created_at column is a missing attribute on the check side: timestamp() over
             // it is a CEL evaluation error (deny), matching SQL NULL exclusion.
-            tsFor(s)?.let {
-                r = r.withAttribute("createdAt", AttributeValue.stringValue(it.toString()))
+            // Sent exactly as derived-fields.json spells them: `temporal-raw-eq` compares the two
+            // STRINGS in CEL, so re-rendering an instant here would change what the oracle compares.
+            derivedFor(s).createdAt?.let {
+                r = r.withAttribute("createdAt", AttributeValue.stringValue(it))
             }
+            derivedFor(s).updatedAt?.let {
+                r = r.withAttribute("updatedAt", AttributeValue.stringValue(it))
+            }
+            // aNumberList / aBoolList: sent verbatim, every element in place and a null element as
+            // an EXPLICIT null — `[null, 2][0] == 2` is a definite false in CEL, not an error. They
+            // are deliberately NOT persisted and MAPPING names neither: every action reading them
+            // is a positional read, which this adapter refuses before the list attribute is ever
+            // resolved. ExposedTranslatorTest's "no refusal is the mapping coming up short" keeps
+            // that true — were index() ever lowered, the refusal would become the mapping's
+            // "Unknown attribute" and fail there rather than pass here.
+            r = r.withAttribute(
+                "aNumberList",
+                AttributeValue.listValue(
+                    s.aNumberList.map { it?.let(AttributeValue::doubleValue) ?: nullAttributeValue() },
+                ),
+            )
+            r = r.withAttribute(
+                "aBoolList",
+                AttributeValue.listValue(
+                    s.aBoolList.map { it?.let(AttributeValue::boolValue) ?: nullAttributeValue() },
+                ),
+            )
             // mainCategory mirrors the row's single category as ONE nested object (the seeder
             // creates at most one category per seed), so direct dotted-chain CEL expressions
             // evaluate cleanly; rows without a category get NO attribute — a CEL missing-attribute
@@ -854,7 +915,9 @@ class AdversarialConformanceTest {
          * compares the whole `conformance` group, so it carries more of these than a harness that
          * refuses the shapes outright. `filter-as-conjunct` and `null-eq-missing` are also empty by
          * construction, but this adapter throws or rejects them, so they never reach the comparison
-         * and carry their own anti-vacuity assertions instead.
+         * and carry their own anti-vacuity assertions instead. The `type-*` probes and
+         * `in-list-element` are empty by construction too — CEL denies a comparison across types —
+         * and this adapter refuses every one of them, so they sit in neither list.
          */
         private val DEGENERATE_BY_CONSTRUCTION = mapOf(
             // `R.attr.aString in []`: nothing is a member of the empty list, so the planner folds
@@ -906,6 +969,20 @@ class AdversarialConformanceTest {
             "nan-ord-le" to
                 "1.0 <= 0.5 is false and every ordering against NaN is false: the oracle is empty," +
                 " and a total-order comparison would return the aBool=false seeds",
+            // The four macro identities over the principal's EMPTY list (`emptyTeams`): exists is
+            // false and all is true for every row, whatever the body reads. The planner folds each
+            // to a constant plan, and the comparison is what catches an adapter that did not.
+            "pv-empty-exists" to "exists over an empty principal list is false: the oracle is empty",
+            "pv-empty-not-exists" to
+                "the negation of exists over an empty principal list is true: the oracle is total",
+            "pv-empty-all" to "all over an empty principal list is true: the oracle is total",
+            "pv-empty-not-all" to
+                "the negation of all over an empty principal list is false: the oracle is empty",
+            // Eleven principal structs with no `name` field: projecting the member is a
+            // missing-attribute error for every element, so every row is denied.
+            "pv-structs-missing" to
+                "every principal struct lacks the projected member, a CEL error for every row: the" +
+                " oracle is empty",
         )
 
         /**
@@ -926,6 +1003,22 @@ class AdversarialConformanceTest {
             "map-eq-list",
             "cast-int-double",
             "matches-alt",
+            // The #414 port, the #396 probes and the list-element seeds, every one refused here
+            // and every one with an oracle that discriminates: regex, positional reads, except(),
+            // numeric and timestamp() casts over strings, a principal value a macro computes,
+            // structured constants, a division as the divisor, and two same-typed temporal columns.
+            // Refused actions whose oracle is empty or total by construction (eq-map, ne-map,
+            // eq-map-null, except-root, hasint-map-element, in-nested-list, pv-structs-null) prove
+            // no liveness and are left out.
+            "cast-not-double", "cast-not-int", "cast-not-timestamp", "div-by-division", "eq-list",
+            "except-eq", "except-size", "index-bool-list", "index-bool-list-not-eq",
+            "index-bool-list-vs-number", "index-fractional", "index-negative", "index-not-oob",
+            "index-number-list", "index-number-list-not-eq", "index-number-list-vs-bool",
+            "index-scalar-list-not-eq", "index-scalar-list-null", "ne-list", "not-nan-order-string",
+            "pv-except", "pv-exists-one", "pv-filter", "pv-map", "pv-structs", "regex-alternation",
+            "regex-brace", "regex-case", "regex-digit", "regex-dot", "regex-eq-true",
+            "regex-final-newline", "regex-grouped", "regex-lookahead", "regex-optional-operators",
+            "regex-posix", "regex-repetition", "regex-unanchored", "temporal-raw-eq",
         )
     }
 
@@ -1299,13 +1392,13 @@ class AdversarialConformanceTest {
             ).count { it } != 1
         }
 
-        assertEquals(205, manifest.size) {
+        assertEquals(301, manifest.size) {
             "corpus size changed; triage the new action(s) before bumping this pin"
         }
-        assertEquals(22, seeds.size, "seed count changed")
+        assertEquals(27, seeds.size, "seed count changed")
         // Throwing-count tripwire: each of these carries a pinned message, so a shape gained or
         // lost has to be re-triaged here rather than joining the throw suite unnoticed.
-        assertEquals(15, throwing.size, "throwing action count changed")
+        assertEquals(74, throwing.size, "throwing action count changed")
         assertEquals(
             throwing.size.toLong(),
             adapterUnsupportedActions().count() + unsupportedShapes().count(),
@@ -1368,10 +1461,13 @@ class AdversarialConformanceTest {
             assertFalse(action in compared) {
                 "'$action' is now oracle-compared: remove it from the liveness probes"
             }
+        }
+        val degenerateProbes = DEGENERACY_LIVENESS_PROBES.mapNotNull { action ->
             val ids = oracleAllowedIds(action)
-            assertTrue(ids.isNotEmpty() && ids.size < seeds.size) {
-                "oracle for '$action' is degenerate: $ids"
-            }
+            if (ids.isNotEmpty() && ids.size < seeds.size) null else "$action: $ids"
+        }
+        assertEquals(emptyList<String>(), degenerateProbes) {
+            "these liveness probes have a degenerate oracle, so they prove no policy is live"
         }
     }
 

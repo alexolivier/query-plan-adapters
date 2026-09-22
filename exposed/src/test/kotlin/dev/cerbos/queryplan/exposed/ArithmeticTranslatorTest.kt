@@ -141,7 +141,7 @@ class ArithmeticTranslatorTest {
             }
             // LIVENESS. Every arm above passes for an action that refuses, so an adapter that
             // refused the whole corpus would pass this vacuously — the shape of pass a property
-            // like this is most likely to decay into. 188 render a statement today, so the floor
+            // like this is most likely to decay into. 220 render a statement today, so the floor
             // fails on a collapse rather than on an action becoming translatable or a refusal
             // being added.
             assertTrue(
