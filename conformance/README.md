@@ -678,7 +678,7 @@ no boolean type and store 1/0, so `CAST(a_bool AS TEXT)` is `"1"` where CEL and 
 adapter spanning both cannot lower it through a `CAST`
 ([#418](https://github.com/cerbos/query-plan-adapters/issues/418)):
 
-- **activerecord, sqlalchemy, ent, pgx and drizzle** lower it through
+- **activerecord, sequel, sqlalchemy, ent, pgx and drizzle** lower it through
   `CASE WHEN col IS NULL THEN NULL WHEN col THEN 'true' ELSE 'false' END`, which spells CEL's two
   words on every engine and keeps a NULL column UNKNOWN.
 - **spring-data** does not build a string at all. It compares the constant in Java: `"true"` and
@@ -691,8 +691,9 @@ The `CASE` carries a hazard the corpus action does not reach. Its two words are 
 compares them in the *connection's* collation rather than a column's, and a driver's default
 connection collation is case-insensitive: on it, `string(flag) == "TRUE"` matches every true row,
 which CEL never does. drizzle renders the literals `COLLATE utf8mb4_0900_bin`, and ent keeps its
-binary-collation `CAST` around the `CASE`, so both are byte-exact on their MySQL legs; activerecord
-and sqlalchemy run no MySQL leg and state the requirement in their READMEs; spring-data never
+binary-collation `CAST` around the `CASE`, so both are byte-exact on their MySQL legs; sequel's
+MySQL leg sets `collation_connection` to `utf8mb4_0900_bin`, which is where those literals compare;
+activerecord and sqlalchemy run no MySQL leg and state the requirement in their READMEs; spring-data never
 compares text. The action only ever compares with `"true"`, and `aBool` is never NULL on any seed,
 so neither the collation nor the `IS NULL` arm is proved against the oracle yet — both are pinned
 in unit tests and golden expectations until the corpus carries a probe for each
@@ -1491,7 +1492,7 @@ The three classes the adapters fall into determine most of the answers:
 
 | Class | Adapters | What the store applies to the subquery |
 |---|---|---|
-| **1 — bare-table subquery** | drizzle, ent, pgx, prisma, activerecord | nothing |
+| **1 — bare-table subquery** | drizzle, ent, pgx, prisma, activerecord, sequel | nothing |
 | **2 — ORM-association subquery** | spring-data, sqlalchemy | Hibernate applies `@SQLRestriction`/`@Where` — on the entity and on the joined collection — and the single-table discriminator; SQLAlchemy applies `primaryjoin` and the single-table discriminator *only* when the caller's override goes through a mapped `relationship()` |
 | **3 — no subquery** | mongoose, convex, langchain-chromadb, elasticsearch-java | n/a — relations are paths inside the same document |
 
@@ -1511,6 +1512,13 @@ discriminator and the composite key directly. Where the hazard is visible, "decl
 is not on the menu, and an optional caller-supplied predicate would be a second place for the same
 truth to live. Those subquery hazards are therefore refusals, each with a message naming the
 reflection that carries it.
+
+sequel is class 1 on the same argument and rejects on the same one. `association_reflection` hands
+it the association's `conditions:`, block, custom `dataset:` and `limit:` (read from the options
+the caller wrote, because Sequel fills a default `dataset:` into every reflection), and the
+target model's own dataset, whose filter is also how the `single_table_inheritance` plugin
+discriminates a subclass — so one check refuses both a model over a filtered dataset and an STI
+subclass.
 
 The precedent for handling this without a policy action is `nullRepresentationOmitted`: a
 per-adapter contract asserted by each harness rather than a shape in `adversarial.yaml`. If a

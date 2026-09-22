@@ -1,0 +1,116 @@
+name: Sequel Test
+
+# No `policies/**` trigger. The shared policy suite at the repository root is gone, and
+# conformance/policies/ is the only policy suite for semantics
+# (docs/adr/0008-the-shared-policy-suite-is-absorbed-into-the-conformance-corpus.md).
+on:
+  pull_request:
+    paths:
+      - "sequel/**"
+      - "conformance/**"
+      - "demo/**"
+      - ".github/workflows/sequel.yaml"
+      - ".github/workflows/sequel-publish.yaml"
+  push:
+    tags:
+      - sequel/v*
+
+defaults:
+  run:
+    working-directory: sequel
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        ruby-version: ["3.2", "3.3", "3.4"]
+        # Empty resolves the newest 5.x. The Gemfile reads a non-empty value as ONE release.
+        sequel-version: [""]
+        include:
+          # The first version of the Sequel range in the gemspec. golden/expectations.json
+          # declares a major, so this leg asserts the SAME bytes as the newest release — that is
+          # the proof the header's claim rests on.
+          - ruby-version: "3.2"
+            sequel-version: "= 5.60.0"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate conformance corpus
+        run: ../conformance/scripts/validate-corpus.sh
+
+      # The suites run in Docker. The PDP is pinned by tag and digest, from
+      # conformance/CERBOS_VERSION and conformance/CERBOS_IMAGE_DIGEST, and scripts/test.sh
+      # reads both files. Do not write either value in this file.
+      #
+      # Both of these are offline: the translator unit test replays conformance/wire-fixtures/
+      # and the contract suite builds its own plans, so neither starts a PDP. The Sequel
+      # dimension is theirs — golden/expectations.json records SQL that Sequel's own
+      # literalizer produced, so each leg asserts those bytes.
+      - name: Run the translator unit test and the adapter contract suite
+        env:
+          RUBY_VERSION: ${{ matrix.ruby-version }}
+          SEQUEL_VERSION: ${{ matrix.sequel-version }}
+        run: ./scripts/test.sh spec/translator_spec.rb spec/adapter_contract_spec.rb
+
+      # In the SAME job as the tests above, not a job of its own. Gated to the baseline leg,
+      # because the corpus discriminates the translator and the store, not the Ruby runtime —
+      # a second Ruby leg would multiply runner minutes for no extra cover.
+      #
+      # The store IS a dimension, so every one of them runs here: SQLite in memory, and a real
+      # PostgreSQL and MySQL started by scripts/test.sh from sequel/POSTGRES_IMAGE and
+      # sequel/MYSQL_IMAGE. Literal typing, collation and LIKE are translator behaviour — the
+      # PostgreSQL leg is what found `integer * 0.1` computing in exact decimals (p-double-frac)
+      # and `hierarchy()` over an integer reaching a LIKE the server rejects, both of which SQLite
+      # answered the way CEL does by accident.
+      - name: Run the adversarial differential suite on every store
+        if: matrix.ruby-version == '3.4' && matrix.sequel-version == ''
+        env:
+          RUBY_VERSION: ${{ matrix.ruby-version }}
+          SEQUEL_VERSION: ${{ matrix.sequel-version }}
+        run: |
+          for store in sqlite postgres mysql; do
+            for strict in false true; do
+              ADAPTER_TEST_DB="$store" ADAPTER_TEST_STRICT_EVALUATION="$strict" \
+                ./scripts/test.sh spec/adversarial_conformance_spec.rb
+            done
+          done
+
+      - name: Lint
+        if: matrix.ruby-version == '3.4' && matrix.sequel-version == ''
+        run: ./scripts/lint.sh
+
+  # THIS JOB MUST STAY IN THIS WORKFLOW. `renovate.json` sets `automerge: true` for every
+  # non-major bump, so a Sequel bump arrives as a PR touching this adapter — and this job, being
+  # a check on that PR, is what blocks the automerge when the new ORM breaks real usage. Moving
+  # it to a nightly run or a workflow of its own silently restores that gap.
+  #
+  # One Ruby leg only: the demo domain discriminates the published gem and the ORM, not the
+  # runtime — the same reasoning that gates the adversarial step above.
+  example:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate conformance corpus
+        run: ../conformance/scripts/validate-corpus.sh
+
+      - name: Validate demo domain
+        run: ../demo/scripts/validate-demo.sh
+
+      # No `bundler-cache`: the example commits no Gemfile.lock, deliberately. It installs the
+      # adapter from the artifact run.sh builds, which has no stable checksum, and resolving the
+      # rest fresh is what lets a Sequel release inside the declared range reach this job at all.
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: "3.4"
+
+      # The PDP is a container started by the runner from demo/docker-compose.yml, pinned to
+      # conformance/CERBOS_VERSION and conformance/CERBOS_IMAGE_DIGEST — no cerbos-setup-action
+      # here, because an example must reach the PDP the way a deployed application does.
+      - name: Run the example against the demo domain
+        run: ../demo/scripts/run-example.sh sequel

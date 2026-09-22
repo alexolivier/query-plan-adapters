@@ -1,6 +1,6 @@
 {
   "description": "Every action defined in policies/adversarial.yaml, grouped against the Spring Data reference harness. 'conformance' actions must match the check() oracle. 'adapterUnsupported' lists conformance actions an adapter cannot express and must reject loudly. 'expectedUnsupported' lists shapes rejected by the reference; 'adapterSupportedExpected' records adapters that intentionally translate one of those shapes. 'nullRepresentationOmitted' lists actions that probe a `== null` comparison against an attribute the oracle OMITS for NULL columns; every adapter must translate these with its null representation set to 'omitted' and reject them. 'knownDivergences' records upstream planner behavior that prevents an oracle comparison. 'adapters' is the canonical adapter roster: every key of 'adapterUnsupported' and 'adapterSupportedExpected', and every key of an 'expectedUnsupported' entry's 'messages' map, must name one of these. Every throwing classification carries the substring that adapter's error must contain — 'message' on an 'adapterUnsupported' entry, 'messages.<adapter>' on an 'expectedUnsupported' one — so a harness proves the throw is the declared mechanism rather than a mapper typo or an unrelated validation.",
-  "adapters": ["prisma", "mongoose", "drizzle", "convex", "langchain-chromadb", "sqlalchemy", "ent", "pgx", "elasticsearch-java", "spring-data", "activerecord"],
+  "adapters": ["prisma", "mongoose", "drizzle", "convex", "langchain-chromadb", "sqlalchemy", "ent", "pgx", "elasticsearch-java", "spring-data", "activerecord", "sequel"],
   "conformance": [
     "not-nan-order-string",
     "not-ternary-parent",
@@ -1137,6 +1137,70 @@
       { "action": "index-number-list-vs-bool", "reason": "The cross-type probe `aNumberList[0] == true || aNumber == 5`, refused at the `index` in its first disjunct for the same missing element order as index-number-list, so nothing is emitted for either disjunct. The refusal is also what keeps the cross-type hazard shut on this store: SQLite reads the literal TRUE as the integer 1, so a positional lowering that compared the stored `aNumberList` element with the literal would return b4, whose first element is 1, where CEL's heterogeneous equality is false for every row", "message": "Unsupported operator: index. Supply an operator override if the database can express it faithfully." },
       { "action": "map-eq-list", "reason": "map() is held as a projected relation until size() or hasIntersection() gives it a scalar meaning as an aggregate or an EXISTS subquery. Comparing the ordered projection itself to a literal list gives it neither, and a correlated subquery has no ordering to compare element-wise against, so the held projection reaches a plain value position and is refused there", "message": "eq cannot take a collection operand (a projected relation)" },
       { "action": "hier-empty-delim", "reason": "An empty delimiter is refused when the hierarchy operand is parsed, before the descendant LIKE is built: the adapter emits `prefix + delimiter + '%'`, which with an empty delimiter is a bare string-prefix LIKE that also matches the path itself (a2, never its own descendant)", "message": "hierarchy() delimiter must be a non-empty string" }
+    ],
+    "sequel": [
+      {"action": "pv-except", "reason": "The SQL translator has no two-list difference value; the walk refuses except in each arrival position.", "message": "Unsupported operator: except. Supply an operator override if the database can express it faithfully."},
+      {"action": "regex-final-newline", "reason": "Sequel has no portable RE2 predicate; matches is refused even inside equality or disjunction.", "message": "Unsupported operator: matches. Supply an operator override if the database can express it faithfully."},
+      {"action": "regex-eq-true", "reason": "Sequel has no portable RE2 predicate; matches is refused even inside equality or disjunction.", "message": "Unsupported operator: matches. Supply an operator override if the database can express it faithfully."},
+      {"action": "regex-lookahead", "reason": "Sequel has no portable RE2 predicate; matches is refused even inside equality or disjunction.", "message": "Unsupported operator: matches. Supply an operator override if the database can express it faithfully."},
+      {"action": "index-negative", "reason": "Relational associations do not expose CEL positional scalar-list indexing; the adapter refuses index before building a query.", "message": "Unsupported operator: index. Supply an operator override if the database can express it faithfully."},
+      {"action": "index-fractional", "reason": "Relational associations do not expose CEL positional scalar-list indexing; the adapter refuses index before building a query.", "message": "Unsupported operator: index. Supply an operator override if the database can express it faithfully."},
+      {"action": "index-not-oob", "reason": "Relational associations do not expose CEL positional scalar-list indexing; the adapter refuses index before building a query.", "message": "Unsupported operator: index. Supply an operator override if the database can express it faithfully."},
+      {"action": "cast-not-int", "reason": "SQL numeric casts accept malformed string prefixes or coerce them to zero, unlike CEL errors; negation cannot make the conversion safe.", "message": "int() applied to a :string column: CEL reads the WHOLE string or makes an error, and Cerbos then denies the row, but SQL reads the digits at the front and gives a number, so the filter would keep the row. Compare the column directly, or give an operator override."},
+      {"action": "cast-not-timestamp", "reason": "The mapper supplies a string column; the adapter only compares instants through native temporal columns, without portable error-preserving parsing of malformed strings.", "message": "timestamp() applied to a :string column: this adapter compares instants using the database's own temporal type, so the attribute must map to a datetime column rather than to a column holding a formatted timestamp string"},
+      {"action": "cast-not-double", "reason": "SQL floating-point casts accept malformed string prefixes or coerce them to zero, unlike CEL errors; negation cannot make the conversion safe.", "message": "double() needs a numeric column. CEL makes an error for a string that is not a number, and Cerbos denies the row, but SQL gives 0.0 and the filter would keep it. Compare the column directly, or give an operator override."},
+      {"action": "regex-digit", "reason": "The adapter has no RE2-compatible matches operator across its SQL dialects; the walk refuses matches before emitting SQL.", "message": "Unsupported operator: matches. Supply an operator override if the database can express it faithfully."},
+      {"action": "regex-case", "reason": "The adapter has no RE2-compatible matches operator across its SQL dialects; the walk refuses matches before emitting SQL.", "message": "Unsupported operator: matches. Supply an operator override if the database can express it faithfully."},
+      {"action": "regex-posix", "reason": "The adapter has no RE2-compatible matches operator across its SQL dialects; the walk refuses matches before emitting SQL.", "message": "Unsupported operator: matches. Supply an operator override if the database can express it faithfully."},
+      {"action": "regex-unanchored", "reason": "The adapter has no RE2-compatible matches operator across its SQL dialects; the walk refuses matches before emitting SQL.", "message": "Unsupported operator: matches. Supply an operator override if the database can express it faithfully."},
+      {"action": "regex-dot", "reason": "The adapter has no RE2-compatible matches operator across its SQL dialects; the walk refuses matches before emitting SQL.", "message": "Unsupported operator: matches. Supply an operator override if the database can express it faithfully."},
+      {"action": "regex-alternation", "reason": "The adapter has no RE2-compatible matches operator across its SQL dialects; the walk refuses matches before emitting SQL.", "message": "Unsupported operator: matches. Supply an operator override if the database can express it faithfully."},
+      {"action": "regex-grouped", "reason": "The adapter has no RE2-compatible matches operator across its SQL dialects; the walk refuses matches before emitting SQL.", "message": "Unsupported operator: matches. Supply an operator override if the database can express it faithfully."},
+      {"action": "regex-brace", "reason": "The adapter has no RE2-compatible matches operator across its SQL dialects; the walk refuses matches before emitting SQL.", "message": "Unsupported operator: matches. Supply an operator override if the database can express it faithfully."},
+      {"action": "regex-repetition", "reason": "The adapter has no RE2-compatible matches operator across its SQL dialects; the walk refuses matches before emitting SQL.", "message": "Unsupported operator: matches. Supply an operator override if the database can express it faithfully."},
+      {"action": "regex-optional-operators", "reason": "The adapter has no RE2-compatible matches operator across its SQL dialects; the walk refuses matches before emitting SQL.", "message": "Unsupported operator: matches. Supply an operator override if the database can express it faithfully."},
+      {"action": "except-root", "reason": "The SQL translator has no two-list difference value; the walk refuses except in each arrival position.", "message": "Unsupported operator: except. Supply an operator override if the database can express it faithfully."},
+      {"action": "except-size", "reason": "The SQL translator has no two-list difference value; the walk refuses except in each arrival position.", "message": "Unsupported operator: except. Supply an operator override if the database can express it faithfully."},
+      {"action": "except-eq", "reason": "The SQL translator has no two-list difference value; the walk refuses except in each arrival position.", "message": "Unsupported operator: except. Supply an operator override if the database can express it faithfully."},
+      {"action": "pv-structs", "reason": "The planner emits a struct through set-field; this translator has no structured literal value and refuses that operator.", "message": "Unsupported operator: set-field. Supply an operator override if the database can express it faithfully."},
+      {"action": "pv-structs-null", "reason": "The planner emits a struct through set-field; this translator has no structured literal value and refuses that operator.", "message": "Unsupported operator: set-field. Supply an operator override if the database can express it faithfully."},
+      {"action": "pv-filter", "reason": "Filtering or mapping a principal list produces a list-valued intermediate that this translator does not represent.", "message": "filter over a list of constants is not supported: only exists, all and exists_one have a translation for that shape"},
+      {"action": "pv-map", "reason": "Filtering or mapping a principal list produces a list-valued intermediate that this translator does not represent.", "message": "map over a list of constants is not supported: only exists, all and exists_one have a translation for that shape"},
+      {"action": "type-size-bool", "reason": "CEL requires a string for this operation; the mapped Sequel column is numeric or boolean, so SQL coercion would over-grant.", "message": "size requires a string operand, got boolean"},
+      {"action": "type-size-number", "reason": "CEL requires a string for this operation; the mapped Sequel column is numeric or boolean, so SQL coercion would over-grant.", "message": "size requires a string operand, got integer"},
+      {"action": "type-number-contains", "reason": "CEL requires a string for this operation; the mapped Sequel column is numeric or boolean, so SQL coercion would over-grant.", "message": "contains requires a string operand, got integer"},
+      {"action": "type-needle-contains", "reason": "CEL requires a string for this operation; the mapped Sequel column is numeric or boolean, so SQL coercion would over-grant.", "message": "contains requires a string operand, got integer"},
+      {"action": "type-number-startswith", "reason": "CEL requires a string for this operation; the mapped Sequel column is numeric or boolean, so SQL coercion would over-grant.", "message": "startsWith requires a string operand, got integer"},
+      {"action": "type-needle-startswith", "reason": "CEL requires a string for this operation; the mapped Sequel column is numeric or boolean, so SQL coercion would over-grant.", "message": "startsWith requires a string operand, got integer"},
+      {"action": "type-number-endswith", "reason": "CEL requires a string for this operation; the mapped Sequel column is numeric or boolean, so SQL coercion would over-grant.", "message": "endsWith requires a string operand, got integer"},
+      {"action": "type-needle-endswith", "reason": "CEL requires a string for this operation; the mapped Sequel column is numeric or boolean, so SQL coercion would over-grant.", "message": "endsWith requires a string operand, got integer"},
+      {"action": "div-by-division", "reason": "The inner divisor is a column that may be zero; SQL cannot preserve the IEEE signed-zero infinity needed to evaluate the nested division.", "message": "Cannot divide by a column that may be zero: IEEE-754 keeps the sign of a zero, SQL cannot tell -0.0 from 0.0, and thus the sign of the Infinity is unknown. Divide by a constant, or keep this shape out of the policy."},
+      {"action": "temporal-raw-eq", "reason": "SQL temporal columns preserve instants but discard the RFC-3339 spelling compared by bare CEL attributes; timestamp wrappers are required.", "message": "Raw temporal column comparison loses RFC-3339 string spelling; wrap both operands in timestamp()"},
+      {"action": "eq-list", "reason": "A relational collection is not a scalar SQL comparison operand; the adapter refuses whole-list equality rather than compare a member.", "message": "eq cannot take a collection operand (an association)"},
+      {"action": "ne-list", "reason": "A relational collection is not a scalar SQL comparison operand; the adapter refuses whole-list equality rather than compare a member.", "message": "ne cannot take a collection operand (an association)"},
+      {"action": "eq-map", "reason": "The planner emits a struct through set-field; this translator has no structured literal value and refuses that operator.", "message": "Unsupported operator: set-field. Supply an operator override if the database can express it faithfully."},
+      {"action": "ne-map", "reason": "The planner emits a struct through set-field; this translator has no structured literal value and refuses that operator.", "message": "Unsupported operator: set-field. Supply an operator override if the database can express it faithfully."},
+      {"action": "eq-map-null", "reason": "The planner emits a struct through set-field; this translator has no structured literal value and refuses that operator.", "message": "Unsupported operator: set-field. Supply an operator override if the database can express it faithfully."},
+      {"action": "in-nested-list", "reason": "SQL scalar membership cannot bind or compare a nested list element; the adapter refuses before constructing the query.", "message": "in requires scalar elements; SQL scalar membership cannot compare a list or map element"},
+      {"action": "in-list-element", "reason": "SQL scalar membership cannot bind or compare a nested list element; the adapter refuses before constructing the query.", "message": "in requires scalar elements; SQL scalar membership cannot compare a list or map element"},
+      {"action": "hasint-map-element", "reason": "The planner emits a struct through set-field; this translator has no structured literal value and refuses that operator.", "message": "Unsupported operator: set-field. Supply an operator override if the database can express it faithfully."},
+      {"action": "ts-window", "reason": "The planner folds `now() - duration(\"24h\")` to a literal with nanosecond precision, and Sequel literalizes a Time into SQL at microsecond precision at best — SQLite stores the formatted string Sequel writes and MySQL DATETIME(6) truncates. Rounding the literal compares against a different instant than the policy names, in the direction that admits rows just outside the window, so the adapter refuses rather than move the boundary", "message": "carries sub-microsecond precision, which Sequel truncates when literalizing a Time into SQL"},
+      {"action": "ts-vf", "reason": "The same sub-microsecond now() literal as ts-window, reached with the operands the other way round. Operand order does not change what a Time binds as, so the refusal is the same one", "message": "carries sub-microsecond precision, which Sequel truncates when literalizing a Time into SQL"},
+      {"action": "cr-div-other-column", "reason": "The denominator is a DIFFERENT column, so it may be zero on a row where the numerator is not. CEL divides to a signed Infinity and IEEE-754 keeps the sign of the zero; SQL cannot tell -0.0 from 0.0, and a NULLIF guard collapses both to NULL. The sign of the Infinity decides which side of an order comparison the row falls on, so no guard recovers it and the adapter refuses. A constant denominator, or a column divided by itself, stays translatable", "message": "Cannot divide by a column that may be zero"},
+      {"action": "cr-div-then-add", "reason": "CEL carries a NaN or a signed Infinity out of the division and through the arithmetic composed on top of it; SQL has no value that does, because the NULLIF divide-by-zero guard turns the whole sum into NULL. The adapter resolves a non-finite division only where the division IS the comparison operand, so a division nested under further arithmetic fails closed instead of emitting the under-granting filter", "message": "add cannot take an operand that may be NaN or Infinity"},
+      {"action": "cr-div-then-add-ne", "reason": "The same nested-division limitation as cr-div-then-add, and the arm that proves it matters: `NaN != 2.0` is TRUE and the PDP allows the zero row, while `NULL + 1 <> 2` is UNKNOWN and drops it", "message": "add cannot take an operand that may be NaN or Infinity"},
+      {"action": "index-scalar-list", "reason": "Positional access into a scalar list. `index` has no case in the translator's operator dispatch at all, so the walk falls through to the generic unsupported-operator refusal rather than to a leaf-operand guard — which is why the message names the operator and offers an override. No case was written because row order in a SQL relation is not defined without an ORDER BY the plan does not carry: `tagNames` is a one_to_many association, and `tagNames[0]` names whichever row the engine happens to return first. A caller whose table has a deterministic ordering column can express it faithfully, and the override the message offers is that escape hatch", "message": "Unsupported operator: index"},
+      {"action": "index-scalar-list-not-eq", "reason": "Positional access into a scalar list. `index` has no case in the translator's operator dispatch at all, so the walk falls through to the generic unsupported-operator refusal rather than to a leaf-operand guard — which is why the message names the operator and offers an override. No case was written because row order in a SQL relation is not defined without an ORDER BY the plan does not carry: `tagNames` is a one_to_many association, and `tagNames[0]` names whichever row the engine happens to return first. A caller whose table has a deterministic ordering column can express it faithfully, and the override the message offers is that escape hatch", "message": "Unsupported operator: index"},
+      {"action": "index-scalar-list-null", "reason": "Positional access into a scalar list. `index` has no case in the translator's operator dispatch at all, so the walk falls through to the generic unsupported-operator refusal rather than to a leaf-operand guard — which is why the message names the operator and offers an override. No case was written because row order in a SQL relation is not defined without an ORDER BY the plan does not carry: `tagNames` is a one_to_many association, and `tagNames[0]` names whichever row the engine happens to return first. A caller whose table has a deterministic ordering column can express it faithfully, and the override the message offers is that escape hatch", "message": "Unsupported operator: index"},
+      {"action": "index-number-list", "reason": "Positional access into a list of numbers, the same refusal as index-scalar-list: `index` has no case in the translator's operator dispatch, so the walk falls through to the generic unsupported-operator refusal before the comparison around it is built. `aNumberList` is a one_to_many association mapped by member field, and an association mapping carries no element order, so `aNumberList[0]` names whichever row the engine returns first without an ORDER BY the plan does not carry. A caller whose element table has a position column, as the harness table does, can supply the override the message offers", "message": "Unsupported operator: index. Supply an operator override if the database can express it faithfully."},
+      {"action": "index-number-list-not-eq", "reason": "Positional access into a list of numbers, the same refusal as index-scalar-list: `index` has no case in the translator's operator dispatch, so the walk falls through to the generic unsupported-operator refusal before the comparison around it is built. `aNumberList` is a one_to_many association mapped by member field, and an association mapping carries no element order, so `aNumberList[0]` names whichever row the engine returns first without an ORDER BY the plan does not carry. A caller whose element table has a position column, as the harness table does, can supply the override the message offers", "message": "Unsupported operator: index. Supply an operator override if the database can express it faithfully."},
+      {"action": "index-bool-list", "reason": "Positional access into a list of booleans, the same refusal as index-scalar-list: `index` has no case in the translator's operator dispatch, so the walk falls through to the generic unsupported-operator refusal before the comparison around it is built. `aBoolList` is a one_to_many association mapped by member field, and an association mapping carries no element order, so `aBoolList[0]` names whichever row the engine returns first without an ORDER BY the plan does not carry. A caller whose element table has a position column, as the harness table does, can supply the override the message offers", "message": "Unsupported operator: index. Supply an operator override if the database can express it faithfully."},
+      {"action": "index-bool-list-not-eq", "reason": "Positional access into a list of booleans, the same refusal as index-scalar-list: `index` has no case in the translator's operator dispatch, so the walk falls through to the generic unsupported-operator refusal before the comparison around it is built. `aBoolList` is a one_to_many association mapped by member field, and an association mapping carries no element order, so `aBoolList[0]` names whichever row the engine returns first without an ORDER BY the plan does not carry. A caller whose element table has a position column, as the harness table does, can supply the override the message offers", "message": "Unsupported operator: index. Supply an operator override if the database can express it faithfully."},
+      {"action": "index-bool-list-vs-number", "reason": "The cross-type probe `aBoolList[0] == 1 || aNumber == 5`, refused at the `index` in its first disjunct for the same missing element order as index-bool-list, so nothing is emitted for either disjunct. The refusal is also what keeps the cross-type hazard shut on this store: SQLite holds a boolean column as the integer 1, so a positional lowering that compared the stored `aBoolList` element with the literal would return b4 and c1, whose first element is true, where CEL's heterogeneous equality is false for every row", "message": "Unsupported operator: index. Supply an operator override if the database can express it faithfully."},
+      {"action": "index-number-list-vs-bool", "reason": "The cross-type probe `aNumberList[0] == true || aNumber == 5`, refused at the `index` in its first disjunct for the same missing element order as index-number-list, so nothing is emitted for either disjunct. The refusal is also what keeps the cross-type hazard shut on this store: SQLite reads the literal TRUE as the integer 1, so a positional lowering that compared the stored `aNumberList` element with the literal would return b4, whose first element is 1, where CEL's heterogeneous equality is false for every row", "message": "Unsupported operator: index. Supply an operator override if the database can express it faithfully."},
+      {"action": "map-eq-list", "reason": "map() is held as a projected association until size() or hasIntersection() gives it a scalar meaning as an aggregate or an EXISTS subquery. Comparing the ordered projection itself to a literal list gives it neither, and a correlated subquery has no ordering to compare element-wise against, so the held projection reaches a plain value position and is refused there", "message": "eq cannot take a collection operand (a projected association)"},
+      {"action": "hier-empty-delim", "reason": "An empty delimiter is refused when the hierarchy operand is parsed, before the descendant LIKE is built: the adapter emits `prefix + delimiter + '%'`, which with an empty delimiter is a bare string-prefix LIKE that also matches the path itself (a2, never its own descendant)", "message": "hierarchy() delimiter must be a non-empty string"},
+      {"action": "type-hierarchy-number", "reason": "CEL has hierarchy() for a string and a list of strings only, so hierarchy(R.attr.aNumber) is a no-overload error that denies under both polarities. The descendant test is a LIKE, which PostgreSQL rejects over an integer column and SQLite and MySQL answer by coercing the number to text, so the adapter refuses the non-string operand when the hierarchy is built instead of leaving the answer to the store.", "message": "hierarchy requires a string operand, got integer"}
     ]
   },
   "adapterSupportedExpected": {
@@ -1174,7 +1238,8 @@
         "pgx": "under mixed null conventions",
         "langchain-chromadb": "Variable-to-variable comparisons are not supported by ChromaDB filters",
         "elasticsearch-java": "Elasticsearch Query DSL cannot compare two document fields without scripts",
-        "activerecord": "between two columns under mixed null conventions"
+        "activerecord": "between two columns under mixed null conventions",
+        "sequel": "between two columns under mixed null conventions"
       }
     },
     {
@@ -1188,7 +1253,8 @@
         "ent": "timestamp() over a column requires that column to be mapped with a timestamp value type",
         "pgx": "timestamp() over a column requires that column to be mapped with a timestamp value type",
         "spring-data": "timestamp() comparison requires a column mapped to java.time.Instant or java.time.OffsetDateTime, but 'request.resource.attr.createdBy' maps to String. Other temporal representations (LocalDateTime, java.util.Date, String) are ambiguous about the absolute instant they store; remap the column or register an OperatorFunction override for 'lt'.",
-        "activerecord": "must map to a datetime column rather than to a column holding a formatted timestamp string"
+        "activerecord": "must map to a datetime column rather than to a column holding a formatted timestamp string",
+        "sequel": "must map to a datetime column rather than to a column holding a formatted timestamp string"
       }
     },
     {
@@ -1202,7 +1268,8 @@
         "ent": "unsupported operator: matches. CEL's regex dialect (RE2) is not the dialect any SQL engine implements, so a translated pattern would accept or reject different strings than the PDP",
         "pgx": "unsupported operator: matches. CEL's regex dialect (RE2) is not the dialect any SQL engine implements, so a translated pattern would accept or reject different strings than the PDP",
         "spring-data": "Unsupported operator: matches",
-        "activerecord": "Unsupported operator: matches"
+        "activerecord": "Unsupported operator: matches",
+        "sequel": "Unsupported operator: matches"
       }
     },
     {
@@ -1217,6 +1284,7 @@
         "pgx": "unsupported operator: matches. CEL's regex dialect (RE2) is not the dialect any SQL engine implements, so a translated pattern would accept or reject different strings than the PDP",
         "spring-data": "Unsupported operator: matches",
         "activerecord": "Unsupported operator: matches",
+        "sequel": "Unsupported operator: matches",
         "mongoose": "matches pattern is outside the supported common RE2/PCRE2 subset",
         "convex": "matches requires a constant RE2-compatible pattern in the supported literal, anchor, and trailing .* subset",
         "elasticsearch-java": "matches regex has a top-level alternation at index 1: RE2 reads ^a|b$ as two separately anchored alternatives, while Lucene matches the whole field against a|b, so the alternation must be parenthesised as ^(a|b)$"
@@ -1234,7 +1302,8 @@
         "pgx": "unsupported operator: get-field",
         "elasticsearch-java": "Unexpected get-field expression in leaf operand",
         "spring-data": "Unexpected get-field() expression in leaf operand of eq",
-        "activerecord": "Unsupported operator: index"
+        "activerecord": "Unsupported operator: index",
+        "sequel": "Unsupported operator: index"
       }
     },
     {
@@ -1250,7 +1319,8 @@
         "pgx": "'int()' cannot be lowered to SQL CAST: CAST reads a numeric prefix where CEL requires the whole string and raises otherwise, and PostgreSQL and MySQL round where CEL truncates toward zero",
         "elasticsearch-java": "Unexpected int expression in leaf operand",
         "spring-data": "Unexpected int() expression in leaf operand of gt",
-        "activerecord": "int() applied to a :string column"
+        "activerecord": "int() applied to a :string column",
+        "sequel": "int() applied to a :string column"
       }
     },
     {
@@ -1266,7 +1336,8 @@
         "pgx": "'double()' cannot be lowered to SQL CAST: CAST reads a numeric prefix where CEL requires the whole string and raises otherwise, and PostgreSQL and MySQL round where CEL truncates toward zero",
         "elasticsearch-java": "Unexpected double expression in leaf operand",
         "spring-data": "Unexpected double() expression in leaf operand of gt",
-        "activerecord": "double() needs a numeric column"
+        "activerecord": "double() needs a numeric column",
+        "sequel": "double() needs a numeric column"
       }
     },
     {
@@ -1282,7 +1353,8 @@
         "pgx": "'int()' cannot be lowered to SQL CAST: CAST reads a numeric prefix where CEL requires the whole string and raises otherwise, and PostgreSQL and MySQL round where CEL truncates toward zero",
         "elasticsearch-java": "Unexpected int expression in leaf operand",
         "spring-data": "Unexpected int() expression in leaf operand of eq",
-        "activerecord": "int() applied to a double column is not portable"
+        "activerecord": "int() applied to a double column is not portable",
+        "sequel": "int() applied to a double column is not portable"
       }
     },
     {
@@ -1299,7 +1371,8 @@
         "pgx": "'filter' produces a collection rather than a boolean; it only translates inside size() or hasIntersection(), which give the collection a scalar meaning",
         "elasticsearch-java": "Unexpected lambda expression in leaf operand",
         "spring-data": "filter() returns a list, not a boolean, so it cannot be a condition on its own; only size(filter(...)) has a boolean meaning",
-        "activerecord": "a filtered relation cannot be used as a condition"
+        "activerecord": "a filtered relation cannot be used as a condition",
+        "sequel": "a filtered association cannot be used as a condition"
       }
     },
     {
@@ -1316,7 +1389,8 @@
         "pgx": "'filter' produces a collection rather than a boolean; it only translates inside size() or hasIntersection(), which give the collection a scalar meaning",
         "elasticsearch-java": "Unexpected lambda expression in leaf operand",
         "spring-data": "filter() returns a list, not a boolean, so it cannot be a condition on its own; only size(filter(...)) has a boolean meaning",
-        "activerecord": "a filtered relation cannot be used as a condition"
+        "activerecord": "a filtered relation cannot be used as a condition",
+        "sequel": "a filtered association cannot be used as a condition"
       }
     },
     {
@@ -1333,7 +1407,8 @@
         "pgx": "'map' produces a collection rather than a boolean; it only translates inside size() or hasIntersection(), which give the collection a scalar meaning",
         "elasticsearch-java": "Unexpected lambda expression in leaf operand",
         "spring-data": "Unexpected lambda() expression in leaf operand of map",
-        "activerecord": "a projected relation cannot be used as a condition"
+        "activerecord": "a projected relation cannot be used as a condition",
+        "sequel": "a projected association cannot be used as a condition"
       }
     }
   ],
@@ -1352,7 +1427,8 @@
         "pgx": "missing-attribute error",
         "elasticsearch-java": "explicit null value from a missing field",
         "spring-data": "missing-attribute error",
-        "activerecord": "missing-attribute error"
+        "activerecord": "missing-attribute error",
+        "sequel": "missing-attribute error"
       },
       "relatedIssue": "https://github.com/cerbos/query-plan-adapters/issues/302"
     }
@@ -1360,7 +1436,7 @@
   "knownDivergences": [
     {
       "action": "p-has",
-      "adapters": ["spring-data", "prisma", "drizzle", "sqlalchemy", "mongoose", "langchain-chromadb", "elasticsearch-java", "convex", "ent", "pgx", "activerecord"],
+      "adapters": ["spring-data", "prisma", "drizzle", "sqlalchemy", "mongoose", "langchain-chromadb", "elasticsearch-java", "convex", "ent", "pgx", "activerecord", "sequel"],
       "reason": "The planner folds has(unknown attr) to KIND_ALWAYS_ALLOWED (a Cerbos planner bug, not an adapter bug), so the adapter returns all rows while check() denies rows where the attribute is missing. Excluded from the oracle run rather than asserted against."
     }
   ]

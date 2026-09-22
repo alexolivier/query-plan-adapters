@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# Runs the suites of the Sequel adapter in Docker. The PDP is pinned by tag and digest,
+# from conformance/CERBOS_VERSION and conformance/CERBOS_IMAGE_DIGEST.
+#
+#   ./scripts/test.sh                                    # all the specs
+#   ./scripts/test.sh spec/adversarial_conformance_spec.rb
+#   RUBY_VERSION=3.2 ./scripts/test.sh                   # a different version of Ruby
+#   ADAPTER_TEST_DB=postgres ./scripts/test.sh spec/adversarial_conformance_spec.rb
+#   ADAPTER_TEST_DB=mysql ./scripts/test.sh spec/adversarial_conformance_spec.rb
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+CERBOS_VERSION="$(tr -d '[:space:]' < ../conformance/CERBOS_VERSION)"
+CERBOS_IMAGE_DIGEST="$(tr -d '[:space:]' < ../conformance/CERBOS_IMAGE_DIGEST)"
+export CERBOS_VERSION CERBOS_IMAGE_DIGEST
+# The store images, pinned beside this adapter by tag and digest. Compose interpolates every
+# service, so they are exported even for a run that starts neither.
+POSTGRES_IMAGE="$(tr -d '[:space:]' < POSTGRES_IMAGE)"
+MYSQL_IMAGE="$(tr -d '[:space:]' < MYSQL_IMAGE)"
+export POSTGRES_IMAGE MYSQL_IMAGE
+export ADAPTER_TEST_STRICT_EVALUATION="${ADAPTER_TEST_STRICT_EVALUATION-false}"
+case "${ADAPTER_TEST_STRICT_EVALUATION}" in
+  false|true) ;;
+  *) echo "ADAPTER_TEST_STRICT_EVALUATION must be false or true" >&2; exit 1 ;;
+esac
+export RUBY_VERSION="${RUBY_VERSION:-3.4}"
+export SEQUEL_VERSION="${SEQUEL_VERSION:-}"
+
+# The store the adversarial harness replays the corpus on. An unknown value fails here rather
+# than falling back, because a typo that quietly ran SQLite would report a store as covered that
+# nothing executed. The offline suites refuse any store but SQLite themselves.
+export ADAPTER_TEST_DB="${ADAPTER_TEST_DB:-sqlite}"
+case "${ADAPTER_TEST_DB}" in
+  sqlite) export DATABASE_URL="" ;;
+  postgres) export DATABASE_URL="postgres://cerbos:cerbos@postgres-store:5432/cerbos" ;;
+  mysql) export DATABASE_URL="trilogy://root:cerbos@mysql-store:3306/cerbos" ;;
+  *) echo "ADAPTER_TEST_DB must be sqlite, postgres or mysql" >&2; exit 1 ;;
+esac
+
+compose() { docker compose "$@"; }
+
+cleanup() { compose down --remove-orphans >/dev/null 2>&1 || true; }
+trap cleanup EXIT
+
+# Only the adversarial harness needs a PDP. The other two suites are offline — the translator
+# unit test replays conformance/wire-fixtures/ and the contract suite builds its own plans — so
+# they run with `--no-deps` and no PDP is started at all.
+#
+# That is not a saving, it is the assertion. compose declares the dependency, so a suite that
+# quietly grew a `plan_resources` call would still pass with the PDP running beside it; started
+# without one, it fails.
+needs_pdp=1
+if [[ $# -gt 0 ]]; then
+  needs_pdp=0
+  for spec in "$@"; do
+    case "${spec}" in
+      *adversarial*) needs_pdp=1 ;;
+    esac
+  done
+fi
+
+echo "==> Cerbos ${CERBOS_VERSION}, Ruby ${RUBY_VERSION}, Sequel ${SEQUEL_VERSION:-newest 5.x}, store ${ADAPTER_TEST_DB}"
+compose build tests
+if [[ "${ADAPTER_TEST_DB}" != "sqlite" ]]; then
+  # Named explicitly, which starts a service behind a profile; `--wait` holds until its
+  # healthcheck passes, so the harness never races the server's first boot.
+  compose up -d --wait "${ADAPTER_TEST_DB}-store"
+fi
+if [[ "${needs_pdp}" -eq 1 ]]; then
+  compose run --rm tests bundle exec rspec "$@"
+else
+  echo "==> no PDP: these suites are offline" >&2
+  compose run --rm --no-deps tests bundle exec rspec "$@"
+fi

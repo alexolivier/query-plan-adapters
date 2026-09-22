@@ -13,14 +13,16 @@ Current supported adapters:
 - [Mongoose](https://github.com/cerbos/query-plan-adapters/tree/main/mongoose)
 - [pgx (Go)](https://github.com/cerbos/query-plan-adapters/tree/main/pgx)
 - [Prisma](https://github.com/cerbos/query-plan-adapters/tree/main/prisma)
+- [Sequel (Ruby)](https://github.com/cerbos/query-plan-adapters/tree/main/sequel) — **work-in-progress prototype. Not ready for production use.**
 - [Spring Data JPA](https://github.com/cerbos/query-plan-adapters/tree/main/spring-data)
 - [SQLAlchemy](https://github.com/cerbos/query-plan-adapters/tree/main/sqlalchemy)
 
 > [!WARNING]
-> **The ActiveRecord adapter is a work-in-progress prototype.** It has not been released, it
-> has not been used in production by anyone, and its public interface can still change without
-> a deprecation. Do not depend on it to enforce access control in a live system yet. See
-> [`activerecord/README.md`](activerecord/README.md) for what it does and does not cover.
+> **The ActiveRecord and Sequel adapters are work-in-progress prototypes.** Neither has been
+> released, neither has been used in production by anyone, and their public interfaces can still
+> change without a deprecation. Do not depend on them to enforce access control in a live system
+> yet. See [`activerecord/README.md`](activerecord/README.md) and
+> [`sequel/README.md`](sequel/README.md) for what each does and does not cover.
 
 Every adapter is proved against two shared corpora at the root of this repository:
 
