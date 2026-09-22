@@ -10,7 +10,7 @@ services:
     # gets no version file of its own — one PDP pin in the repository, reused — and
     # conformance/scripts/validate-corpus.sh asserts that BOTH halves of this reference agree with
     # it. The tag alone would leave the digest free to name some other build entirely.
-    image: ghcr.io/cerbos/cerbos:0.54.0@sha256:211c261f6031675522a35c6055b13fd719c4aff13747307e4bcb6907326537ef
+    image: ghcr.io/cerbos/cerbos:0.55.0@sha256:4b9d3b58c4f11c1b8953bc798d8d086e64f276882253ab169625fddc7f432515
     # No `container_name`: the runner gives each adapter its own compose project, and a fixed
     # container name is global, so a container left behind by one adapter's interrupted run could
     # not be cleaned up by the next adapter's `compose down`.
@@ -19,12 +19,11 @@ services:
       - "--config=/config/cerbos-config.yaml"
     environment:
       CERBOS_NO_TELEMETRY: "1"
-    # Deliberately NOT the default 3592/3593 on the host. Every adapter's test suite starts a
-    # `cerbos run` sidecar on those ports, and a demo PDP still holding them makes that sidecar
-    # fail to bind while the suite happily talks to THIS PDP instead — which serves demo policies,
-    # so the corpus tests fail for a reason nothing in their output names. Different host ports
-    # make that collision impossible; the runner passes the address through $CERBOS_HOST, so no
-    # example hardcodes either number.
+    # Deliberately NOT the default 3592/3593 on the host. They are Cerbos's default ports, which
+    # any other local PDP may be holding, and a client that assumes the defaults would then talk
+    # to THIS PDP — which serves demo policies — or this one's client to that PDP, and fail for a
+    # reason nothing in its output names. Different host ports make that collision impossible;
+    # the runner passes the address through $CERBOS_HOST, so no example hardcodes either number.
     ports:
       - "13592:3592"
       - "13593:3593"

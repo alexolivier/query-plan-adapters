@@ -6,6 +6,7 @@ package cerbosent_test
 import (
 	"database/sql"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"testing"
@@ -104,7 +105,8 @@ CREATE TABLE adversarial_resource (
 	a_optional_string  text,
 	created_by         text    NOT NULL,
 	scope              text,
-	created_at         text
+	created_at         text,
+	updated_at         text
 );
 CREATE TABLE adversarial_tag (
 	pk           integer PRIMARY KEY AUTOINCREMENT,
@@ -158,7 +160,8 @@ CREATE TABLE adversarial_resource (
 	a_optional_string  text,
 	created_by         text             NOT NULL,
 	scope              text,
-	created_at         timestamptz
+	created_at         timestamptz,
+	updated_at         timestamptz
 );
 CREATE TABLE adversarial_tag (
 	pk           bigserial PRIMARY KEY,
@@ -212,62 +215,63 @@ func openSQLite(t *testing.T) *sql.DB {
 	return db
 }
 
-// The MySQL schema pins a BINARY collation on every string column. MySQL's default
-// utf8mb4_0900_ai_ci is both case- and accent-INSENSITIVE, which over-grants on `cs-eq`
-// ("One" would match "one"), `unicode-eq` and every `hier-*` prefix probe — CEL string
-// equality is byte-exact, so the collation is part of the policy contract here
-// (cerbos/query-plan-adapters#310).
+// The MySQL schema pins a case- and accent-sensitive NO PAD collation on every string
+// column. The default utf8mb4_0900_ai_ci ignores case and accents, over-granting on
+// `cs-eq` ("One" would match "one"), `unicode-eq` and hierarchy prefixes (#310). The older
+// utf8mb4_bin ignores trailing spaces ("a" would match "a "). CEL distinguishes all
+// three, so the collation is part of the policy contract here (#436).
 //
 // DATETIME(6) is microsecond-resolution, the same caveat PostgreSQL's timestamptz carries:
 // the corpus's a5 seed holds microsecond precision and no finer.
 const mysqlDDL = `
 CREATE TABLE adversarial_resource (
-	id                 varchar(64) COLLATE utf8mb4_bin PRIMARY KEY,
+	id                 varchar(64) COLLATE utf8mb4_0900_as_cs PRIMARY KEY,
 	a_bool             boolean          NOT NULL,
-	a_string           varchar(255) COLLATE utf8mb4_bin NOT NULL,
+	a_string           varchar(255) COLLATE utf8mb4_0900_as_cs NOT NULL,
 	a_number           bigint           NOT NULL,
 	a_double           double,
-	a_optional_string  varchar(255) COLLATE utf8mb4_bin,
-	created_by         varchar(64) COLLATE utf8mb4_bin NOT NULL,
-	scope              varchar(255) COLLATE utf8mb4_bin,
-	created_at         datetime(6)
+	a_optional_string  varchar(255) COLLATE utf8mb4_0900_as_cs,
+	created_by         varchar(64) COLLATE utf8mb4_0900_as_cs NOT NULL,
+	scope              varchar(255) COLLATE utf8mb4_0900_as_cs,
+	created_at         datetime(6),
+	updated_at         datetime(6)
 );
 CREATE TABLE adversarial_tag (
 	pk           bigint AUTO_INCREMENT PRIMARY KEY,
-	tag_id       varchar(64) COLLATE utf8mb4_bin NOT NULL,
-	name         varchar(255) COLLATE utf8mb4_bin,
-	resource_id  varchar(64) COLLATE utf8mb4_bin NOT NULL REFERENCES adversarial_resource(id)
+	tag_id       varchar(64) COLLATE utf8mb4_0900_as_cs NOT NULL,
+	name         varchar(255) COLLATE utf8mb4_0900_as_cs,
+	resource_id  varchar(64) COLLATE utf8mb4_0900_as_cs NOT NULL REFERENCES adversarial_resource(id)
 );
 CREATE TABLE adversarial_category (
-	id           varchar(64) COLLATE utf8mb4_bin PRIMARY KEY,
-	name         varchar(255) COLLATE utf8mb4_bin NOT NULL,
-	resource_id  varchar(64) COLLATE utf8mb4_bin NOT NULL REFERENCES adversarial_resource(id)
+	id           varchar(64) COLLATE utf8mb4_0900_as_cs PRIMARY KEY,
+	name         varchar(255) COLLATE utf8mb4_0900_as_cs NOT NULL,
+	resource_id  varchar(64) COLLATE utf8mb4_0900_as_cs NOT NULL REFERENCES adversarial_resource(id)
 );
 CREATE TABLE adversarial_sub_category (
-	id           varchar(64) COLLATE utf8mb4_bin PRIMARY KEY,
-	name         varchar(255) COLLATE utf8mb4_bin NOT NULL,
-	category_id  varchar(64) COLLATE utf8mb4_bin NOT NULL REFERENCES adversarial_category(id)
+	id           varchar(64) COLLATE utf8mb4_0900_as_cs PRIMARY KEY,
+	name         varchar(255) COLLATE utf8mb4_0900_as_cs NOT NULL,
+	category_id  varchar(64) COLLATE utf8mb4_0900_as_cs NOT NULL REFERENCES adversarial_category(id)
 );
 CREATE TABLE adversarial_label (
-	id               varchar(64) COLLATE utf8mb4_bin PRIMARY KEY,
-	name             varchar(255) COLLATE utf8mb4_bin,
-	sub_category_id  varchar(64) COLLATE utf8mb4_bin NOT NULL REFERENCES adversarial_sub_category(id)
+	id               varchar(64) COLLATE utf8mb4_0900_as_cs PRIMARY KEY,
+	name             varchar(255) COLLATE utf8mb4_0900_as_cs,
+	sub_category_id  varchar(64) COLLATE utf8mb4_0900_as_cs NOT NULL REFERENCES adversarial_sub_category(id)
 );
 CREATE TABLE adversarial_parent (
-	id                 varchar(64) COLLATE utf8mb4_bin PRIMARY KEY,
+	id                 varchar(64) COLLATE utf8mb4_0900_as_cs PRIMARY KEY,
 	a_bool             boolean NOT NULL,
-	a_string           varchar(255) COLLATE utf8mb4_bin NOT NULL,
+	a_string           varchar(255) COLLATE utf8mb4_0900_as_cs NOT NULL,
 	a_number           bigint  NOT NULL,
-	a_optional_string  varchar(255) COLLATE utf8mb4_bin,
-	resource_id        varchar(64) COLLATE utf8mb4_bin NOT NULL UNIQUE REFERENCES adversarial_resource(id)
+	a_optional_string  varchar(255) COLLATE utf8mb4_0900_as_cs,
+	resource_id        varchar(64) COLLATE utf8mb4_0900_as_cs NOT NULL UNIQUE REFERENCES adversarial_resource(id)
 );
 CREATE TABLE adversarial_inner (
-	id                 varchar(64) COLLATE utf8mb4_bin PRIMARY KEY,
+	id                 varchar(64) COLLATE utf8mb4_0900_as_cs PRIMARY KEY,
 	a_bool             boolean NOT NULL,
-	a_string           varchar(255) COLLATE utf8mb4_bin NOT NULL,
+	a_string           varchar(255) COLLATE utf8mb4_0900_as_cs NOT NULL,
 	a_number           bigint  NOT NULL,
-	a_optional_string  varchar(255) COLLATE utf8mb4_bin,
-	parent_id          varchar(64) COLLATE utf8mb4_bin NOT NULL UNIQUE REFERENCES adversarial_parent(id)
+	a_optional_string  varchar(255) COLLATE utf8mb4_0900_as_cs,
+	parent_id          varchar(64) COLLATE utf8mb4_0900_as_cs NOT NULL UNIQUE REFERENCES adversarial_parent(id)
 );
 `
 
@@ -346,6 +350,9 @@ func buildMapper() cerbosent.Mapper {
 		},
 	}
 
+	tagNames := *tags
+	tagNames.Field = &cerbosent.Entry{Column: "name", ValueType: cerbosent.ValueString, NullConvention: cerbosent.NullConventionExplicit}
+
 	labels := &cerbosent.Relation{
 		Table:        labelTable,
 		SourceColumn: "id", TargetColumn: "sub_category_id",
@@ -403,17 +410,17 @@ func buildMapper() cerbosent.Mapper {
 		// `id-*` actions). An adapter that resolves references by stripping a
 		// `request.resource.attr.` prefix never sees this name.
 		"request.resource.id": {Column: "id"},
-		// Declared boolean so `string()` over it fails closed: SQLite and MySQL store a
-		// boolean as 1/0 and render "1" where CEL and PostgreSQL render "true", and nothing
-		// in the plan names a column's type.
+		// Declared boolean so `string()` over it spells CEL's "true"/"false" through a CASE
+		// rather than a CAST: SQLite and MySQL store a boolean as 1/0 and render "1" where CEL
+		// and PostgreSQL render "true", and nothing in the plan names a column's type.
 		"request.resource.attr.aBool": {Column: "a_bool", ValueType: cerbosent.ValueBool},
 		// Declared string so CEL's `+` between two columns resolves to concatenation:
 		// the operator is overloaded and the plan carries no operand types, so an
 		// undeclared pair fails closed rather than emitting a numeric `+`.
 		"request.resource.attr.aString":         {Column: "a_string", ValueType: cerbosent.ValueString},
-		"request.resource.attr.aNumber":         {Column: "a_number"},
-		"request.resource.attr.aDouble":         {Column: "a_double"},
-		"request.resource.attr.aOptionalString": {Column: "a_optional_string", ValueType: cerbosent.ValueString},
+		"request.resource.attr.aNumber":         {Column: "a_number", ValueType: cerbosent.ValueNumber},
+		"request.resource.attr.aDouble":         {Column: "a_double", ValueType: cerbosent.ValueNumber},
+		"request.resource.attr.aOptionalString": {Column: "a_optional_string", ValueType: cerbosent.ValueString, NullConvention: cerbosent.NullConventionOmitted},
 		"request.resource.attr.createdBy":       {Column: "created_by"},
 		// `owner` and `coOwner` alias columns that `aOptionalString` and `scope` also map, under
 		// the OTHER null convention: the oracle sends a real null attribute for them rather than
@@ -423,12 +430,13 @@ func buildMapper() cerbosent.Mapper {
 		"request.resource.attr.coOwner":   {Column: "scope", NullConvention: cerbosent.NullConventionExplicit},
 		"request.resource.attr.scope":     {Column: "scope"},
 		"request.resource.attr.createdAt": {Column: "created_at", ValueType: cerbosent.ValueTimestamp},
+		"request.resource.attr.updatedAt": {Column: "updated_at", ValueType: cerbosent.ValueTimestamp},
 		// obj.inner is not a real nested column — it mirrors aString, the same trick the
 		// spring-data and prisma reference harnesses use for the p-struct probe.
 		"request.resource.attr.obj.inner": {Column: "a_string"},
 
 		"request.resource.attr.tags":       {Relation: tags},
-		"request.resource.attr.tagNames":   {Relation: tags},
+		"request.resource.attr.tagNames":   {Relation: &tagNames},
 		"request.resource.attr.categories": {Relation: categories},
 
 		"request.resource.attr.mainCategory.subCategories": {Relation: mainSub},
@@ -471,12 +479,21 @@ func setupSuite(t *testing.T) *suite {
 	t.Helper()
 
 	corpus := loadCorpus(t, adapterName)
+	strictEvaluation, modeSet := os.LookupEnv("ADAPTER_TEST_STRICT_EVALUATION")
+	if !modeSet {
+		strictEvaluation = "false"
+	}
+	require.Contains(t, []string{"false", "true"}, strictEvaluation,
+		"ADAPTER_TEST_STRICT_EVALUATION must be false or true")
 
 	container, err := testcontainers.GenericContainer(t.Context(), testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:        corpus.CerbosImage,
 			ExposedPorts: []string{"3593/tcp"},
-			Cmd:          []string{"server", "--set=storage.disk.directory=/policies"},
+			Cmd: []string{
+				"server", "--set=storage.disk.directory=/policies",
+				"--set=engine.strictEvaluation=" + strictEvaluation,
+			},
 			Files: []testcontainers.ContainerFile{{
 				HostFilePath:      corpus.Dir + "/policies",
 				ContainerFilePath: "/policies",
@@ -535,11 +552,12 @@ func (h *harness) seed(t *testing.T) {
 		h.exec(t, resourceTable,
 			[]string{
 				"id", "a_bool", "a_string", "a_number", "a_double",
-				"a_optional_string", "created_by", "scope", "created_at",
+				"a_optional_string", "created_by", "scope", "created_at", "updated_at",
 			},
 			seed.ID, seed.ABool, seed.AString, seed.ANumber, nullableFloat(h.corpus.aDouble(seed)),
 			nullableString(seed.AOptionalString), h.corpus.createdBy(seed),
-			nullableString(h.corpus.scopeOf(seed)), h.storedTimestamp(t, seed))
+			nullableString(h.corpus.scopeOf(seed)), h.storedTimestamp(t, h.corpus.createdAt(seed)),
+			h.storedTimestamp(t, h.corpus.updatedAt(seed)))
 
 		// The to-one chain, one owned row per level. A seed with no parent gets no row at all,
 		// which is what makes the absent-parent hazard reachable through a SCALAR rather than
@@ -581,16 +599,15 @@ func (h *harness) seed(t *testing.T) {
 // PostgreSQL has a real instant type and takes the time.Time directly. SQLite stores text and
 // compares it lexicographically, so it gets the adapter's documented fixed-width layout — the same
 // one the adapter binds its own timestamp parameters in.
-func (h *harness) storedTimestamp(t *testing.T, seed Seed) any {
+func (h *harness) storedTimestamp(t *testing.T, raw *string) any {
 	t.Helper()
 
-	raw := h.corpus.createdAt(seed)
 	if raw == nil {
 		return nil
 	}
 
 	parsed, err := time.Parse(time.RFC3339Nano, *raw)
-	require.NoError(t, err, "parsing derived createdAt for %s", seed.ID)
+	require.NoError(t, err, "parsing derived timestamp")
 
 	if h.target.dialect == dialect.SQLite {
 		return parsed.UTC().Format(cerbosent.SQLiteTimestampLayout)
@@ -667,6 +684,14 @@ func (h *harness) checkResource(seed Seed) *cerbos.Resource {
 		"tags":       tags,
 		"tagNames":   tagNames,
 		"categories": categories,
+		// Sent verbatim, null elements included, and stored nowhere: the adapter refuses every
+		// shape over them. A positional read is `index`, which has no case in the vendored
+		// translator (a relation has no row order to read position 0 from), so the walk fails
+		// closed before any mapping is consulted and there is no column for a filter to read. The
+		// oracle still has to see them, because the degeneracy guard proves each refused action
+		// is a live, discriminating probe rather than one the PDP denies for every row.
+		"aNumberList": scalarList(seed.ANumberList),
+		"aBoolList":   scalarList(seed.ABoolList),
 	}
 
 	// Explicit null: `owner` aliases the same column but is sent as a real null attribute.
@@ -694,6 +719,9 @@ func (h *harness) checkResource(seed Seed) *cerbos.Resource {
 	}
 	if ts := h.corpus.createdAt(seed); ts != nil {
 		attr["createdAt"] = *ts
+	}
+	if ts := h.corpus.updatedAt(seed); ts != nil {
+		attr["updatedAt"] = *ts
 	}
 
 	// mainCategory mirrors the row's category graph as ONE nested object. Rows without a
@@ -832,11 +860,11 @@ func runConformance(t *testing.T, h *harness) {
 		}
 		// Corpus-size tripwire: bump deliberately when the corpus grows, so a new hostile shape
 		// cannot slip past this adapter unnoticed.
-		require.Len(t, seen, 205, "corpus size changed; triage the new action(s) before bumping")
-		require.Len(t, h.corpus.Seeds.Seeds, 22, "seed count changed")
+		require.Len(t, seen, 301, "corpus size changed; triage the new action(s) before bumping")
+		require.Len(t, h.corpus.Seeds.Seeds, 27, "seed count changed")
 		// Throwing-count tripwire: each of these carries a pinned message, so a shape gained or
 		// lost has to be re-triaged here rather than joining the throw suite unnoticed.
-		require.Len(t, h.corpus.ThrowingActions, 17, "throwing action count changed")
+		require.Len(t, h.corpus.ThrowingActions, 63, "throwing action count changed")
 	})
 
 	t.Run("oracle", func(t *testing.T) {
@@ -929,7 +957,15 @@ func runConformance(t *testing.T, h *harness) {
 				// Anti-vacuity: pin WHY the rejection is required. Under the default explicit
 				// representation this adapter emits IS NULL and returns rows the PDP denies, so
 				// the rejection is load-bearing rather than incidental.
-				overGranted, err := h.adapterFilteredIDs(t, entry.Action)
+				explicitHarness := *h
+				explicitHarness.mapper = cerbosent.MapperFunc(func(ref string) (cerbosent.Entry, bool) {
+					mapped, ok := h.mapper.Resolve(ref)
+					if ref == "request.resource.attr.aOptionalString" {
+						mapped.NullConvention = cerbosent.NullConventionExplicit
+					}
+					return mapped, ok
+				})
+				overGranted, err := explicitHarness.adapterFilteredIDs(t, entry.Action)
 				require.NoError(t, err, "the explicit representation must still translate %s", entry.Action)
 				require.NotEmpty(t, overGranted,
 					"%s must return rows under the explicit representation, else the rejection proves nothing",
@@ -1033,9 +1069,14 @@ func runConformance(t *testing.T, h *harness) {
 		//
 		// w1-size-zero-chain, w1-not-size-chain, w1-size-frac-chain, cast-int-string and
 		// cast-double-string are deliberately absent: their oracles are empty by CONSTRUCTION (no
-		// seed holds a to-one parent with zero children, nor one with two or more; every seed's
-		// aString raises in int()/double()), so they cannot satisfy this guard.
+		// seed holds a to-one parent with zero children, nor one with two or more; no aString
+		// converts to a number greater than 50), so they cannot satisfy this guard.
 		compared := []string{
+			// #396: failed conversions stay unknown under negation.
+			"cast-not-string-missing", "cast-not-string-null",
+			// #430: projection macros and negated leaves through a to-one hop.
+			"projection-exists-eq", "projection-exists-not-eq",
+			"rel-not-eq-hop", "rel-not-contains-hop", "rel-not-hierarchy-hop",
 			"vf-le", "in-single", "like-percent", "exists-on-empty", "not-exists",
 			"nary-and", "field-to-field", "ternary-cmp", "arith-add", "size-threshold",
 			"hier-ancestor-cf", "pv-exists", "in-null-elem-mixed", "null-eq", "cs-eq",
@@ -1063,10 +1104,10 @@ func runConformance(t *testing.T, h *harness) {
 			// hard error on PostgreSQL and a silent OVER-grant on MySQL, which coerces both
 			// operands to 0.
 			"id-eq-const", "id-f2f-ne", "id-concat", "id-concat-vf",
-			// string() over a NUMERIC column, the half that lowers to CAST on every engine. Its
-			// boolean sibling is refused instead, so this entry proves the supported half still
-			// compares.
-			"cast-string-double",
+			// string() over both kinds of column. A NUMERIC one lowers to a plain CAST on every
+			// engine; a BOOLEAN one is spelled through a CASE before the cast, because the CAST
+			// alone renders the stored 1 as "1" on SQLite and MySQL where CEL says "true" (#418).
+			"cast-string-double", "cast-string-bool",
 			// CEL's `+` between two COLUMNS (#391), resolved by the caller declaring the
 			// columns ValueString. Rendered as numeric `+` it was a hard error on
 			// PostgreSQL, 0 rows on SQLite, and 16 of 21 on MySQL against a one-row oracle.
@@ -1082,29 +1123,104 @@ func runConformance(t *testing.T, h *harness) {
 			// operands are not interchangeable in the emitted SQL; and the BELOW-cliff unroll of
 			// a principal collection, the shape a principal with three teams produces.
 			"not-and", "not-contains", "vf-hasint", "pv-exists-unrolled",
+			// #411: direct membership keeps a list operand at both principal list sizes.
+			"pv-in", "pv-in-unrolled",
 			// The shapes an Elasticsearch audit found unguarded: size(string) as an emptiness check,
 			// membership in a map literal (the planner folds it to its key list), and a double
 			// literal beyond int64 on a double field. double-huge-lt has an EMPTY oracle by
 			// construction and sits in neither list; its sibling carries the group.
 			"string-size-gt0", "in-map-keys", "double-huge-gt",
+			// #414: the observed classification of every new discriminating action.
+			"wildcard-contains",
+			"wildcard-endswith",
+			"size-ge-one",
+			"in-numbers",
+			"pv-shadow",
+			"pv-not-exists",
+			"pv-not-all",
+			"root-not-bool",
+			"lambda-in-literal",
+			"lambda-in-literal-neg",
+			"lambda-ternary",
+			"in-var-var-omitted",
+			"in-var-var-omitted-neg",
+			"not-concat-unsolvable",
+			"not-concat-unsolvable-ne",
+			"not-hasint-empty-chain",
+			"not-nan-ord-le",
+			"not-ternary-parent",
+			"not-nan-order-string",
+			"hasint-null-vf",
+			"hasint-map-vf",
+			"hasint-map-null",
+			"hasint-map-null-vf",
 		}
 		// int() over a numeric column is unsupported for every adapter but convex, so there is no
 		// comparison behind it here: it stays as a PDP/policy liveness probe for the cast group.
 		// Asserting the complement keeps the split honest — a shape this adapter gains support for
 		// must move up into the compared list.
-		// string() over a BOOLEAN column is refused because CAST is dialect-dependent there
-		// (#376), and the constructed hierarchy path because `list` has no translator case at
-		// all — so neither has a comparison behind it here.
+		// The constructed hierarchy path has no comparison behind it here either, because `list`
+		// has no translator case at all.
 		// #387 adds three more groups with no comparison behind them: modulo (reached through the
 		// int() cast that gives `%` an integer operand), the positional read of a scalar list, and
 		// list equality over a map() projection, which reaches a plain value position where a held
 		// collection has no scalar meaning.
 		livenessOnly := []string{
-			"cast-int-double", "cast-string-bool", "hier-list-id",
+			// #396: refusals retain live, discriminating oracle probes.
+			"regex-final-newline", "regex-eq-true", "regex-lookahead",
+			"index-negative", "index-fractional", "index-not-oob",
+			"cast-not-int", "cast-not-double", "cast-not-timestamp",
+			"cast-int-double", "hier-list-id",
 			"arith-mod", "index-scalar-list", "map-eq-list",
+			// Index errors and explicit-null elements must stay distinguishable under negation.
+			"index-scalar-list-not-eq", "index-scalar-list-null",
+			// The same positional read over number and boolean elements, refused by the same
+			// missing `index` case: both polarities, and the two cross-type probes CEL answers
+			// false for every row where a JSON-as-SQL reading answers true for b4 or c1.
+			"index-number-list", "index-number-list-not-eq",
+			"index-bool-list", "index-bool-list-not-eq",
+			"index-bool-list-vs-number", "index-number-list-vs-bool",
 			// An empty hierarchy delimiter is refused before the prefix LIKE is built, and a regex
 			// with a top-level alternation is a matches(), never translated here.
 			"hier-empty-delim", "matches-alt",
+			// #414: the observed classification of every new discriminating action.
+			"regex-digit",
+			"regex-case",
+			"regex-posix",
+			"regex-unanchored",
+			"regex-dot",
+			"regex-alternation",
+			"regex-grouped",
+			"regex-brace",
+			"regex-repetition",
+			"regex-optional-operators",
+			"pv-except",
+			"except-size",
+			"except-eq",
+			"pv-structs",
+			"pv-exists-one",
+			"pv-filter",
+			"pv-map",
+			"hier-overlaps-list-prefix",
+			"div-by-division",
+			"temporal-raw-eq",
+			"eq-list",
+			"ne-list",
+		}
+
+		// These oracles are empty by construction: planner identities, type errors,
+		// or heterogeneous equality. Pin that outcome instead of a vacuous comparison.
+		for _, action := range []string{"except-root", "pv-empty-exists", "pv-empty-not-all", "pv-structs-null", "pv-structs-missing", "type-string-number", "type-number-string", "type-columns", "type-size-bool", "type-size-number", "type-hierarchy-number", "type-number-contains", "type-needle-contains", "type-number-startswith", "type-needle-startswith", "type-number-endswith", "type-needle-endswith", "eq-map", "eq-map-null", "in-nested-list", "in-list-element", "hasint-map-element"} {
+			t.Run("empty oracle/"+action, func(t *testing.T) {
+				require.Empty(t, h.oracleAllowedIDs(t, action))
+			})
+		}
+		// These oracles are total by construction: planner identities, type errors,
+		// or heterogeneous equality. Pin that outcome instead of a vacuous comparison.
+		for _, action := range []string{"pv-empty-not-exists", "pv-empty-all", "ne-map"} {
+			t.Run("total oracle/"+action, func(t *testing.T) {
+				require.Equal(t, h.allSeedIDs(), h.oracleAllowedIDs(t, action))
+			})
 		}
 
 		oracleCompared := h.corpus.OracleComparedActions()

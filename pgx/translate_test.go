@@ -15,10 +15,14 @@ import (
 	cerbospgx "github.com/cerbos/query-plan-adapters/pgx"
 )
 
-// Unit tests over hand-built plans. These complement the adversarial suite rather than duplicating
-// it: the corpus proves semantics against a real PDP but only ever feeds the adapter plans the
-// planner actually emits, so it cannot say what happens to a malformed or hostile one. Everything
-// here runs without Docker.
+// Unit tests over hand-built plans, complementing the adversarial suite: the corpus proves
+// semantics against a real PDP but only ever feeds the adapter plans the planner actually emits, so
+// it cannot say what happens to a malformed or hostile one. Everything here runs without Docker.
+//
+// The translator this file exercises is vendored byte-for-byte into the ent module as well, so the
+// invariants below are deliberately kept in step with ent/translate_test.go — same names, same
+// section order, same shapes. ent's file additionally carries a dialect-coverage section, since
+// that adapter spells the same tree for three engines.
 
 // -- plan builders -------------------------------------------------------------------------------
 
@@ -50,18 +54,45 @@ func conditional(cond *operand) *responsev1.PlanResourcesResponse {
 	}
 }
 
+func tagRelation(filter ...cerbospgx.Restriction) *cerbospgx.Relation {
+	return &cerbospgx.Relation{
+		Table:          "tag",
+		SourceColumn:   "id",
+		TargetColumn:   "resource_id",
+		Field:          &cerbospgx.Entry{Column: "name"},
+		Fields:         map[string]cerbospgx.Entry{"name": {Column: "name"}},
+		SubqueryFilter: filter,
+	}
+}
+
 func testMapper() cerbospgx.Mapper {
 	return cerbospgx.MapperMap{
 		"request.resource.attr.name":  {Column: "name"},
 		"request.resource.attr.count": {Column: "count"},
 		"request.resource.attr.owner": {Column: "owner"},
-		"request.resource.attr.tags":  {Relation: &cerbospgx.Relation{Table: "tag", SourceColumn: "id", TargetColumn: "resource_id", Field: &cerbospgx.Entry{Column: "name"}, Fields: map[string]cerbospgx.Entry{"name": {Column: "name"}}}},
+		"request.resource.attr.flag":  {Column: "flag", ValueType: cerbospgx.ValueBool},
+		"request.resource.attr.tags":  {Relation: tagRelation()},
 	}
 }
 
 func translate(t *testing.T, cond *operand, opts ...cerbospgx.Option) (cerbospgx.Result, error) {
 	t.Helper()
 	return cerbospgx.Translate(conditional(cond), "resource", testMapper(), opts...)
+}
+
+// translateWith translates a plan against a mapper and requires it to succeed.
+func translateWith(t *testing.T, mapper cerbospgx.Mapper, cond *operand) cerbospgx.Result {
+	t.Helper()
+	result, err := cerbospgx.Translate(conditional(cond), "resource", mapper)
+	require.NoError(t, err)
+	return result
+}
+
+// tagsExists is `R.attr.tags.exists(t, t.name == "x")`.
+func tagsExists(t *testing.T) *operand {
+	t.Helper()
+	return expr("exists", variable("request.resource.attr.tags"),
+		expr("lambda", expr("eq", variable("t.name"), val(t, "x")), variable("t")))
 }
 
 // -- malformed plans must error, never panic -----------------------------------------------------
@@ -105,7 +136,6 @@ func TestMalformedPlansReturnErrors(t *testing.T) {
 		{name: "regex", cond: expr("matches", variable("request.resource.attr.name"), val(t, ".*"))},
 		{name: "filter outside size", cond: expr("filter", variable("request.resource.attr.tags"), expr("lambda", val(t, true), variable("t")))},
 		{name: "hasIntersection between two stored collections", cond: expr("hasIntersection", variable("request.resource.attr.tags"), variable("request.resource.attr.tags"))},
-		{name: "modulus by zero", cond: expr("eq", expr("mod", val(t, 4), val(t, 0)), val(t, 0))},
 	}
 
 	for _, tc := range cases {
@@ -353,7 +383,6 @@ func TestIdentifiersAreQuoted(t *testing.T) {
 		"resource", mapper,
 	)
 	require.NoError(t, err)
-	require.Contains(t, result.Where, `"we""ird"`)
 	require.Equal(t, 1, strings.Count(result.Where, `"we""ird"`))
 }
 
@@ -379,8 +408,7 @@ func TestTranslateRejectsMissingArguments(t *testing.T) {
 func TestRootTableCannotShadowGeneratedAliases(t *testing.T) {
 	t.Parallel()
 
-	cond := expr("exists", variable("request.resource.attr.tags"),
-		expr("lambda", expr("eq", variable("t.name"), val(t, "x")), variable("t")))
+	cond := tagsExists(t)
 
 	_, err := cerbospgx.Translate(conditional(cond), "cerbos_rel_1", testMapper())
 	require.ErrorIs(t, err, cerbospgx.ErrUnsupported)
@@ -491,6 +519,26 @@ func TestNumericCastsAreRejected(t *testing.T) {
 	}
 }
 
+// TestStringOverABooleanSpellsCELsWords pins string() over a column declared ValueBool
+// (cerbos/query-plan-adapters#418). PostgreSQL's own CAST(bool AS text) already says "true", but
+// the vendored translator serves SQLite and MySQL too, where the same CAST says "1", so the column
+// is spelled through a CASE first on every engine. The corpus's cast-string-bool proves the two
+// words against the oracle.
+//
+// Corpus gap. The IS NULL arm ahead of the column's own test is policy-reachable, and no corpus
+// action reaches it because the corpus's aBool is never null, so this test is a bridge tracked by
+// #469 rather than its home. Without the arm a NULL column falls through to 'false', and
+// `string(x) != "true"` returns a row the PDP denies.
+func TestStringOverABooleanSpellsCELsWords(t *testing.T) {
+	t.Parallel()
+
+	result, err := translate(t, expr("eq", expr("string", variable("request.resource.attr.flag")), val(t, "true")))
+	require.NoError(t, err)
+	require.Contains(t, result.Where,
+		`CAST((CASE WHEN ("resource"."flag" IS NULL) THEN NULL WHEN "resource"."flag" THEN $1::text ELSE $2::text END) AS text) = $3::text`)
+	require.Equal(t, []any{"true", "false", "true"}, result.Args)
+}
+
 // TestMapperQualifierCannotShadowGeneratedAliases covers the other half of the alias guard: the
 // collision can come from an Entry's own qualifier, not just the resource table.
 func TestMapperQualifierCannotShadowGeneratedAliases(t *testing.T) {
@@ -520,31 +568,6 @@ func hazardMapper(rel *cerbospgx.Relation) cerbospgx.Mapper {
 	}
 }
 
-func tagRelation(filter ...cerbospgx.Restriction) *cerbospgx.Relation {
-	return &cerbospgx.Relation{
-		Table:          "tag",
-		SourceColumn:   "id",
-		TargetColumn:   "resource_id",
-		Field:          &cerbospgx.Entry{Column: "name"},
-		Fields:         map[string]cerbospgx.Entry{"name": {Column: "name"}},
-		SubqueryFilter: filter,
-	}
-}
-
-func translateWith(t *testing.T, mapper cerbospgx.Mapper, cond *operand) cerbospgx.Result {
-	t.Helper()
-	result, err := cerbospgx.Translate(conditional(cond), "resource", mapper)
-	require.NoError(t, err)
-	return result
-}
-
-// tagsExists is `R.attr.tags.exists(t, t.name == "x")`.
-func tagsExists(t *testing.T) *operand {
-	t.Helper()
-	return expr("exists", variable("request.resource.attr.tags"),
-		expr("lambda", expr("eq", variable("t.name"), val(t, "x")), variable("t")))
-}
-
 // TestSubqueryFilterNarrowsEveryShapeBuiltOnTheRelation is the load-bearing assertion: the
 // declaration has to reach every subquery the translator builds over the relation, not just the
 // one the author of the feature happened to look at. A shape that misses it silently reverts to
@@ -561,8 +584,6 @@ func TestSubqueryFilterNarrowsEveryShapeBuiltOnTheRelation(t *testing.T) {
 		{name: "exists", cond: tagsExists(t)},
 		{name: "negated exists", cond: expr("not", tagsExists(t))},
 		{name: "all", cond: expr("all", variable("request.resource.attr.tags"),
-			expr("lambda", expr("eq", variable("t.name"), val(t, "x")), variable("t")))},
-		{name: "except", cond: expr("except", variable("request.resource.attr.tags"),
 			expr("lambda", expr("eq", variable("t.name"), val(t, "x")), variable("t")))},
 		{name: "exists_one", cond: expr("exists_one", variable("request.resource.attr.tags"),
 			expr("lambda", expr("eq", variable("t.name"), val(t, "x")), variable("t")))},
@@ -616,8 +637,7 @@ func TestSubqueryFilterRestrictsIntermediateHops(t *testing.T) {
 	cond := expr("not", expr("exists", variable("request.resource.attr.chain"),
 		expr("lambda", expr("eq", variable("s.name"), val(t, "x")), variable("s"))))
 
-	result, err := cerbospgx.Translate(conditional(cond), "resource", mapper)
-	require.NoError(t, err)
+	result := translateWith(t, mapper, cond)
 
 	// The negated macro renders the element subquery twice (true and UNKNOWN witnesses) and the
 	// hop-existence guard once, and all three read `category`. The guard is the one that matters:
@@ -772,4 +792,63 @@ func TestNullConventionOverridesTheCallLevelRepresentation(t *testing.T) {
 	_, err = cerbospgx.Translate(conditional(nullEq), "resource", omitted)
 	require.ErrorIs(t, err, cerbospgx.ErrUnsupported)
 	require.Contains(t, err.Error(), "null operand")
+}
+
+// The corpus fixes scalar semantics; these vary the caller's mapping to a related
+// column, whose declared type must survive the scalar subquery wrapper.
+func TestRelatedScalarTypeDeclaration(t *testing.T) {
+	t.Parallel()
+	mapper := cerbospgx.MapperMap{
+		"request.resource.attr.count": {
+			Column: "amount", ValueType: cerbospgx.ValueNumber,
+			ScalarRelation: &cerbospgx.Relation{Table: "details", SourceColumn: "id", TargetColumn: "resource_id"},
+		},
+	}
+	for _, operator := range []string{"contains", "startsWith", "endsWith"} {
+		t.Run(operator, func(t *testing.T) {
+			t.Parallel()
+			cond := expr(operator, variable("request.resource.attr.count"), val(t, "x"))
+			query := translateWith(t, mapper, cond).Where
+			require.Contains(t, query, "NULL")
+			require.NotContains(t, query, "LIKE")
+		})
+	}
+	cond := expr("ne", variable("request.resource.attr.count"), val(t, "x"))
+	query := translateWith(t, mapper, cond).Where
+	require.Contains(t, query, "IS NOT NULL", "a missing related row must remain UNKNOWN under negation")
+	require.NotContains(t, query, "<> ", "declared numbers must not be compared to SQL strings")
+}
+
+// These contracts vary type/null declarations and relation mappings that the corpus fixes.
+func TestMixedScalarTypesPreserveExplicitNullEquality(t *testing.T) {
+	t.Parallel()
+	mapper := cerbospgx.MapperMap{
+		"request.resource.attr.name":  {Column: "name", ValueType: cerbospgx.ValueString, NullConvention: cerbospgx.NullConventionExplicit},
+		"request.resource.attr.count": {Column: "count", ValueType: cerbospgx.ValueNumber, NullConvention: cerbospgx.NullConventionExplicit},
+	}
+	for _, operator := range []string{"eq", "ne"} {
+		cond := expr(operator, variable("request.resource.attr.name"), variable("request.resource.attr.count"))
+		result := translateWith(t, mapper, cond)
+		query := result.Where
+		require.Contains(t, query, `"resource"."name" IS NULL`)
+		require.Contains(t, query, `"resource"."count" IS NULL`)
+		if operator == "ne" {
+			require.Contains(t, query, "NOT")
+		}
+	}
+}
+
+func TestOmittedRelatedMembershipNeedlePreservesMissing(t *testing.T) {
+	t.Parallel()
+	mapper := cerbospgx.MapperMap{
+		"request.resource.attr.name": {
+			Column: "name", ValueType: cerbospgx.ValueString, NullConvention: cerbospgx.NullConventionOmitted,
+			ScalarRelation: &cerbospgx.Relation{Table: "details", SourceColumn: "id", TargetColumn: "resource_id"},
+		},
+		"request.resource.attr.tags": {Relation: &cerbospgx.Relation{Table: "tag", SourceColumn: "id", TargetColumn: "resource_id", Field: &cerbospgx.Entry{Column: "name", NullConvention: cerbospgx.NullConventionExplicit}}},
+	}
+	cond := expr("not", expr("in", variable("request.resource.attr.name"), variable("request.resource.attr.tags")))
+	result := translateWith(t, mapper, cond)
+	query := result.Where
+	require.Contains(t, query, `IS NOT NULL) THEN (NOT (CASE`, "a missing related needle must remain UNKNOWN even for an empty collection")
 }

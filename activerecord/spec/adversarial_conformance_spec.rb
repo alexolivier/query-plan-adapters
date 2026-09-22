@@ -63,7 +63,7 @@ RSpec.describe "adversarial conformance" do
   # into adapterUnsupported fails this list instead of emptying it without a word.
   #
   # The list belongs to this adapter. Do not copy it from another harness: this adapter compares
-  # 178 of the 187 conformance actions, and a list built for an adapter that compares fewer would
+  # 227 of the 288 conformance actions, and a list built for an adapter that compares fewer would
   # leave most of the groups here with no guard at all (cerbos/query-plan-adapters#324).
   #
   # Each entry has an oracle that is not empty and not every seed. Some actions cannot join
@@ -77,6 +77,13 @@ RSpec.describe "adversarial conformance" do
   # under the `omitted` representation. Both pin WHY the refusal is required, not merely that
   # one happens.
   DEGENERACY_GUARD_ACTIONS = (%w[
+    cast-not-string-missing cast-not-string-null
+    projection-exists-eq
+    projection-exists-not-eq
+    rel-not-eq-hop
+    rel-not-contains-hop
+    rel-not-hierarchy-hop
+
     vf-le
     in-single
     like-percent
@@ -144,15 +151,31 @@ RSpec.describe "adversarial conformance" do
     # the wire the other way round; and the BELOW-cliff unroll of a principal collection, the
     # shape a principal holding three teams produces.
     %w[not-and not-contains vf-hasint pv-exists-unrolled] +
+    # Direct membership keeps a value list at both principal-list sizes (#411).
+    %w[pv-in pv-in-unrolled] +
     # CEL `%`, which is integer-only and so arrives under an int() cast. This adapter lowers
     # both, which is why the entry is here rather than among the probes below: ent, pgx and
     # spring-data all refuse the shape at the cast.
     %w[arith-mod] +
+    # string() over a boolean column, the half of the cast pair where a CAST disagrees with CEL
+    # (#418). It goes through a CASE and not through the CAST that cast-string-double proves,
+    # so that sibling cannot speak for it.
+    %w[cast-string-bool] +
     # The shapes an Elasticsearch audit found unguarded: size(string) as an emptiness check,
     # membership in a map literal (the planner folds it to its key list), and a double literal
     # beyond int64 on a double field. double-huge-lt has an EMPTY oracle by construction and
     # sits in neither list; its sibling carries the group.
-    %w[string-size-gt0 in-map-keys double-huge-gt]).freeze
+    %w[string-size-gt0 in-map-keys double-huge-gt] +
+    %w[
+      wildcard-contains wildcard-endswith size-ge-one
+      in-numbers pv-shadow pv-not-exists
+      pv-not-all pv-exists-one root-not-bool
+      lambda-in-literal lambda-in-literal-neg lambda-ternary
+      in-var-var-omitted in-var-var-omitted-neg not-concat-unsolvable
+      not-concat-unsolvable-ne hier-overlaps-list-prefix not-hasint-empty-chain
+      not-nan-ord-le not-ternary-parent not-nan-order-string hasint-null-vf hasint-map-vf
+      hasint-map-null hasint-map-null-vf
+    ]).freeze
 
   # Shapes that this adapter REFUSES, kept because their group has no compared member here and
   # a non-degenerate oracle still proves that the PDP and the policy are live. Each one is
@@ -165,33 +188,45 @@ RSpec.describe "adversarial conformance" do
   # column, and arithmetic composed ON a division. cr-div-then-add-ne is the second sub-shape
   # again, so one action speaks for it.
   #
-  # The other two are positional access into a scalar list and a map() projection compared to a
-  # literal list. Each is the only member of its group this adapter refuses, so each stays a
-  # probe until the adapter learns to translate it.
+  # Positional scalar-list access probes equality, negation and explicit-null elements, over
+  # the string list `tagNames` and over the number and boolean lists, where two cross-type
+  # probes compare a boolean element with 1 and a number element with true. All of them are
+  # refused at `index`, and each is listed rather than one sibling speaking for the rest: a
+  # positional lowering is exactly the change that would start translating some and not
+  # others. A map() projection compared to a literal list is also refused. Each stays a probe
+  # until the adapter learns to translate it.
   #
   # An empty hierarchy delimiter is refused before the prefix LIKE is built, and a regex with a
   # top-level alternation is a matches(), which this adapter never translates.
   LIVENESS_ONLY_PROBES = %w[
+    regex-final-newline regex-eq-true regex-lookahead
+    index-negative index-fractional index-not-oob
+    cast-not-int cast-not-timestamp cast-not-double
     cr-div-other-column cr-div-then-add index-scalar-list map-eq-list
+    index-scalar-list-not-eq index-scalar-list-null
+    index-number-list index-number-list-not-eq index-bool-list index-bool-list-not-eq
+    index-bool-list-vs-number index-number-list-vs-bool
     hier-empty-delim matches-alt
+    regex-digit regex-case regex-posix
+    regex-unanchored regex-dot regex-alternation
+    regex-grouped regex-brace regex-repetition
+    regex-optional-operators except-size except-eq
+    pv-structs pv-filter pv-map pv-except
+    div-by-division temporal-raw-eq eq-list
+    ne-list
   ].freeze
 
   describe "corpus" do
-    # This test is a control and not a formality. A new action in the corpus must not go past
-    # this adapter without a test. Increase these numbers only when you know why
-    # conformance/actions.json is larger.
+    # Corpus additions must update both the classification and degeneracy tripwires.
     it "pins the corpus size" do
-      expect(ConformanceCorpus::ACTIONS_FILE.fetch("conformance").size).to eq(192)
+      expect(ConformanceCorpus::ACTIONS_FILE.fetch("conformance").size).to eq(288)
       expect(ConformanceCorpus::EXPECTED_UNSUPPORTED.size).to eq(11)
       expect(ConformanceCorpus::NULL_REPRESENTATION_OMITTED.size).to eq(1)
-      expect(ConformanceCorpus::MANIFEST_ACTIONS.size).to eq(205)
-      # Every one of these carries a pinned message, so a throwing action that appears or
-      # disappears must be triaged here and cannot join the suite quietly.
-      expect(ConformanceCorpus::THROWING_ACTIONS.size).to eq(20)
-      # The guard has one entry for each group of hostile shapes. A new group arrives with a
-      # new action, which the count above already stops. This number makes the second half of
-      # that decision explicit: name a representative for the new group here.
-      expect(DEGENERACY_GUARD_ACTIONS.size).to eq(65)
+      expect(ConformanceCorpus::MANIFEST_ACTIONS.size).to eq(301)
+      # Refusals must retain their pinned messages.
+      expect(ConformanceCorpus::THROWING_ACTIONS.size).to eq(72)
+      # Each new hostile group needs a non-degenerate representative.
+      expect(DEGENERACY_GUARD_ACTIONS.size).to eq(100)
     end
 
     # Adding a throwing action without a pinned message must fail the run and must not turn the
@@ -228,6 +263,28 @@ RSpec.describe "adversarial conformance" do
       end
     end
 
+    # These are deliberately degenerate: heterogeneous operands cannot allow, empty
+    # macros have CEL identity values, and scalar-vs-map inequality is always true.
+    it "pins the intentional empty and total oracles of the issue 414 probes" do
+      %w[
+        except-root pv-empty-exists pv-empty-not-all
+        pv-structs-null pv-structs-missing type-string-number
+        type-number-string type-columns type-size-bool
+        type-size-number type-hierarchy-number type-number-contains
+        type-needle-contains type-number-startswith type-needle-startswith
+        type-number-endswith type-needle-endswith eq-map
+        eq-map-null in-nested-list in-list-element
+        hasint-map-element
+      ].each do |action|
+        expect(AdversarialOracle.allowed_ids(action)).to be_empty, action
+      end
+      %w[
+        pv-empty-not-exists pv-empty-all ne-map
+      ].each do |action|
+        expect(AdversarialOracle.allowed_ids(action)).to eq(ConformanceCorpus::SEEDS.map { |seed| seed.fetch("id") }.sort), action
+      end
+    end
+
     # The seeder for the to-one chain, pinned directly (ADR 0005).
     #
     # The two hops are read back THROUGH the joins and compared with the corpus, and the rows
@@ -261,6 +318,26 @@ RSpec.describe "adversarial conformance" do
       }
 
       expect(stored).to eq(expected)
+    end
+
+    # The seeder for the two scalar lists, read back in position order and compared with the
+    # corpus. Nothing this adapter translates reads them yet — every action on them is refused
+    # at `index` — so this is the only test that sees the stored rows, and a dropped null
+    # element or a lost position would otherwise wait for the first action that compares them.
+    it "seeds the number and boolean lists in corpus order, null elements included" do
+      {
+        "aNumberList" => AdvNumberListElement, "aBoolList" => AdvBoolListElement
+      }.each do |key, model|
+        stored = Hash.new { |hash, id| hash[id] = [] }
+        model.order(:resource_id, :position).pluck(:resource_id, :value).each do |id, value|
+          stored[id] << value
+        end
+
+        expected = ConformanceCorpus::SEEDS.to_h { |seed| [seed.fetch("id"), seed.fetch(key)] }
+        expect(expected.values.flatten).to include(nil), "#{key}: no null element to prove"
+        expect(expected.keys.to_h { |id| [id, stored[id]] }).to eq(expected), key
+        expect(stored.keys - expected.keys).to be_empty, key
+      end
     end
 
     # #387. `filter-as-conjunct` puts a filter() ONE LEVEL BELOW the root, where the guard that

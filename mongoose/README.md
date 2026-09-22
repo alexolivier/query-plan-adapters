@@ -64,14 +64,25 @@ built filter rather than pushing it into the leaf, so a leaf cannot tell whether
 is correct under any nesting. See
 [#302](https://github.com/cerbos/query-plan-adapters/issues/302).
 
+Collection predicates reject references outside their lambda scope across all leaf comparison
+operators. This is a breaking change for previously accepted outer references: MongoDB's
+`$elemMatch` cannot evaluate them against the root document. Hierarchy comparisons through
+to-one relations are supported, including negation, with missing-parent guards.
+
 ## Conformance contract
 
-The adapter is differentially tested against Cerbos PDP 0.54.0 `checkResource` decisions using 22 hostile seed documents and real MongoDB 7 and 8 queries. The Spring Data adapter defines the reference semantics for this compatibility snapshot.
+Conformance runs select the PDP engine mode with `ADAPTER_TEST_STRICT_EVALUATION=false`
+(the default) or `ADAPTER_TEST_STRICT_EVALUATION=true`; other values are rejected.
+For example, `ADAPTER_TEST_STRICT_EVALUATION=true npm run test:adversarial` runs the
+corpus with strict evaluation enabled for both planning and the `check()` oracle.
+CI runs both modes for each existing adversarial store and client-version combination.
+
+The adapter is differentially tested against Cerbos PDP 0.55.0 `checkResource` decisions in both evaluation modes using 27 hostile seed documents and real MongoDB 7 and 8 queries. The Spring Data adapter defines the reference semantics for this compatibility snapshot.
 
 | Classification | Coverage |
 | --- | --- |
-| Oracle-tested | 147 reference conformance actions plus regex, ordered indexing/`get-field`, timestamp and mixed-null field-to-field probes (151 actions) |
-| Fail-closed | 45 reference actions plus the 7 reference-unsupported shapes (52 actions total) |
+| Oracle-tested | 198 reference conformance actions plus regex, ordered indexing/`get-field`, timestamp and mixed-null field-to-field probes (202 actions) |
+| Fail-closed | 90 reference actions plus the 7 reference-unsupported shapes (97 actions total) |
 | Operand types the plan does not carry | CEL overloads `+` on strings and a query plan names no field types. One string operand settles it, so `R.attr.a + "x"` translates as `$concat`. Between **two field paths** neither does, and MongoDB spells the two differently — `$add` takes numeric and date types only — so the shape is refused at translation. It previously reached the server as `$add`, which aborts the whole query (cerbos/query-plan-adapters#391) |
 | Representation-dependent | `null-eq-missing` — rejected under `nullAttributeRepresentation: "omitted"`. Under the default it already returns the empty set the PDP demands, because `nullable: true` on a mapper entry declares per-attribute that a stored null is a missing Cerbos attribute; the global option is the backstop for mappings that do not declare it |
 | Attribute NULL convention | Needs no declaration: Mongoose stores the value the caller sent, so a stored null already compares as a null *value* exactly as CEL does. The four `null-value-*` corpus probes for the explicit convention (cerbos/query-plan-adapters#308) were aligned before that option existed; the fifth is refused by the pre-existing negated-collection-macro limitation, not by the null convention |
@@ -99,6 +110,17 @@ This adapter **builds no subquery.** A relation is a path inside the same docume
 | To-one relation used as a collection | Not applicable — a document path holds exactly what the application stored | — |
 | Composite association key | Not applicable — no join, so no key to compose | — |
 | Absent to-one parent | **Reproduced**, and proved by the corpus (`w1-all-chain`, `rel-not-bool-hop` and siblings) | `relation.requiresParent` for a flattened ARRAY parent, so `size(chain)` comparisons yield null rather than 0 ([#309](https://github.com/cerbos/query-plan-adapters/issues/309)). A `type: "one"` relation needs no declaration — it is a hop by definition ([#375](https://github.com/cerbos/query-plan-adapters/issues/375)). **Behaviour change in #375:** a `type: "one"` relation now ANDs `{ <path>: { $ne: null } }` outside any `$nor`, so a negation over it no longer matches documents where the subdocument is absent (an over-grant fix, consumer-visible); and a bare boolean read through a to-one hop is now translated instead of throwing "Bare collection variables are unsupported" |
+
+Mapper entries may declare `valueType: "number" | "string" | "boolean" | "dateTime"`.
+Declare numeric and string columns to prevent Mongoose from casting a mismatched CEL equality
+literal into the column's type. A `valueParser` remains an explicit caller override. Declare
+stored `Date` fields as `dateTime`: a bare comparison of two such fields now throws because
+MongoDB has discarded the original strings that CEL compares. Use `timestamp(...)` on both
+operands when the policy compares instants.
+
+Whole-list equality and list-valued membership needles now throw before a filter is returned;
+the relation mapping represents element fields rather than an ordered list. These refusals are
+breaking changes for shapes that previously produced invalid or incorrect filters.
 
 ## Requirements
 
@@ -164,10 +186,12 @@ export type MapperConfig = {
   field?: string;
   nullable?: boolean;
   valueParser?: (value: any) => any;
+  valueType?: "number" | "string" | "boolean" | "dateTime";
   relation?: {
     name: string;
     type: "one" | "many";
     field?: string;
+    requiresParent?: string;
     fields?: Record<string, MapperConfig>;
   };
 };

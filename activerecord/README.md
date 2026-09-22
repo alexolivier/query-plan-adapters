@@ -42,11 +42,33 @@ error is a bug report.
 The adapter never changes an operator into a weaker operator. It never changes `exists_one`
 into `exists`. If it cannot escape a `LIKE` needle, it never lets the wildcards stay.
 
+The issue #414 probes tighten translation: size and string operations reject numeric or
+boolean columns; raw temporal-column comparisons require `timestamp()` wrappers because
+SQL discards RFC-3339 spelling. Nested list membership is refused before SQL rendering.
+These are breaking changes for shapes that previously emitted an incorrect or invalid filter.
+Negated scalar-list macros, omitted scalar membership, hierarchy prefix shortcuts and NaN
+ordering now preserve CEL's null/error behavior through negation. Comparisons between known
+heterogeneous scalar types preserve CEL equality and missing values instead of allowing SQL
+to coerce a string such as `"0"` into a number; two declared explicit nulls still compare equal.
+
 ### Conformance contract
+
+**Compatibility:** constant NaN ordering follows Cerbos 0.55: an unordered comparison is
+false, so its negation is true. This differs from Cerbos 0.54, where the comparison was
+an evaluation error and remained denied under negation. Missing attributes and other
+evaluation errors retain their existing behavior.
+
+
+The corpus is verified against Cerbos 0.55.0 with strict evaluation both disabled and enabled.
+
+The live conformance harness accepts `ADAPTER_TEST_STRICT_EVALUATION=false` (the default)
+or `true`, and rejects other values. CI runs both modes against the same corpus, comparing
+each plan with `check()` decisions from a PDP configured with that same mode.
+
 
 The tests compare this adapter with the PDP pinned in `../conformance/CERBOS_VERSION` and
 `../conformance/CERBOS_IMAGE_DIGEST`. For each action, the test makes a
-plan with a real PDP, translates the plan, runs the query against 22 difficult rows, and
+plan with a real PDP, translates the plan, runs the query against 27 difficult rows, and
 compares the ids in the result with the decisions of `checkResource` for each row. The PDP
 gives the results for both sides. No person writes the expected results. The Spring Data
 adapter gives the reference behaviour.
@@ -58,16 +80,17 @@ server. Rewrite it with `./scripts/golden-update.sh` and review the diff.
 
 | Classification | Coverage |
 | --- | --- |
-| Tested against the oracle | 182 corpus actions |
-| Fail-closed | 20 actions: 9 that this adapter cannot show, and the 11 that the reference adapter does not support either. Each one must raise an error whose message the corpus pins, so a typo or a transport error cannot pass as the refusal |
+| Tested against the oracle | 227 corpus actions |
+| Fail-closed | 72 actions: 61 that this adapter cannot show, and the 11 that the reference adapter does not support either. Each one must raise an error whose message the corpus pins, so a typo or a transport error cannot pass as the refusal |
 | Refused under the `omitted` NULL convention | 1 action — see [The NULL convention of the caller](#the-null-convention-of-the-caller) |
 | Known difference in the planner | The Cerbos planner changes `has()` on a missing attribute into `ALWAYS_ALLOWED`, but `checkResource` denies the rows in which the attribute is missing. Until the planner has a correction, use `R.attr.x != null` and not `has(R.attr.x)` for the attributes in your database |
 
 The fail-closed set is small, because SQL can show most of the corpus directly. The adapter
 makes `LIKE` with an ESCAPE clause. It makes correlated `COUNT` subqueries for the relation
 counts and for `exists_one`. The database calculates the arithmetic on columns and the lengths
-of the strings. A comparison between two models is a usual correlated predicate. These shapes
-stay:
+of the strings. `string()` over a boolean column becomes a `CASE` that spells `'true'` and
+`'false'`, because `CAST(col AS TEXT)` gives `"1"` on SQLite and MySQL. A comparison between two
+models is a usual correlated predicate. These shapes stay:
 
 | Action | Why the adapter raises an error |
 | --- | --- |
@@ -79,10 +102,9 @@ stay:
 | `p-timestamp` | `timestamp()` on a column that holds a timestamp in text. A comparison between that column and a `Time` compares two different text formats. Thus the order of the results comes from the text and not from the instants. Map the attribute to a `datetime` column. |
 | `cast-int-string`, `cast-double-string` | `int()` and `double()` over a text column. CEL reads the WHOLE string or makes an error, and Cerbos then denies the row, but SQL reads the digits at the front: `CAST('1junk' AS INTEGER)` is `1` on SQLite. Compare the column directly, or give an operator override. |
 | `cast-int-double` | `int()` over a double column. CEL removes the fraction toward zero. PostgreSQL and MySQL round a `CAST` to the nearest whole number, so the two disagree for every value with a fraction of one half or more. |
-| `cast-string-bool` | `string()` over a **boolean** column. SQLite and MySQL have no boolean type and keep 1 or 0, so `CAST(col AS TEXT)` gives `"1"` where CEL gives `"true"`, and the filter would then remove every row. PostgreSQL alone gives `"true"`. The limitation is the CAST rather than the dialect: this adapter does branch per dialect elsewhere (`Dialect#concat`, `#char_length`, `#double_type`), and a three-valued `CASE WHEN col IS NULL THEN NULL WHEN col THEN 'true' ELSE 'false' END` would agree with CEL on every engine at once — it is simply not what the cast path builds today. `string()` over a number or a text column translates, because `CAST` agrees on all three. Compare the boolean column directly, or give an operator override that spells the two words your database uses. |
 | `filter-as-condition`, `map-as-condition` | A `filter()` or a `map()` that a policy uses as the whole condition. Those operations give a list and not a boolean, and only `size(filter(...))` or `hasIntersection(map(...), [...])` has a boolean meaning. |
 | `filter-as-conjunct` | The same list-where-a-boolean-belongs, one level BELOW the root: `filter(...) && R.attr.aBool`. The other conjunct is one the adapter can certainly express, so dropping the one it cannot would emit a filter that returns rows the PDP denies for every seed. |
-| `index-scalar-list` | `tagNames[0]`, positional access into a scalar list. The same missing row order as `p-index`, reached through a relation mapped by member field rather than through a principal attribute. |
+| `index-scalar-list`, `index-number-list`, `index-number-list-not-eq`, `index-bool-list`, `index-bool-list-not-eq`, `index-bool-list-vs-number`, `index-number-list-vs-bool` | `tagNames[0]`, `aNumberList[0]` and `aBoolList[0]`, positional access into a list of strings, numbers or booleans. The same missing row order as `p-index`, reached through a relation mapped by member field rather than through a principal attribute. The last two compare a boolean element with `1` and a number element with `true`, which CEL answers false for every row. SQLite holds a boolean as the integer 1, so a positional lowering that compared the stored element with the literal would return rows the PDP denies. |
 | `map-eq-list` | A `map()` projection compared with `==` to a literal list. The projection is held until `size()` or `hasIntersection()` gives it a scalar meaning; comparing the ordered projection itself gives it none, and a correlated subquery has no ordering to compare element-wise against. |
 | `hier-empty-delim` | A hierarchy with an empty delimiter. Cerbos splits the path on `""` into one segment per character, so `descendentOf` becomes a test of a string prefix. The adapter makes `LIKE prefix + delimiter + '%'`, which with an empty delimiter also matches the path itself, and a path is never its own descendant. The adapter refuses the delimiter before it makes the `LIKE`. |
 
@@ -214,7 +236,10 @@ CEL compares strings with attention to the case of the letters. The dialect cont
 collation of `LIKE`. Thus a collation without attention to the case makes `contains`,
 `startsWith` and `endsWith` select more rows than the policy permits. On SQLite, set
 `PRAGMA case_sensitive_like = ON`. On MySQL, use a `_bin` collation or a `_cs` collation for
-the columns in your policies.
+the columns in your policies. `string()` over a boolean column compares two literals and no
+column, so MySQL uses the collation of the connection for it. Make that collation
+case-sensitive too: with the default `utf8mb4_0900_ai_ci`, `string(R.attr.flag) == "TRUE"`
+selects the rows where the flag is true, and CEL selects none.
 
 The suites here use SQLite only. This adapter has no test coverage for the other dialects.
 
@@ -467,6 +492,11 @@ this rule in the SQL:
   `exists` ignores the errors if one element gives true. `all` ignores them if one element
   gives false. `exists_one` never ignores them. Thus each quantifier gets its own guard for the
   error.
+- **`string()` over a boolean column becomes a `CASE` whose first arm is `IS NULL THEN NULL`.**
+  CEL has no `string()` for a missing or null value, so it makes an error and denies the row.
+  Without that arm, `WHEN col` is UNKNOWN for a NULL column, the `CASE` goes to its `ELSE`, and
+  the result is `'false'`. Then `string(R.attr.x) != "true"` would select a row that the PDP
+  denies.
 
 ## Development
 

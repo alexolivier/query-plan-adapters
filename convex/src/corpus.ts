@@ -48,6 +48,46 @@ export const ADAPTER = "convex";
 
 export const CONFORMANCE_DIR = path.join(__dirname, "..", "..", "conformance");
 
+// -- the PDP -------------------------------------------------------------------------------------
+
+/**
+ * The gRPC address of the PDP `scripts/run-adversarial.sh` started for THIS run: a Unix socket in a
+ * directory that run created, exported by `cerbos run` as CERBOS_GRPC. There is deliberately no
+ * default and no TCP form. A fixed port is how a suite ends up planning against another run's PDP
+ * (cerbos/query-plan-adapters#476): `cerbos run` does not fail on a port that is already bound, and
+ * whichever PDP answers wins — possibly on another corpus revision or evaluation mode.
+ */
+export function pdpAddress(): string {
+  const address = process.env["CERBOS_GRPC"];
+  if (address === undefined || !address.startsWith("unix:")) {
+    throw new Error(
+      `CERBOS_GRPC is ${JSON.stringify(address)}, expected the unix: socket scripts/run-adversarial.sh ` +
+        "starts the PDP on. Run this suite through `npm run test:adversarial`, not jest directly.",
+    );
+  }
+  return address;
+}
+
+/**
+ * Fails the run unless the PDP reports the version pinned in conformance/CERBOS_VERSION. The wire
+ * fixtures and every classification are recorded against that version, and locally `cerbos run`
+ * is whatever `cerbos` binary is on PATH, so a stale one would otherwise pass or fail the corpus
+ * for reasons the corpus does not describe.
+ */
+export async function assertPinnedPdp(pdp: {
+  serverInfo(): Promise<{ version: string }>;
+}): Promise<void> {
+  const pinned = fs
+    .readFileSync(path.join(CONFORMANCE_DIR, "CERBOS_VERSION"), "utf8")
+    .trim();
+  const { version } = await pdp.serverInfo();
+  if (version !== pinned) {
+    throw new Error(
+      `The PDP at ${pdpAddress()} reports version ${version}, but conformance/CERBOS_VERSION pins ${pinned}.`,
+    );
+  }
+}
+
 const WIRE_FIXTURES_DIR = path.join(CONFORMANCE_DIR, "wire-fixtures");
 
 /** The golden expectations this adapter owns. Never under `conformance/` — see ADR 0007. */
@@ -229,7 +269,6 @@ export interface ThrowingAction {
 export interface ActionClassification {
   oracleActions: string[];
   throwingActions: ThrowingAction[];
-  supportedExpected: Set<string>;
 }
 
 /** The pinned message, or a failure — a throwing action without one asserts nothing. */
@@ -261,28 +300,24 @@ export function classifyActionsForAdapter(
     ...supportedExpected,
   ];
   const throwingActions: ThrowingAction[] = [
-    ...unsupported.map(
-      (entry): ThrowingAction => ({
-        action: entry.action,
-        reason: entry.reason,
-        message: requireMessage(
-          `adapterUnsupported.${adapter}.${entry.action}`,
-          entry.message,
-        ),
-      }),
-    ),
+    ...unsupported.map((entry): ThrowingAction => ({
+      action: entry.action,
+      reason: entry.reason,
+      message: requireMessage(
+        `adapterUnsupported.${adapter}.${entry.action}`,
+        entry.message,
+      ),
+    })),
     ...manifest.expectedUnsupported
       .filter((entry) => !supportedExpected.has(entry.action))
-      .map(
-        (entry): ThrowingAction => ({
-          action: entry.action,
-          reason: entry.shape,
-          message: requireMessage(
-            `expectedUnsupported.${entry.action}.messages.${adapter}`,
-            entry.messages[adapter],
-          ),
-        }),
-      ),
+      .map((entry): ThrowingAction => ({
+        action: entry.action,
+        reason: entry.shape,
+        message: requireMessage(
+          `expectedUnsupported.${entry.action}.messages.${adapter}`,
+          entry.messages[adapter],
+        ),
+      })),
   ];
 
   return {
@@ -290,7 +325,6 @@ export function classifyActionsForAdapter(
     throwingActions: throwingActions.sort((left, right) =>
       left.action.localeCompare(right.action),
     ),
-    supportedExpected,
   };
 }
 
@@ -336,6 +370,9 @@ export interface Seed {
   aString: string;
   aNumber: number;
   aOptionalString: string | null;
+  /** Homogeneous scalar lists for the positional-read actions; a null element is a null VALUE. */
+  aNumberList: (number | null)[];
+  aBoolList: (boolean | null)[];
   tags: Tag[];
   subCategoryNames: string[];
   /** The seed whose scalars this row's to-one `parent` carries; null for no parent. */
@@ -353,6 +390,7 @@ export interface DerivedEntry {
   createdBy: string;
   aDouble: number | null;
   createdAt: string | null;
+  updatedAt: string | null;
   scope: string | null;
   labels: (string | null)[];
 }
@@ -368,6 +406,8 @@ const SEED_KEYS = [
   "aString",
   "aNumber",
   "aOptionalString",
+  "aNumberList",
+  "aBoolList",
   "tags",
   "subCategoryNames",
   "parentSeedId",
@@ -384,6 +424,7 @@ const DERIVED_KEYS = [
   "createdBy",
   "aDouble",
   "createdAt",
+  "updatedAt",
   "scope",
   "labels",
 ] as const;
@@ -407,18 +448,43 @@ const PRINCIPAL_ATTR_KEYS = [
   "context",
   "fewTeams",
   "manyTeams",
+  "zero",
+  "emptyTeams",
+  "manyStructs",
+  "nullableStructs",
+  "missingStructs",
 ] as const;
 
-/**
- * One principal attribute, checked against the two JSON shapes the corpus carries. A key-set guard
- * says nothing about a change inside a value and three of the four attributes are lists, so the
- * element type is asserted for the same reason the seed guard descends into `tags[]`.
- */
+/** Principal attributes have explicit value shapes, including absent versus null struct members. */
 function assertPrincipalAttrShape(label: string, value: unknown): void {
-  if (typeof value === "string") return;
-  if (isStringArray(value)) return;
+  const key = label.slice(label.lastIndexOf(".") + 1);
+  if (key === "context" && typeof value === "string") return;
+  if (key === "zero" && value === 0) return;
+  if (
+    ["allowedTags", "fewTeams", "manyTeams", "emptyTeams"].includes(key) &&
+    Array.isArray(value) &&
+    value.every((entry) => typeof entry === "string")
+  )
+    return;
+  if (
+    ["manyStructs", "nullableStructs", "missingStructs"].includes(key) &&
+    Array.isArray(value) &&
+    value.every((entry: unknown) => {
+      if (typeof entry !== "object" || entry === null || Array.isArray(entry))
+        return false;
+      if (key === "missingStructs") return Object.keys(entry).length === 0;
+      return (
+        Object.keys(entry).length === 1 &&
+        "name" in entry &&
+        (key === "nullableStructs"
+          ? entry.name === null
+          : typeof entry.name === "string")
+      );
+    })
+  )
+    return;
   throw new Error(
-    `${label} is neither a string nor an array of strings, the only two shapes this harness consumes: a reshaped principal attribute feeds the plan and the check() oracle at once`,
+    `${label} does not match its declared corpus principal shape`,
   );
 }
 
@@ -435,6 +501,14 @@ const isSeed = (value: unknown): value is Seed =>
   typeof value["aNumber"] === "number" &&
   (typeof value["aOptionalString"] === "string" ||
     value["aOptionalString"] === null) &&
+  Array.isArray(value["aNumberList"]) &&
+  value["aNumberList"].every(
+    (element) => element === null || typeof element === "number",
+  ) &&
+  Array.isArray(value["aBoolList"]) &&
+  value["aBoolList"].every(
+    (element) => element === null || typeof element === "boolean",
+  ) &&
   Array.isArray(value["tags"]) &&
   value["tags"].every(isTag) &&
   isStringArray(value["subCategoryNames"]) &&
@@ -451,6 +525,7 @@ const isDerivedEntry = (value: unknown): value is DerivedEntry =>
   typeof value["createdBy"] === "string" &&
   (typeof value["aDouble"] === "number" || value["aDouble"] === null) &&
   (typeof value["createdAt"] === "string" || value["createdAt"] === null) &&
+  (typeof value["updatedAt"] === "string" || value["updatedAt"] === null) &&
   (typeof value["scope"] === "string" || value["scope"] === null) &&
   Array.isArray(value["labels"]) &&
   value["labels"].every((label) => label === null || typeof label === "string");
@@ -490,7 +565,11 @@ export function parseSeedsFile(value: unknown): SeedsFile {
   // `attr` is optional on the SDK's Principal type; the corpus always carries it, and the
   // assertion above is what proves it rather than this fallback.
   const attr = seedsFile.principal.attr ?? {};
-  assertKeys("seeds.json principal.attr", Object.keys(attr), PRINCIPAL_ATTR_KEYS);
+  assertKeys(
+    "seeds.json principal.attr",
+    Object.keys(attr),
+    PRINCIPAL_ATTR_KEYS,
+  );
   for (const [key, attrValue] of Object.entries(attr)) {
     assertPrincipalAttrShape(`seeds.json principal.attr.${key}`, attrValue);
   }
@@ -547,11 +626,9 @@ export function parseDerivedFile(value: unknown, seeds: Seed[]): DerivedFile {
  * PDP's clock at nanosecond precision, and this adapter compares timestamps as strings in
  * JavaScript rather than lowering them to a store's own type, so the nine digits it has to carry
  * are the nine digits a real plan carries. A tidy millisecond instant here would quietly stop
- * exercising the precision this adapter's post-filter is written to preserve, and
- * `translator.test.ts` walks both sides of that boundary through the `plannedAt` override on
- * `planFromWireFixture`.
+ * exercising the precision this adapter's post-filter is written to preserve.
  */
-export const PLANNED_AT = "2026-08-11T09:13:39.123456789Z";
+const PLANNED_AT = "2026-08-11T09:13:39.123456789Z";
 
 interface WireOperand {
   expression?: { operator: string; operands: WireOperand[] };
@@ -565,14 +642,11 @@ interface WireFixture {
   filter: { kind: string; condition?: WireOperand };
 }
 
-function operandFromWire(
-  node: WireOperand,
-  plannedAt: string,
-): PlanExpressionOperand {
+function operandFromWire(node: WireOperand): PlanExpressionOperand {
   if (node.expression) {
     return new PlanExpression(
       node.expression.operator,
-      node.expression.operands.map((child) => operandFromWire(child, plannedAt)),
+      node.expression.operands.map(operandFromWire),
     );
   }
   if (node.variable !== undefined) {
@@ -587,8 +661,24 @@ function operandFromWire(
   // exactly the JSON shapes `Value` admits — but `JSON.parse` cannot say so, and re-validating a
   // file the corpus workflow regenerates and diffs would assert nothing new.
   return new PlanExpressionValue(
-    (node.value === "__NOW_MINUS_24H__" ? plannedAt : node.value) as Value,
+    (node.value === "__NOW_MINUS_24H__" ? PLANNED_AT : node.value) as Value,
   );
+}
+
+/**
+ * Whether any operand anywhere in a plan condition is a literal null, or a list containing one —
+ * the set `nullAttributeRepresentation: "omitted"` must reject. Walks the plan as plain data, so it
+ * reads a decoded fixture and a live PDP response alike, independently of the adapter's own scan.
+ */
+export function planCarriesNullLiteral(operand: unknown): boolean {
+  if (typeof operand !== "object" || operand === null) return false;
+  const node = operand as Record<string, unknown>;
+  if ("value" in node) {
+    const value = node["value"];
+    return value === null || (Array.isArray(value) && value.includes(null));
+  }
+  const operands = node["operands"];
+  return Array.isArray(operands) && operands.some(planCarriesNullLiteral);
 }
 
 /** Every action the corpus has a golden wire fixture for, sorted. */
@@ -609,10 +699,7 @@ export function wireFixtureActions(): string[] {
  * belief about what the planner emits, and this repository keeps fixtures precisely because that
  * belief has been wrong before. See docs/adr/0006.
  */
-export function planFromWireFixture(
-  action: string,
-  plannedAt: string = PLANNED_AT,
-): PlanResourcesResponse {
+export function planFromWireFixture(action: string): PlanResourcesResponse {
   const fixture: WireFixture = JSON.parse(
     fs.readFileSync(path.join(WIRE_FIXTURES_DIR, `${action}.json`), "utf8"),
   );
@@ -632,7 +719,7 @@ export function planFromWireFixture(
       return {
         ...base,
         kind: PlanKind.CONDITIONAL,
-        condition: operandFromWire(fixture.filter.condition, plannedAt),
+        condition: operandFromWire(fixture.filter.condition),
       };
     case PlanKind.ALWAYS_ALLOWED:
     case PlanKind.ALWAYS_DENIED:
@@ -660,16 +747,7 @@ export function planFromWireFixture(
  */
 export interface FilterNode {
   op:
-    | "field"
-    | "eq"
-    | "neq"
-    | "lt"
-    | "lte"
-    | "gt"
-    | "gte"
-    | "and"
-    | "or"
-    | "not";
+    "field" | "eq" | "neq" | "lt" | "lte" | "gt" | "gte" | "and" | "or" | "not";
   args: unknown[];
 }
 

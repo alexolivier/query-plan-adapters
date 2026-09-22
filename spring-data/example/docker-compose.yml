@@ -13,7 +13,7 @@ services:
     # agree. The tag alone would leave the digest free to name some other build entirely.
     # Deliberately not `latest`: this compose runs in CI (example smoke tests), and the
     # PDP an adapter is proved against must change only through a deliberate version bump.
-    image: ghcr.io/cerbos/cerbos:0.54.0@sha256:211c261f6031675522a35c6055b13fd719c4aff13747307e4bcb6907326537ef
+    image: ghcr.io/cerbos/cerbos:0.55.0@sha256:4b9d3b58c4f11c1b8953bc798d8d086e64f276882253ab169625fddc7f432515
     container_name: cerbos-photos-example
     command:
       - "server"
@@ -22,11 +22,11 @@ services:
       CERBOS_NO_TELEMETRY: "1"
       CERBOS_CONFIG: "/config/cerbos-config.yaml"
     # Deliberately NOT the default 3592/3593 on the host, and not demo/docker-compose.yml's
-    # 13592/13593 either. Every adapter's test suite starts a `cerbos run` sidecar on the
-    # defaults, and a PDP left holding them makes that sidecar fail to bind while the suite
-    # happily talks to THIS one — which serves photo/album/workspace policies, so the suite fails
-    # for a reason nothing in its output names. The container side of each mapping is the PDP's
-    # own listen port and stays 3592/3593.
+    # 13592/13593 either. 3592/3593 are Cerbos's default ports, which any other local PDP
+    # may be holding: a client that assumes the defaults would then talk to THIS one — which
+    # serves photo/album/workspace policies — or this one to that, and fail for a reason nothing
+    # in its output names. The container side of each mapping is the PDP's own listen port and
+    # stays 3592/3593.
     ports:
       - "23592:3592"
       - "23593:3593"

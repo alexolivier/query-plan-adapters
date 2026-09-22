@@ -55,10 +55,10 @@ for i in {1..30}; do
 done
 
 # The PDP address for the app, asked of Compose rather than restated here. docker-compose.yml
-# publishes the PDP well away from Cerbos's default 3593 — that is the port every adapter's
-# `cerbos run` test sidecar binds — and application.yaml reads CERBOS_HOST with no fallback, so
-# this is not a convenience: see the comment on `cerbos.address` there for why a default would be
-# worse than a failure to start. Reading the published port back keeps the number in one place.
+# publishes the PDP well away from Cerbos's default 3593 — the port any other local PDP may be
+# holding — and application.yaml reads CERBOS_HOST with no fallback, so this is not a
+# convenience: see the comment on `cerbos.address` there for why a default would be worse than a
+# failure to start. Reading the published port back keeps the number in one place.
 PUBLISHED_PDP=$(docker compose port cerbos 3593) ||
     fail "docker compose port cerbos 3593 — did the PDP publish its gRPC port?"
 export CERBOS_HOST="localhost:${PUBLISHED_PDP##*:}"
@@ -117,6 +117,7 @@ pdp_access_records_since() {
 
 PDP_BASELINE=$(pdp_plan_count)
 PDP_ACCESS_BASELINE=$(pdp_access_count)
+PLAN_PAIRS=()
 
 action_from_url() {
     local url=$1 action
@@ -194,6 +195,7 @@ assert_ids() {
     decision_before=$(pdp_plan_count)
     action=$(action_from_url "$url")
     resource=$(resource_from_url "$url")
+    PLAN_PAIRS+=("$resource/$action")
     got=$(curl -fsS "$url" | jq -r '[.[].id] | sort | join(",")')
     if [[ "$got" == "$expected" ]]; then
         ok "$label  => $got"
@@ -210,6 +212,7 @@ assert_page() {
     decision_before=$(pdp_plan_count)
     action=$(action_from_url "$url")
     resource=$(resource_from_url "$url")
+    PLAN_PAIRS+=("$resource/$action")
     response=$(curl -fsS "$url")
     got_ids=$(jq -r '[.content[].id] | join(",")' <<<"$response")
     got_total=$(jq -r '.totalElements' <<<"$response")
@@ -346,27 +349,8 @@ assert_ids "workspace/always-denied" \
 
 # Prove every successful HTTP assertion above made exactly one PlanResources call with the
 # expected resource/action pair. The full multiset cannot confuse the same action across kinds.
-EXPECTED_PLAN_PAIRS=$(printf '%s\n' \
-    photo/view photo/view photo/view photo/view photo/view \
-    photo/edit photo/edit \
-    photo/comment photo/comment \
-    photo/delete \
-    photo/discover \
-    photo/located \
-    photo/similar photo/similar photo/similar \
-    photo/delegated-view photo/delegated-view photo/delegated-view photo/delegated-view \
-    photo/delegated-view photo/delegated-view photo/delegated-view \
-    photo/group-grant photo/no-group-grant photo/no-group-grant-safe \
-    photo/needs-moderation photo/needs-moderation photo/needs-moderation \
-    photo/fully-reviewed \
-    photo/unlabelled \
-    photo/exactly-one-reviewed \
-    photo/percent-title \
-    photo/underscore-title \
-    photo/publish \
-    album/view album/view album/manage album/publish \
-    workspace/access workspace/access workspace/administer workspace/publish | sort)
-EXPECTED_PLAN_CALLS=$(printf '%s\n' "$EXPECTED_PLAN_PAIRS" | wc -l | tr -d ' ')
+EXPECTED_PLAN_PAIRS=$(printf '%s\n' "${PLAN_PAIRS[@]}" | sort)
+EXPECTED_PLAN_CALLS=${#PLAN_PAIRS[@]}
 
 OBSERVED_ACCESS_CALLS=$(( $(pdp_access_count) - PDP_ACCESS_BASELINE ))
 if (( OBSERVED_ACCESS_CALLS != EXPECTED_PLAN_CALLS )); then

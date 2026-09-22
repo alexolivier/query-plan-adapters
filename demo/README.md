@@ -21,14 +21,15 @@ directory is for. See [`CONTEXT.md`](../CONTEXT.md) for the full glossary.
 
 ## What an example covers that a conformance harness cannot
 
-Every harness already plans against a live PDP over gRPC, translates, runs a real ORM call against
+Every harness already plans against a live PDP, translates, runs a real ORM call against
 a real store, and compares ids against per-row `check()`. That chain is covered for every
 adapter and nothing here adds to it. Two gaps remain, and they are gaps *because of how the
 harnesses are built*:
 
 1. **Packaging.** Every harness imports its adapter from source (`from "."`). The published
    surface — `exports` maps, type declarations, `files` allowlists, peer ranges, POM scopes — is
-   executed nowhere. Examples install the packed artifact instead; see
+   executed nowhere. Examples install the packed artifact instead; Ent and pgx use local module
+   replacements and prove usage shapes only. See
    [ADR 0002](../docs/adr/0002-examples-install-the-packed-artifact.md).
 2. **Usage shape.** A harness runs one flat filtered query. Consumers also paginate, and compose
    the adapter's filter with predicates of their own. That second category is where a "returns a
@@ -91,13 +92,13 @@ to the adapter. Its `run.sh` must:
 - print exactly one JSON document to stdout, with everything else on stderr
 - reach the PDP at `$CERBOS_HOST`, which the runner sets — never a hardcoded address, and
   `validate-demo.sh` fails the build on one. The demo PDP is published on `13592`/`13593` rather
-  than the default `3592`/`3593` on purpose: those are the ports every adapter's `cerbos run` test
-  sidecar binds, and a demo PDP still holding them makes that sidecar fail to bind while the suite
-  silently talks to the demo policies instead.
+  than the default `3592`/`3593` on purpose: those are Cerbos's default ports, which any other local
+  PDP may be holding, and a client that assumes the defaults silently talks to whichever PDP
+  answers there, against policies that are not the demo's.
 
   This is a check rather than prose because prose did not hold it: the first two examples both
   shipped `?? "localhost:3593"`, so an unset `CERBOS_HOST` did not fail — it planned against
-  whichever sidecar held those ports, and the mismatch against `expected.json` read as an adapter
+  whichever PDP held those ports, and the mismatch against `expected.json` read as an adapter
   bug (cerbos/query-plan-adapters#367).
 
 - take its principal from `seeds.json` — look the id up in `principals` and plan with what comes
@@ -137,7 +138,11 @@ authorization bug. Here the id lists are frozen on purpose: this proves plumbing
 import, did the ORM accept the filter, did rows come back — where a frozen list is the better
 tripwire and reads as documentation.
 
-The rot risk is real, and `validate-demo.sh` is what answers it:
+`validate-demo.sh` first requires a non-empty adapter roster of non-empty, single-line names from
+`conformance/actions.json`. It reads that roster once and reuses it for every adapter check, so a
+missing or malformed roster cannot silently skip validation.
+
+It then checks:
 
 1. **Structural.** `expected.json` declares exactly the five shapes and every entry is well-formed
    for its shape — an `alwaysAllowed` entry carrying a conditional kind would leave that kind
@@ -150,10 +155,10 @@ The rot risk is real, and `validate-demo.sh` is what answers it:
    build.
 3. **Pin reuse and reachability.** The demo domain has no `CERBOS_VERSION` of its own. One PDP pin
    in the repository, reused, and every example reaches it — *at `$CERBOS_HOST`*. No example may
-   name a PDP client address of its own, because the obvious one to reach for is the port the test
-   sidecar binds, and that failure is silent rather than loud. The scan is for a client address
-   specifically: `docker-compose.yml`'s `"13592:3592"` names the PDP's own listen port on the
-   container side, which is correct.
+   name a PDP client address of its own, because the obvious one to reach for is Cerbos's default
+   port, which any other local PDP may be holding, and that failure is silent rather than loud. The
+   scan is for a client address specifically: `docker-compose.yml`'s `"13592:3592"` names the PDP's
+   own listen port on the container side, which is correct.
 4. **Example coverage.** Every adapter has a runnable `example/run.sh`. The roster it reads is
    `adapters` in `conformance/actions.json`; there is deliberately no second list, so registering
    an adapter in the corpus is what demands an example of it, and adding one without an example

@@ -7,10 +7,13 @@ import {
   PlanExpressionValue,
   PlanExpressionVariable,
 } from "@cerbos/core";
-import type { PlanExpressionOperand, PlanResourcesResponse } from "@cerbos/core";
+import type {
+  PlanExpressionOperand,
+  PlanResourcesResponse,
+} from "@cerbos/core";
 import type { Where } from "chromadb";
 
-import { PlanKind, queryPlanToChromaDB } from ".";
+import { PlanKind, queryPlanToChromaDB, UnsupportedOperatorError } from ".";
 import type { FieldMapper, FieldNameMapperConfig } from ".";
 import {
   ADAPTER,
@@ -31,60 +34,15 @@ import {
 import type { GoldenExpectation } from "./corpus";
 
 /**
- * Translator unit test: for every action in the shared `../conformance/` corpus, the Chroma `Where`
- * filter this adapter emits. Offline — no Cerbos sidecar, no ChromaDB, no Docker.
- *
- * A per-adapter suite used to braid four assertions into every test. Three of them are somebody
- * else's job now, and this file makes only the fourth:
- *
- * | assertion | who owns it |
- * | --- | --- |
- * | the plan the PDP produces for a policy | `conformance/wire-fixtures/`, replanned and diffed by the `Conformance Corpus` workflow |
- * | which shapes this adapter must refuse, and with what message | `conformance/actions.json` — read below, not restated |
- * | the documents a filter returns | `adversarial.test.ts`, against a real ChromaDB collection with `check()` as the oracle |
- * | **the filter this adapter emits for a plan** | **here** |
- *
- * **The plans are read, not written.** A hand-built plan is a *belief* about what the planner
- * emits, and this repository keeps golden fixtures because that belief has been wrong before: a
- * planner change used to fail fixture regeneration and silently leave every adapter's hand-written
- * plans describing a wire contract that no longer existed. See
- * [ADR 0006](../../docs/adr/0006-translator-unit-tests-take-their-plans-from-wire-fixtures.md).
- *
- * **The expectations are data, not literals.** The filters this adapter is pinned to emit live in
- * `golden/expectations.json`, a **golden expectation** file this adapter owns — never under
- * `conformance/`, where every adapter workflow triggers and one adapter re-pinning one filter would
- * re-run all the others. The file is regenerated with `npm run golden:update` and reviewed as a diff,
- * exactly like the wire fixtures it is asserted against. See
- * [ADR 0007](../../docs/adr/0007-adapters-share-data-not-code.md) and the "Golden expectations"
- * section of `conformance/README.md`.
- *
- * **This file reads as mostly-throws, and that is the adapter.** Chroma's `where` clause compares
- * flat scalar metadata on the document being matched: no joins, no collections, no arithmetic, no
- * pattern matching, no null. 164 of the corpus's 199 shapes are therefore fail-closed here, and
- * every one of them is asserted against the message `actions.json` pins rather than a bare "it
- * threw" — which for an adapter with this ratio is the difference between a suite and a formality
- * (cerbos/query-plan-adapters#326).
- *
- * **Adding a corpus action fails this file.** Every wire fixture must be accounted for here exactly
- * once — a golden expectation (an emitted filter or an unconditional plan kind) or a throw carrying
- * the message `actions.json` pins — and the completeness guard below is what makes a new action land
- * as a failure rather than as silence.
+ * Offline contract for planner wire fixtures: emitted filters, plan kinds, pinned refusals,
+ * and caller options that the shared corpus cannot vary. The adversarial suite separately
+ * executes filters against a store and compares them with the PDP oracle.
+ * Every fixture must appear exactly once in the completeness guard below (ADR 0006).
  */
 
 const actionsFile = parseActionsFile(readCorpusJson("actions.json"));
 
-/**
- * The shapes `actions.json` says this adapter must refuse, each with the message it must refuse
- * them with. Identical to the classification `adversarial.test.ts` asserts against a live PDP;
- * asserting it here as well is what lets the completeness guard below be total, and it costs a
- * millisecond rather than a PDP and a vector store.
- *
- * A throwing action needs no golden expectation of its own: the message is already corpus data,
- * pinned once in `actions.json` and read by every adapter. Writing it into this adapter's asset too
- * would create two places to change one string with nothing to say which is authoritative — and on
- * an adapter that refuses five sixths of the corpus, the asset would be almost entirely restatement
- * of shared data.
- */
+// Refusal messages come from the same classification ledger as the live harness.
 const THROWING_ACTIONS = [
   ...classifyActionsForAdapter(actionsFile, ADAPTER).throwingActions,
   // The `nullRepresentationOmitted` group belongs here on this adapter and only on this adapter's
@@ -103,6 +61,16 @@ function translate(
     queryPlan: planFromWireFixture(action, options.plannedAt),
     fieldNameMapper: options.fieldNameMapper ?? FIELD_NAME_MAPPER,
   });
+}
+
+/** Whatever `run` throws, or `undefined` if it returns. */
+function thrownBy(run: () => unknown): unknown {
+  try {
+    run();
+  } catch (error) {
+    return error;
+  }
+  return undefined;
 }
 
 /**
@@ -231,10 +199,15 @@ describe("corpus shapes", () => {
   // `toThrow()` just as well as the limitation the corpus documents (#326). The harness makes the
   // same assertion against a live PDP; here it costs a millisecond and covers the whole roster,
   // which is what lets the completeness guard below be total.
+  //
+  // And the type, over the same roster: every corpus refusal is a well-formed plan Chroma cannot
+  // express, so a caller catching `UnsupportedOperatorError` must see all of them (#228). A site
+  // that regresses to a plain `Error` keeps its message and fails here.
   test.each(THROWING_ACTIONS)(
     "%s is refused with the message actions.json pins (%s)",
     (action, _reason, message) => {
       expect(() => translate(action)).toThrow(message);
+      expect(() => translate(action)).toThrow(UnsupportedOperatorError);
     },
   );
 
@@ -270,7 +243,7 @@ describe("corpus shapes", () => {
       conditional: CONDITIONAL_ACTIONS.length,
       unconditional: RECORDED_ACTIONS.length - CONDITIONAL_ACTIONS.length,
       throwing: throwing.length,
-    }).toEqual({ conditional: 36, unconditional: 2, throwing: 167 });
+    }).toEqual({ conditional: 42, unconditional: 7, throwing: 252 });
   });
 });
 
@@ -279,7 +252,7 @@ describe("corpus shapes", () => {
  *
  * `actions.json` pins a substring of the message per action, so the throw suite above proves every
  * refusal is the declared one. It cannot say anything about the *shape* of the refusals taken
- * together, and on an adapter that refuses 164 of 199 shapes that is the more interesting property:
+ * together, and on an adapter that refuses 252 of 301 shapes that is the more interesting property:
  * five sixths of this corpus is rejected, and it matters whether that happens at five sites or at
  * one catch-all.
  *
@@ -288,7 +261,7 @@ describe("corpus shapes", () => {
  * as a declared limitation, which is the #326 trap at corpus scale. **Pinned counts**: a translator
  * change that moves a shape from one site to another shows up as a diff even though both sites throw
  * and `actions.json` is unchanged. The distribution below is the honest summary of this adapter:
- * `binaryOperands` rejecting a computed operand is the single mechanism behind 101 of the 164, and
+ * `binaryOperands` rejecting a computed operand is the single mechanism behind 152 of the 252, and
  * every reason in `actions.json` for those shapes — arithmetic, casts, ternaries, projections,
  * macros above the unroll cap — reduces to the same thing at the wire level, an operand that is not
  * a bare metadata key or a literal.
@@ -299,13 +272,16 @@ describe("the rejection sites the corpus reaches", () => {
     ["computed operand", /^Nested expressions are not supported/],
     // `binaryOperands`: both sides are metadata keys, and a Where clause compares one to a literal.
     ["field-to-field", /^Variable-to-variable comparisons are not supported/],
-    // `mapComparison` / `mapBooleanVariable`: $ne and $nin match a document missing the key.
-    ["inequality over an optional key", / is unsafe for optional Chroma metadata/],
-    // `whereFor`: the operator has no Chroma equivalent at all.
+    // `requirePresenceFor`: $ne and $nin match a document missing the key.
+    [
+      "inequality over an optional key",
+      / is unsafe for optional Chroma metadata/,
+    ],
+    // `mirrorOf` / `mapComparison`: the operator has no row in COMPARISONS at all.
     ["no such operator", /^Unsupported operator /],
-    // `negateOperand`: the operator is not in NEGATED_OPERATOR, so there is nothing to invert.
+    // `negationOf`: the operator's COMPARISONS row has no negation, so there is nothing to invert.
     ["not negatable", /^Cannot negate operator /],
-    // `normalizeOperator`: value-first `in` asks whether a literal is inside a metadata field.
+    // `mirrorOf`: value-first `in` asks whether a literal is inside a metadata field.
     [
       "mirrored membership",
       /^ChromaDB filters cannot test whether a literal is contained/,
@@ -343,19 +319,78 @@ describe("the rejection sites the corpus reaches", () => {
     }
 
     expect(counts).toEqual({
-      "computed operand": 103,
-      "no such operator": 19,
-      "inequality over an optional key": 12,
-      "not negatable": 11,
-      "field-to-field": 10,
-      "mirrored membership": 5,
-      "non-scalar literal": 4,
+      "computed operand": 152,
+      "no such operator": 38,
+      "inequality over an optional key": 14,
+      "not negatable": 17,
+      "field-to-field": 17,
+      "mirrored membership": 6,
+      "non-scalar literal": 5,
       "operand arity": 2,
       "fractional threshold": 1,
     });
     expect(Object.values(counts).reduce((sum, n) => sum + n, 0)).toEqual(
       THROWING_ACTIONS.length,
     );
+  });
+
+  /**
+   * The `operator` each refusal reports, which is what a caller catching `UnsupportedOperatorError`
+   * branches on (#228). Neither the pinned messages nor the sites above state it: a change that
+   * reports the enclosing comparison instead of the computed operand, or the raw operator instead
+   * of the negated one, moves this and nothing else.
+   *
+   * A collection macro reports itself whichever site refuses it: `exists(...)` is refused at its
+   * lambda operand, the computed-operand site, and `!exists(...)` before its operands are read, and
+   * both report `exists`. No refusal reports `lambda`, which names nothing a caller wrote.
+   */
+  test("every refusal names the operator it is about, in these numbers", () => {
+    const counts: Record<string, number> = {};
+    for (const [action] of THROWING_ACTIONS) {
+      const raised = thrownBy(() => translate(action));
+      const operator =
+        raised instanceof UnsupportedOperatorError
+          ? raised.operator
+          : "<not an UnsupportedOperatorError>";
+      counts[operator] = (counts[operator] ?? 0) + 1;
+    }
+
+    expect(counts).toEqual({
+      add: 14,
+      all: 8,
+      ancestorOf: 3,
+      contains: 11,
+      descendentOf: 6,
+      div: 8,
+      double: 2,
+      endsWith: 7,
+      eq: 9,
+      except: 2,
+      exists: 30,
+      exists_one: 3,
+      filter: 2,
+      ge: 1,
+      "get-field": 1,
+      hasIntersection: 10,
+      if: 18,
+      in: 11,
+      index: 12,
+      int: 3,
+      list: 1,
+      map: 3,
+      matches: 15,
+      mod: 1,
+      mult: 2,
+      ne: 14,
+      nin: 2,
+      overlaps: 6,
+      size: 21,
+      startsWith: 11,
+      string: 4,
+      struct: 3,
+      sub: 1,
+      timestamp: 7,
+    });
   });
 });
 
@@ -544,18 +579,18 @@ describe("mapper forms", () => {
     const asFunction: FieldMapper = (reference) =>
       FIELD_NAME_MAPPER[reference] ?? reference;
 
-    expect(
-      translate(RECORD_ACTION, { fieldNameMapper: asFunction }),
-    ).toEqual(translate(RECORD_ACTION));
+    expect(translate(RECORD_ACTION, { fieldNameMapper: asFunction })).toEqual(
+      translate(RECORD_ACTION),
+    );
   });
 
   /**
    * `vf-ne` is the discriminating action for the two tests below: under the corpus mapper, where
-   * `aString` is declared `required: true`, it translates. The pinned filter is read from the asset
-   * rather than restated — expectations are data in this file, including here.
+   * `aString` is declared `required: true`, it translates to an inequality over that key. Whether it
+   * still emits its golden expectation is the corpus-shapes suite's job; this pins that the asset
+   * entry is the `$ne` the tests below need, so they cannot pass against some other shape.
    */
-  test("the discriminating action translates under the corpus mapper", () => {
-    expect(translate("vf-ne")).toEqual(RECORDED.get("vf-ne")!.expectation);
+  test("the discriminating action is an inequality over a required key", () => {
     expect(literalsOf(recordedFilters("vf-ne"))).toEqual([
       { field: "aString", operator: "$ne", value: "one" },
     ]);
@@ -569,11 +604,14 @@ describe("mapper forms", () => {
   test.each([
     ["a plain-string mapping", { "request.resource.attr.aString": "aString" }],
     ["an unmapped reference", {}],
-  ])("%s is optional, so an inequality over it is refused", (_label, mapper) => {
-    expect(() => translate("vf-ne", { fieldNameMapper: mapper })).toThrow(
-      /ne is unsafe for optional Chroma metadata because missing fields match the filter/,
-    );
-  });
+  ])(
+    "%s is optional, so an inequality over it is refused",
+    (_label, mapper) => {
+      expect(() => translate("vf-ne", { fieldNameMapper: mapper })).toThrow(
+        /ne is unsafe for optional Chroma metadata because missing fields match the filter/,
+      );
+    },
+  );
 
   /**
    * An unmapped reference is used verbatim as the metadata key. It is documented behaviour rather
@@ -664,17 +702,29 @@ describe("plans the planner cannot produce", () => {
       metadata: undefined,
     }) as PlanResourcesResponse;
 
+  // A malformed plan is the caller's bug, not a policy shape Chroma cannot hold, so it stays a
+  // plain `Error`: a caller that routes `UnsupportedOperatorError` to a fallback must not route a
+  // half-decoded plan there with it (#228).
+  const expectPlainError = (run: () => unknown): void => {
+    const raised = thrownBy(run);
+    expect(raised).toBeInstanceOf(Error);
+    expect(raised).not.toBeInstanceOf(UnsupportedOperatorError);
+  };
+
   test("an unrecognised plan kind", () => {
-    expect(() =>
+    const run = () =>
       queryPlanToChromaDB({
         queryPlan: { kind: "INVALID_KIND" } as unknown as PlanResourcesResponse,
         fieldNameMapper: FIELD_NAME_MAPPER,
-      }),
-    ).toThrow("Invalid query plan.");
+      });
+    expect(run).toThrow("Invalid query plan.");
+    expectPlainError(run);
   });
 
+  // The same message as the corpus's ternary, which is typed: there the operator (`if`) is one
+  // this adapter maps to no comparison at all, here it is `eq` short of an operand.
   test("a comparison with the wrong number of operands", () => {
-    expect(() =>
+    const run = () =>
       queryPlanToChromaDB({
         queryPlan: plan(
           new PlanExpression("eq", [
@@ -682,12 +732,15 @@ describe("plans the planner cannot produce", () => {
           ]),
         ),
         fieldNameMapper: FIELD_NAME_MAPPER,
-      }),
-    ).toThrow("Expected exactly two operands");
+      });
+    expect(run).toThrow("Expected exactly two operands");
+    expectPlainError(run);
   });
 
+  // Typed, unlike its neighbours: two literals is not a structural defect in the plan but a shape
+  // the `Where` grammar cannot hold, since it compares a metadata key to a literal.
   test("a comparison between two literals", () => {
-    expect(() =>
+    const run = () =>
       queryPlanToChromaDB({
         queryPlan: plan(
           new PlanExpression("eq", [
@@ -696,19 +749,23 @@ describe("plans the planner cannot produce", () => {
           ]),
         ),
         fieldNameMapper: FIELD_NAME_MAPPER,
-      }),
-    ).toThrow(
+      });
+    expect(run).toThrow(
       "Value-to-value comparisons are not supported by ChromaDB filters",
     );
+    const raised = thrownBy(run);
+    expect(raised).toBeInstanceOf(UnsupportedOperatorError);
+    expect((raised as UnsupportedOperatorError).operator).toBe("eq");
   });
 
   test("a condition that is not an expression at all", () => {
-    expect(() =>
+    const run = () =>
       queryPlanToChromaDB({
         queryPlan: plan(new PlanExpressionValue(true)),
         fieldNameMapper: FIELD_NAME_MAPPER,
-      }),
-    ).toThrow("Query plan did not contain an expression for operand");
+      });
+    expect(run).toThrow("Query plan did not contain an expression for operand");
+    expectPlainError(run);
   });
 });
 

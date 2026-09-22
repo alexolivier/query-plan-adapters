@@ -43,12 +43,52 @@ import type { FieldNameMapperConfig } from ".";
 
 export const ADAPTER = "langchain-chromadb";
 
-export const CONFORMANCE_DIR = path.join(__dirname, "..", "..", "conformance");
+const CONFORMANCE_DIR = path.join(__dirname, "..", "..", "conformance");
+
+// -- the PDP -------------------------------------------------------------------------------------
+
+/**
+ * The gRPC address of the PDP `scripts/run-adversarial.sh` started for THIS run: a Unix socket in a
+ * directory that run created, exported by `cerbos run` as CERBOS_GRPC. There is deliberately no
+ * default and no TCP form. A fixed port is how a suite ends up planning against another run's PDP
+ * (cerbos/query-plan-adapters#476): `cerbos run` does not fail on a port that is already bound, and
+ * whichever PDP answers wins — possibly on another corpus revision or evaluation mode.
+ */
+export function pdpAddress(): string {
+  const address = process.env["CERBOS_GRPC"];
+  if (address === undefined || !address.startsWith("unix:")) {
+    throw new Error(
+      `CERBOS_GRPC is ${JSON.stringify(address)}, expected the unix: socket scripts/run-adversarial.sh ` +
+        "starts the PDP on. Run this suite through `npm run test:adversarial`, not jest directly.",
+    );
+  }
+  return address;
+}
+
+/**
+ * Fails the run unless the PDP reports the version pinned in conformance/CERBOS_VERSION. The wire
+ * fixtures and every classification are recorded against that version, and locally `cerbos run`
+ * is whatever `cerbos` binary is on PATH, so a stale one would otherwise pass or fail the corpus
+ * for reasons the corpus does not describe.
+ */
+export async function assertPinnedPdp(pdp: {
+  serverInfo(): Promise<{ version: string }>;
+}): Promise<void> {
+  const pinned = fs
+    .readFileSync(path.join(CONFORMANCE_DIR, "CERBOS_VERSION"), "utf8")
+    .trim();
+  const { version } = await pdp.serverInfo();
+  if (version !== pinned) {
+    throw new Error(
+      `The PDP at ${pdpAddress()} reports version ${version}, but conformance/CERBOS_VERSION pins ${pinned}.`,
+    );
+  }
+}
 
 const WIRE_FIXTURES_DIR = path.join(CONFORMANCE_DIR, "wire-fixtures");
 
 /** The golden expectations this adapter owns. Never under `conformance/` — see ADR 0007. */
-export const GOLDEN_FILE = path.join(
+const GOLDEN_FILE = path.join(
   __dirname,
   "..",
   "golden",
@@ -64,7 +104,7 @@ export function readCorpusJson(file: string): unknown {
 // The corpus is read rather than typed: `JSON.parse` returns `any`, and a cast would let a corpus
 // file that changed shape reach an assertion as `undefined` instead of failing at load.
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
+function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -259,8 +299,8 @@ export function parseActionsFile(value: unknown): ActionsFile {
  *
  * The message is what turns "it threw" into "it threw for the declared reason": without it a
  * mapper typo or an unrelated validation satisfies the assertion just as well as the limitation
- * the corpus documents. This adapter is the largest consumer of that distinction — 164 of the
- * corpus's 199 shapes are fail-closed here, so a bare throw assertion would prove almost nothing
+ * the corpus documents. This adapter is the largest consumer of that distinction — 252 of the
+ * corpus's 301 shapes are fail-closed here, so a bare throw assertion would prove almost nothing
  * (cerbos/query-plan-adapters#326).
  */
 export type ThrowingAction = readonly [
@@ -272,7 +312,6 @@ export type ThrowingAction = readonly [
 export interface ActionClassification {
   oracleActions: string[];
   throwingActions: ThrowingAction[];
-  supportedExpected: Set<string>;
 }
 
 /** The pinned message, or a failure — a throwing action without one asserts nothing. */
@@ -340,7 +379,6 @@ export function classifyActionsForAdapter(
     throwingActions: throwingActions.sort(([left], [right]) =>
       left.localeCompare(right),
     ),
-    supportedExpected,
   };
 }
 

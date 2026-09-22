@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "@jest/globals";
-import type { Resource, Value } from "@cerbos/core";
+import type { PlanResourcesResponse, Resource, Value } from "@cerbos/core";
 import { GRPC as Cerbos } from "@cerbos/grpc";
 import { ConvexHttpClient } from "convex/browser";
 
@@ -10,6 +10,8 @@ import {
   PUSHDOWN_MAPPER,
   type MapperVariant,
 } from "../convex/adversarialMapper";
+import type { AdversarialDocument } from "../convex/schema";
+import { executionPathOf } from "../convex/planExecution";
 import type { ExecutionPath } from "../convex/planExecution";
 import type { Mapper } from ".";
 import { PlanKind, queryPlanToConvex } from ".";
@@ -24,52 +26,19 @@ import {
   parseActionsFile,
   parseDerivedFile,
   parseSeedsFile,
+  planCarriesNullLiteral,
   readCorpusJson,
-  requireMessage,
+  assertPinnedPdp,
+  pdpAddress,
 } from "./corpus";
 import type { DerivedEntry, Seed } from "./corpus";
 
 const CONVEX_URL = process.env["CONVEX_URL"] ?? "http://127.0.0.1:3210";
 const convex = new ConvexHttpClient(CONVEX_URL);
-const cerbos = new Cerbos("127.0.0.1:3593", { tls: false });
+const cerbos = new Cerbos(pdpAddress(), { tls: false });
 
-interface StoredDocument {
-  id: string;
-  aBool: boolean;
-  aString: string;
-  aNumber: number;
-  aDouble?: number;
-  aOptionalString?: string;
-  createdBy: string;
-  createdAt?: string;
-  scope?: string;
-  owner: string | null;
-  coOwner: string | null;
-  tagNames: (string | null)[];
-  obj: { inner: string };
-  tags: { id: string; name?: string }[];
-  categories: {
-    name: string;
-    subCategories: {
-      name: string;
-      labels: { name?: string }[];
-    }[];
-  }[];
-  mainCategory?: {
-    name: string;
-    subCategories: { name: string }[];
-    subNames: string[];
-  };
-  parent?: StoredRelationLevel & { inner?: StoredRelationLevel };
-}
-
-/** One level of the to-one chain as stored: an absent `aOptionalString` is a missing attribute. */
-interface StoredRelationLevel {
-  aBool: boolean;
-  aString: string;
-  aNumber: number;
-  aOptionalString?: string;
-}
+type StoredDocument = AdversarialDocument;
+type StoredRelationLevel = Omit<NonNullable<StoredDocument["parent"]>, "inner">;
 
 // -- the corpus, read once ----------------------------------------------------------------------
 //
@@ -132,6 +101,16 @@ const MANIFEST_ACTIONS = new Set([
 // int()/double()), so they cannot satisfy a non-empty assertion.
 
 const DEGENERACY_GUARD_ACTIONS = [
+  "not-nan-order-string",
+  "not-ternary-parent",
+  // #430: projection macros and negated leaves through a to-one hop.
+  "projection-exists-eq",
+  "projection-exists-not-eq",
+  "rel-not-eq-hop",
+  "rel-not-contains-hop",
+  "rel-not-hierarchy-hop",
+  "pv-in",
+  "pv-in-unrolled",
   "vf-le",
   "like-percent",
   "all-on-empty",
@@ -197,15 +176,18 @@ const DEGENERACY_GUARD_ACTIONS = [
   "not-lt",
   "root-bare-bool",
   "or-eq-exists",
-  // Hazard classes the corpus missed (#387). Convex translates every compared one,
-  // and for three of them it is the ONLY adapter that does — the post-filter reimplements CEL
-  // rather than lowering to a query language, so modulo, a positional read of a scalar list and
-  // list equality all have exact meanings here. Those three carry the whole corpus's oracle
-  // comparison for their groups; every other adapter probes them fail-closed.
+  // Hazard classes the corpus missed (#387). Convex translates every compared one: the
+  // post-filter reimplements CEL rather than lowering to a query language, so modulo, a
+  // positional read of a scalar list and list equality all have exact meanings here. It is no
+  // longer alone on the first two — activerecord compares `arith-mod`, and the adapters with a
+  // declared ordered column (drizzle, sqlalchemy) or native arrays (mongoose) compare the
+  // positional reads — but list equality still has no other oracle comparison.
   "not-and",
   "not-contains",
   "arith-mod",
   "index-scalar-list",
+  "index-scalar-list-not-eq",
+  "index-scalar-list-null",
   "map-eq-list",
   "vf-hasint",
   "pv-exists-unrolled",
@@ -218,6 +200,56 @@ const DEGENERACY_GUARD_ACTIONS = [
   "in-map-keys",
   "double-huge-gt",
   "hier-empty-delim",
+  // #414: every newly discriminating shape guards its observed execution side.
+  "eq-list",
+  "hasint-map-null",
+  "hasint-map-null-vf",
+  "hasint-map-vf",
+  "hasint-null-vf",
+  "in-numbers",
+  "in-var-var-omitted",
+  "in-var-var-omitted-neg",
+  "lambda-in-literal",
+  "lambda-in-literal-neg",
+  "lambda-ternary",
+  "ne-list",
+  "not-concat-unsolvable",
+  "not-concat-unsolvable-ne",
+  "not-hasint-empty-chain",
+  "not-nan-ord-le",
+  "pv-exists-one",
+  "pv-filter",
+  "pv-map",
+  "pv-not-all",
+  "pv-not-exists",
+  "pv-shadow",
+  "regex-unanchored",
+  "root-not-bool",
+  "size-ge-one",
+  "temporal-raw-eq",
+  "wildcard-contains",
+  "wildcard-endswith",
+  // #396: error-bearing branches retain a non-empty oracle under their enclosing expression.
+  "cast-not-double",
+  "cast-not-int",
+  "cast-not-string-missing",
+  "cast-not-string-null",
+  "cast-not-timestamp",
+  "index-fractional",
+  "index-negative",
+  "index-not-oob",
+  "regex-eq-true",
+  "regex-final-newline",
+  // Number and boolean list elements (conformance/README.md, "Number and boolean list elements").
+  // The post-filter reads the stored element with its JSON type intact, so `true` never equals 1,
+  // and a null element is a value that negation admits. The two cross-type probes are compared
+  // rather than probed: their `aNumber == 5` branch keeps a1 in the oracle.
+  "index-number-list",
+  "index-number-list-not-eq",
+  "index-bool-list",
+  "index-bool-list-not-eq",
+  "index-bool-list-vs-number",
+  "index-number-list-vs-bool",
 ] as const;
 
 /**
@@ -235,6 +267,24 @@ const DEGENERACY_LIVENESS_PROBES = [
   // `list` is not in the adapter's known-operator set, so the constructed hierarchy path is
   // refused during structural validation. It is the id-* group's only throwing member here.
   "hier-list-id",
+  // #414: every newly discriminating shape guards its observed execution side.
+  "div-by-division",
+  "except-eq",
+  "except-size",
+  "hier-overlaps-list-prefix",
+  "pv-structs",
+  "pv-except",
+  "regex-alternation",
+  "regex-brace",
+  "regex-case",
+  "regex-digit",
+  "regex-dot",
+  "regex-grouped",
+  "regex-optional-operators",
+  "regex-posix",
+  "regex-repetition",
+  // #396: error-bearing branches retain a non-empty oracle under their enclosing expression.
+  "regex-lookahead",
 ] as const;
 
 // -- pushdown coverage (cerbos/query-plan-adapters#327) ------------------------------------------
@@ -291,7 +341,13 @@ const DB_DECIDED_DEFAULT = [
   "vf-le",
   "vf-lt",
   "vf-ne",
-];
+  "eq-list",
+  "in-numbers",
+  "ne-list",
+  "root-not-bool",
+  "type-number-string",
+  "type-string-number",
+].sort();
 
 /**
  * The actions `PUSHDOWN_MAPPER` moves into Convex's filter engine — the null-comparison family,
@@ -326,7 +382,14 @@ const DB_DECIDED_PUSHDOWN = [
 ].sort();
 
 /** `in-empty` folds to ALWAYS_DENIED, so no mapper can put it in either category. */
-const UNCONDITIONAL_ACTIONS = ["in-empty"];
+const UNCONDITIONAL_ACTIONS = [
+  "in-empty",
+  "pv-empty-all",
+  "pv-empty-exists",
+  "pv-empty-not-all",
+  "pv-empty-not-exists",
+  "pv-structs-missing",
+].sort();
 
 /**
  * Actions whose root `and` splits: part pushed to Convex's filter engine, the rest post-filtered.
@@ -340,23 +403,26 @@ const UNCONDITIONAL_ACTIONS = ["in-empty"];
  */
 const SPLIT_ACTIONS = ["rel-hop-and-root"];
 
-async function executionFor(
-  action: string,
-  mapper: Mapper,
-): Promise<ExecutionPath> {
-  const queryPlan = await cerbos.planResources({
+/** The plan the live PDP produces for `action` against the corpus principal. */
+function planFor(action: string): Promise<PlanResourcesResponse> {
+  return cerbos.planResources({
     principal: seedsFile.principal,
     resource: { kind: seedsFile.resourceKind },
     action,
   });
-  if (queryPlan.kind !== PlanKind.CONDITIONAL) return "unconditional";
-  const { filter, postFilter } = queryPlanToConvex({
-    queryPlan,
-    mapper,
-    allowPostFilter: true,
-  });
-  if (filter && postFilter) return "split";
-  return filter ? "db" : "post";
+}
+
+async function executionFor(
+  action: string,
+  mapper: Mapper,
+): Promise<ExecutionPath> {
+  return executionPathOf(
+    queryPlanToConvex({
+      queryPlan: await planFor(action),
+      mapper,
+      allowPostFilter: true,
+    }),
+  );
 }
 
 /** Whether `path` — a mapped document field, dotted for nested ones — is present on `document`. */
@@ -382,27 +448,6 @@ function derivedFor(seed: Seed): DerivedEntry {
     throw new Error(`derived-fields.json has no entry for seed "${seed.id}"`);
   }
   return entry;
-}
-
-function doubleFor(seed: Seed): number | null {
-  return derivedFor(seed).aDouble;
-}
-
-/** Third-level label names. A null element is a NULL label name — a missing element attribute. */
-function labelsFor(seed: Seed): (string | null)[] {
-  return derivedFor(seed).labels;
-}
-
-function createdByFor(seed: Seed): string {
-  return derivedFor(seed).createdBy;
-}
-
-function timestampFor(seed: Seed): string | null {
-  return derivedFor(seed).createdAt;
-}
-
-function scopeFor(seed: Seed): string | null {
-  return derivedFor(seed).scope;
 }
 
 // -- the real to-one relation (conformance/README.md, "The real to-one relation") ----------------
@@ -450,19 +495,27 @@ function storedParent(seed: Seed): StoredDocument["parent"] {
   return parent;
 }
 
+/**
+ * The document stored for a seed. It is also, minus `id`, the resource's `check()` attributes
+ * (`checkResource` below), so the stored row and the oracle cannot disagree about any value.
+ */
 function storedDocument(seed: Seed): StoredDocument {
+  const derived = derivedFor(seed);
   const document: StoredDocument = {
     id: seed.id,
     aBool: seed.aBool,
     aString: seed.aString,
     aNumber: seed.aNumber,
-    createdBy: createdByFor(seed),
+    createdBy: derived.createdBy,
     owner: seed.aOptionalString,
     // The explicit-null alias of the `scope` field, the second half of `null-value-f2f`:
     // `scope` itself is omitted when NULL, so the corpus carries the same field under both
     // conventions and the field-to-field probe has two explicit nulls to compare.
-    coOwner: scopeFor(seed),
+    coOwner: derived.scope,
     tagNames: seed.tags.map((tag) => tag.name),
+    // Verbatim, null elements included.
+    aNumberList: seed.aNumberList,
+    aBoolList: seed.aBoolList,
     obj: { inner: seed.aString },
     tags: seed.tags.map((tag) =>
       tag.name === null ? { id: tag.id } : { id: tag.id, name: tag.name },
@@ -472,7 +525,9 @@ function storedDocument(seed: Seed): StoredDocument {
       subCategories: [
         {
           name,
-          labels: labelsFor(seed).map((labelName) =>
+          // Third-level label names. A null element is a NULL label name — a missing element
+          // attribute.
+          labels: derived.labels.map((labelName) =>
             labelName === null ? {} : { name: labelName },
           ),
         },
@@ -482,12 +537,10 @@ function storedDocument(seed: Seed): StoredDocument {
   if (seed.aOptionalString !== null) {
     document.aOptionalString = seed.aOptionalString;
   }
-  const double = doubleFor(seed);
-  if (double !== null) document.aDouble = double;
-  const timestamp = timestampFor(seed);
-  if (timestamp !== null) document.createdAt = timestamp;
-  const scope = scopeFor(seed);
-  if (scope !== null) document.scope = scope;
+  if (derived.aDouble !== null) document.aDouble = derived.aDouble;
+  if (derived.createdAt !== null) document.createdAt = derived.createdAt;
+  if (derived.updatedAt !== null) document.updatedAt = derived.updatedAt;
+  if (derived.scope !== null) document.scope = derived.scope;
   if (seed.subCategoryNames.length > 0) {
     document.mainCategory = {
       name: "business",
@@ -495,60 +548,20 @@ function storedDocument(seed: Seed): StoredDocument {
       subNames: seed.subCategoryNames,
     };
   }
+  // The real to-one chain. A row with no parent carries NO `parent` key — and so sends no `parent`
+  // attribute, a CEL missing-path error (deny); the same holds one level down for `parent.inner`.
   const parent = storedParent(seed);
   if (parent !== undefined) document.parent = parent;
   return document;
 }
 
 function checkResource(seed: Seed): Resource {
-  const attr: Record<string, Value> = {
-    aBool: seed.aBool,
-    aString: seed.aString,
-    aNumber: seed.aNumber,
-    createdBy: createdByFor(seed),
-    owner: seed.aOptionalString,
-    coOwner: scopeFor(seed),
-    tagNames: seed.tags.map((tag) => tag.name),
-    obj: { inner: seed.aString },
-    tags: seed.tags.map(
-      (tag): Record<string, Value> =>
-        tag.name === null ? { id: tag.id } : { id: tag.id, name: tag.name },
-    ),
-    categories: seed.subCategoryNames.map((name) => ({
-      name: "business",
-      subCategories: [
-        {
-          name,
-          labels: labelsFor(seed).map(
-            (labelName): Record<string, Value> =>
-              labelName === null ? {} : { name: labelName },
-          ),
-        },
-      ],
-    })),
+  const { id, ...attr } = storedDocument(seed);
+  return {
+    kind: seedsFile.resourceKind,
+    id,
+    attr: attr as unknown as Record<string, Value>,
   };
-  if (seed.aOptionalString !== null) {
-    attr["aOptionalString"] = seed.aOptionalString;
-  }
-  const double = doubleFor(seed);
-  if (double !== null) attr["aDouble"] = double;
-  const timestamp = timestampFor(seed);
-  if (timestamp !== null) attr["createdAt"] = timestamp;
-  const scope = scopeFor(seed);
-  if (scope !== null) attr["scope"] = scope;
-  if (seed.subCategoryNames.length > 0) {
-    attr["mainCategory"] = {
-      name: "business",
-      subCategories: seed.subCategoryNames.map((name) => ({ name })),
-      subNames: seed.subCategoryNames,
-    };
-  }
-  // The real to-one chain, mirroring the stored document exactly. A row with no parent sends NO
-  // `parent` attribute — a CEL missing-path error (deny) — matching the stored document having no
-  // `parent` key; the same holds one level down for `parent.inner`.
-  const parent = storedParent(seed);
-  if (parent !== undefined) attr["parent"] = parent as unknown as Value;
-  return { kind: seedsFile.resourceKind, id: seed.id, attr };
 }
 
 async function oracleAllowedIds(action: string): Promise<string[]> {
@@ -585,11 +598,7 @@ async function adapterRun(
   nullAttributeRepresentation: "explicit" | "omitted" = "explicit",
   mapper: MapperVariant = "default",
 ): Promise<{ ids: string[]; execution: string }> {
-  const queryPlan = await cerbos.planResources({
-    principal: seedsFile.principal,
-    resource: { kind: seedsFile.resourceKind },
-    action,
-  });
+  const queryPlan = await planFor(action);
   if (queryPlan.kind === PlanKind.ALWAYS_DENIED) {
     return { ids: [], execution: "unconditional" };
   }
@@ -609,6 +618,7 @@ async function adapterFilteredIds(
 }
 
 beforeAll(async () => {
+  await assertPinnedPdp(cerbos);
   await convex.mutation(api.adversarial.deleteAll, {});
   for (const seed of seedsFile.seeds) {
     await convex.mutation(api.adversarial.insert, storedDocument(seed));
@@ -619,29 +629,7 @@ afterAll(async () => {
   await convex.mutation(api.adversarial.deleteAll, {});
 });
 
-/** Whether any operand anywhere in the plan is a literal null, or a list containing one. */
-function planCarriesNullLiteral(operand: unknown): boolean {
-  if (typeof operand !== "object" || operand === null) return false;
-  const node = operand as Record<string, unknown>;
-  if ("value" in node) {
-    const value = node["value"];
-    return value === null || (Array.isArray(value) && value.includes(null));
-  }
-  const operands = node["operands"];
-  return Array.isArray(operands) && operands.some(planCarriesNullLiteral);
-}
-
 describe("adversarial conformance corpus", () => {
-  // Adding a throwing action without pinning its message must fail this harness rather than
-  // silently degrade the throw suite to a bare "it threw" (cerbos/query-plan-adapters#326).
-  test("a throwing action with no pinned message fails classification", () => {
-    expect(() => requireMessage("synthetic-entry", undefined)).toThrow(
-      /pins no throw message/,
-    );
-    expect(() => requireMessage("synthetic-entry", "")).toThrow(
-      /pins no throw message/,
-    );
-  });
   test("assigns all policy actions exactly one Convex outcome", () => {
     const allActions = MANIFEST_ACTIONS;
     const oracle = new Set(ORACLE_ACTIONS);
@@ -659,11 +647,11 @@ describe("adversarial conformance corpus", () => {
         ].filter(Boolean).length !== 1,
     );
 
-    expect(allActions.size).toBe(205);
-    expect(CONVEX_UNSUPPORTED).toHaveLength(3);
+    expect(allActions.size).toBe(301);
+    expect(CONVEX_UNSUPPORTED).toHaveLength(26);
     expect(CONVEX_SUPPORTED_EXPECTED).toHaveLength(7);
-    expect(ORACLE_ACTIONS).toHaveLength(196);
-    expect(THROWING_ACTIONS).toHaveLength(7);
+    expect(ORACLE_ACTIONS).toHaveLength(269);
+    expect(THROWING_ACTIONS).toHaveLength(30);
     expect(misclassified).toEqual([]);
   });
 
@@ -679,11 +667,7 @@ describe("adversarial conformance corpus", () => {
   test.each(THROWING_ACTIONS)(
     "$action fails during translation with the declared message, before any filter exists",
     async ({ action, message }) => {
-      const queryPlan = await cerbos.planResources({
-        principal: seedsFile.principal,
-        resource: { kind: seedsFile.resourceKind },
-        action,
-      });
+      const queryPlan = await planFor(action);
       expect(queryPlan.kind).toBe(PlanKind.CONDITIONAL);
       expect(() =>
         queryPlanToConvex({
@@ -785,21 +769,20 @@ describe("adversarial conformance corpus", () => {
       pushdownDb: pushdown.db,
       pushdownSplit: pushdown.split,
       pushdownPostCount: pushdown.post.length,
-      // The two mappers must differ ONLY where the pushdown leg re-executes, which is what makes
-      // skipping the other 180 actions there sound rather than a coverage hole.
+      // The pushdown leg only needs to re-execute actions whose routing changes.
       moved: pushdown.db.filter((action) => !base.db.includes(action)),
     }).toEqual({
-      total: 196,
+      total: 269,
       defaultDb: DB_DECIDED_DEFAULT,
       // Exactly one corpus action splits: `buildFilters` only splits a root `and`, and
       // rel-hop-and-root is the one hostile shape rooted there that mixes a pushable conjunct
       // with a non-pushable one (#375). Both mappers split it — the hop is `nullable` under each.
       defaultSplit: SPLIT_ACTIONS,
       defaultUnconditional: UNCONDITIONAL_ACTIONS,
-      defaultPostCount: 171,
+      defaultPostCount: 233,
       pushdownDb: DB_DECIDED_PUSHDOWN,
       pushdownSplit: SPLIT_ACTIONS,
-      pushdownPostCount: 160,
+      pushdownPostCount: 222,
       moved: PUSHDOWN_ONLY_ACTIONS,
     });
   });
@@ -827,11 +810,7 @@ describe("adversarial conformance corpus", () => {
       ({ action }) => action === "filter-as-conjunct",
     );
     expect(entry).toBeDefined();
-    const queryPlan = await cerbos.planResources({
-      principal: seedsFile.principal,
-      resource: { kind: seedsFile.resourceKind },
-      action: "filter-as-conjunct",
-    });
+    const queryPlan = await planFor("filter-as-conjunct");
     expect(() =>
       queryPlanToConvex({ queryPlan, mapper: MAPPER, allowPostFilter: true }),
     ).toThrow(entry?.message);
@@ -910,11 +889,7 @@ describe("adversarial conformance corpus", () => {
   test("every corpus action carrying a null literal is rejected under omitted", async () => {
     const nullCarrying: string[] = [];
     for (const action of [...MANIFEST_ACTIONS].sort()) {
-      const queryPlan = await cerbos.planResources({
-        principal: seedsFile.principal,
-        resource: { kind: seedsFile.resourceKind },
-        action,
-      });
+      const queryPlan = await planFor(action);
       if (
         queryPlan.kind === PlanKind.CONDITIONAL &&
         planCarriesNullLiteral(queryPlan.condition)
@@ -948,11 +923,7 @@ describe("adversarial conformance corpus", () => {
 
   test("pins the upstream has() planner over-grant", async () => {
     const action = "p-has";
-    const queryPlan = await cerbos.planResources({
-      principal: seedsFile.principal,
-      resource: { kind: seedsFile.resourceKind },
-      action,
-    });
+    const queryPlan = await planFor(action);
     const oracle = await oracleAllowedIds(action);
     const allIds = seedsFile.seeds.map((seed) => seed.id).sort();
 
@@ -997,23 +968,104 @@ describe("adversarial conformance corpus", () => {
     );
   });
 
-  test("oracle is not degenerate", async () => {
-    // Guard the guard: each of these actions must produce a non-empty, non-total oracle set,
-    // otherwise the differential comparison could pass vacuously (e.g. PDP denying all).
-    //
-    // Every entry is asserted to be an action Convex actually oracle-compares. A list copied
-    // from another harness drifts into naming shapes this adapter never compares, which guard
-    // nothing (cerbos/query-plan-adapters#324); the membership assertion turns moving an action
-    // into Convex's `adapterUnsupported` set into a failure here rather than a silent no-op.
-    for (const action of DEGENERACY_GUARD_ACTIONS) {
+  // Each action gets its own test budget: the combined serial oracle calls grow with the corpus.
+  // Guard the guard: every action must produce a non-empty, non-total oracle set, otherwise the
+  // differential comparison could pass vacuously (e.g. PDP denying all).
+  // Every entry must be an action Convex actually oracle-compares. Moving one into Convex's
+  // `adapterUnsupported` set must fail here rather than silently guard nothing (#324).
+  test.each(DEGENERACY_GUARD_ACTIONS)(
+    "%s has a non-degenerate compared oracle",
+    async (action) => {
       expect(ORACLE_ACTIONS).toContain(action);
       await expectNonDegenerateOracle(action);
-    }
-    // Asserting the complement keeps the split honest — an action Convex gains support for
-    // must move up into the guard proper.
-    for (const action of DEGENERACY_LIVENESS_PROBES) {
+    },
+  );
+
+  // Asserting the complement keeps the split honest: an action Convex gains support for must
+  // move into the compared list.
+  test.each(DEGENERACY_LIVENESS_PROBES)(
+    "%s has a non-degenerate liveness oracle",
+    async (action) => {
       expect(ORACLE_ACTIONS).not.toContain(action);
       await expectNonDegenerateOracle(action);
-    }
-  });
+    },
+  );
+  // These shapes intentionally have empty or total oracles: type errors, unequal runtime
+  // types, or empty-list identities. Pin the live planner kind as well as the oracle so
+  // dropping their inputs cannot silently turn a conditional error probe into a folded plan.
+  test.each([
+    { action: "except-root", kind: PlanKind.CONDITIONAL, total: false },
+    { action: "pv-empty-exists", kind: PlanKind.ALWAYS_DENIED, total: false },
+    {
+      action: "pv-empty-not-exists",
+      kind: PlanKind.ALWAYS_ALLOWED,
+      total: true,
+    },
+    { action: "pv-empty-all", kind: PlanKind.ALWAYS_ALLOWED, total: true },
+    { action: "pv-empty-not-all", kind: PlanKind.ALWAYS_DENIED, total: false },
+    { action: "pv-structs-null", kind: PlanKind.CONDITIONAL, total: false },
+    {
+      action: "pv-structs-missing",
+      kind: PlanKind.ALWAYS_DENIED,
+      total: false,
+    },
+    { action: "type-string-number", kind: PlanKind.CONDITIONAL, total: false },
+    { action: "type-number-string", kind: PlanKind.CONDITIONAL, total: false },
+    { action: "type-columns", kind: PlanKind.CONDITIONAL, total: false },
+    { action: "type-size-bool", kind: PlanKind.CONDITIONAL, total: false },
+    { action: "type-size-number", kind: PlanKind.CONDITIONAL, total: false },
+    {
+      action: "type-hierarchy-number",
+      kind: PlanKind.CONDITIONAL,
+      total: false,
+    },
+    {
+      action: "type-number-contains",
+      kind: PlanKind.CONDITIONAL,
+      total: false,
+    },
+    {
+      action: "type-needle-contains",
+      kind: PlanKind.CONDITIONAL,
+      total: false,
+    },
+    {
+      action: "type-number-startswith",
+      kind: PlanKind.CONDITIONAL,
+      total: false,
+    },
+    {
+      action: "type-needle-startswith",
+      kind: PlanKind.CONDITIONAL,
+      total: false,
+    },
+    {
+      action: "type-number-endswith",
+      kind: PlanKind.CONDITIONAL,
+      total: false,
+    },
+    {
+      action: "type-needle-endswith",
+      kind: PlanKind.CONDITIONAL,
+      total: false,
+    },
+    { action: "eq-map", kind: PlanKind.CONDITIONAL, total: false },
+    { action: "ne-map", kind: PlanKind.CONDITIONAL, total: true },
+    { action: "eq-map-null", kind: PlanKind.CONDITIONAL, total: false },
+    { action: "in-nested-list", kind: PlanKind.CONDITIONAL, total: false },
+    { action: "in-list-element", kind: PlanKind.CONDITIONAL, total: false },
+    { action: "hasint-map-element", kind: PlanKind.CONDITIONAL, total: false },
+  ])(
+    "$action preserves its intentional empty/total oracle and planner shape",
+    async ({ action, kind, total }) => {
+      const [plan, ids] = await Promise.all([
+        planFor(action),
+        oracleAllowedIds(action),
+      ]);
+      expect(plan.kind).toBe(kind);
+      expect(ids).toEqual(
+        total ? seedsFile.seeds.map((seed) => seed.id).sort() : [],
+      );
+    },
+  );
 });

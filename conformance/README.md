@@ -19,6 +19,9 @@ heading, regenerate this list with `scripts/check-docs.sh --print-toc` — CI ch
     - [The other side of the same option: an explicit null against a non-null constant](#the-other-side-of-the-same-option-an-explicit-null-against-a-non-null-constant)
     - [The absent to-one parent](#the-absent-to-one-parent)
   - [Shapes that live only in a unit test](#shapes-that-live-only-in-a-unit-test)
+  - [Issue #414 port and planner evidence](#issue-414-port-and-planner-evidence)
+  - [Issue #396 regex, indexing and conversion probes](#issue-396-regex-indexing-and-conversion-probes)
+  - [Number and boolean list elements](#number-and-boolean-list-elements)
   - [The real to-one relation](#the-real-to-one-relation)
   - [The primary key as a filterable attribute](#the-primary-key-as-a-filterable-attribute)
   - [Casts and concatenation are store-dependent in opposite directions](#casts-and-concatenation-are-store-dependent-in-opposite-directions)
@@ -44,6 +47,7 @@ heading, regenerate this list with `scripts/check-docs.sh --print-toc` — CI ch
   - [Vendored code stays byte-identical](#vendored-code-stays-byte-identical)
   - [Mapping hazards: the rows the subquery sees](#mapping-hazards-the-rows-the-subquery-sees)
   - [Gotchas worth knowing up front](#gotchas-worth-knowing-up-front)
+- [Evaluation modes and the 0.55 baseline](#evaluation-modes-and-the-055-baseline)
 - [Regenerating wire fixtures after a Cerbos version bump](#regenerating-wire-fixtures-after-a-cerbos-version-bump)
 
 ## Why this exists
@@ -68,8 +72,8 @@ rows, and one oracle recipe that every adapter's harness implements against its 
   "The oracle recipe" below. Every key except `note` must be consumed by every harness; that is
   asserted, not assumed (see "Deterministic derived fields"). `parentSeedId` is the one key that
   resolves against another row — see "The real to-one relation" below.
-- `derived-fields.json` — the five attributes derived from each seed (`createdBy`, `aDouble`,
-  `createdAt`, `scope`, `labels`), materialised once per seed id. Every harness reads this file
+- `derived-fields.json` — the six attributes derived from each seed (`createdBy`, `aDouble`,
+  `createdAt`, `updatedAt`, `scope`, `labels`), materialised once per seed id. Every harness reads this file
   instead of restating the rules; `scripts/validate-corpus.sh` re-derives the rule-based fields
   from `seeds.json` and fails on drift. See "Deterministic derived fields" below.
 - `actions.json` — every action in `policies/adversarial.yaml`, grouped into `adapters` (the
@@ -92,6 +96,9 @@ rows, and one oracle recipe that every adapter's harness implements against its 
   adapter or database — a `diff` against a freshly-regenerated fixture after bumping
   `CERBOS_VERSION` shows exactly what the planner's output changed for a given hostile shape,
   which is a much smaller signal than "an adapter test failed."
+- `wire-fixtures-strict/*.json` — the same actions captured by real `PlanResources` requests
+  against a separately started PDP with `engine.strictEvaluation=true`. These are generated
+  independently, never copied from the default capture, even when their contents agree.
 - `CERBOS_VERSION` — the exact Cerbos PDP version the wire fixtures were captured against.
   Deliberately pinned rather than `latest`: a fixture diff should come from a deliberate version
   bump, not silently from whatever `latest` resolved to on a given day.
@@ -105,6 +112,12 @@ rows, and one oracle recipe that every adapter's harness implements against its 
 Deliberately **not** here: the filter each adapter is pinned to emit for each action. Those are
 per-adapter **golden expectations**, they live in the adapter's own directory, and the format is
 documented under "Golden expectations" below.
+
+`scripts/validate-corpus.sh` enforces closed entry schemas in `actions.json`: unknown keys,
+missing required fields and empty or incorrectly typed metadata fail validation. Optional
+`relatedIssue` values must be non-empty strings, not `null`, and every adapter named by a known
+divergence must belong to the canonical roster. When moving an action between buckets, use the
+destination bucket's declared fields.
 
 ## The oracle recipe
 
@@ -174,7 +187,7 @@ have byte-identical wire fixtures apart from the variable name. Their oracles do
 | `null-eq-missing` | omitted | **nothing** | those 5 — **over-grants** |
 
 Under the omitted convention CEL raises a missing-attribute error for every NULL row and compares
-`"set" == null` false for every other, so `check()` denies all 22 seeds. An adapter cannot recover
+`"set" == null` false for every other, so `check()` denies all 27 seeds. An adapter cannot recover
 the caller's convention from the plan, so it has to be told: every adapter that can emit a
 NULL-selecting predicate takes a `nullAttributeRepresentation` option, defaulting to `explicit`
 (the historical translation). See cerbos/query-plan-adapters#302.
@@ -242,7 +255,7 @@ break them.
 
 `coOwner` is the second explicit-null attribute the corpus carries, added for `null-value-f2f`. It
 aliases the **`scope`** column rather than `aOptionalString`, because comparing a column with itself
-is TRUE for all 22 seeds and the degeneracy guard forbids a total oracle. Against `scope` the only
+is TRUE for all 27 seeds and the degeneracy guard forbids a total oracle. Against `scope` the only
 row where both sides are NULL is `e1`, so the oracle is exactly one row — thin, but non-degenerate,
 and it is precisely the row the naive translation loses.
 
@@ -381,47 +394,24 @@ carries any more is a stale entry, not a licence.
   asked of none of the others; each is a bridge tracked by
   [#414](https://github.com/cerbos/query-plan-adapters/issues/414) and is deleted when its corpus
   action lands. Every one opens with *Corpus gap.* in the test:
-  - `aValueListElementMissingTheProjectedFieldIsRefused` — a struct element without the projected
-    field, under a principal list of structs;
-  - `containsEscapesTheWildcardMetacharactersInItsNeedle` and
-    `endsWithEscapesTheWildcardMetacharactersInItsNeedle` — no seed value carries a `*` or a `?`,
-    so no corpus action exercises the escaping this adapter actually needs (the surface suite
-    executes it against Lucene);
-  - `aRegexOutsideTheSharedRe2LuceneSubsetIsRefused`,
-    `aTopLevelAlternationInAnAnchoredRegexIsRefusedAndAParenthesisedOneTranslates` and
-    `aBraceThatDoesNotBeginARepetitionIntervalIsRefused`, plus the surface suite's
-    `luceneOptionalOperatorsAreLiteralsBecauseTheAdapterDisablesThem`,
-    `luceneDotMatchesANewlineWhichIsWhyTheAdapterRefusesIt` and
-    `luceneAlternationIsWholeFieldWhichIsWhyATopLevelBarIsRefused` — the corpus's one `matches()`
-    action (`p-matches`) lowers to a `prefix` query and never reaches Lucene's regex engine;
-  - `anUnfoldableMacroOverAValueListIsRefusedByName` — `exists_one`, `filter` and `map` over a
-    principal value list;
-  - `exceptIsRefusedByNameWhereverItAppears` — `except(list, list)` in every position it can
-    arrive in. The nested `must_not` the adapter once emitted for a *lambda* form of `except` was
-    unreachable from any real plan and is gone; what remains is a refusal by name;
-  - `aTernaryAsALambdaBodyIsRefusedByName` — the ternary that *is* the lambda body;
-  - `anEmptyValueListKeepsCelIdentitySemantics`,
-    `aNegatedValueListMacroFoldsExactlyAsTheUnrolledChainDoes`,
-    `aValueListElementFieldIsDrilledIntoDuringTheFold`,
-    `aStructElementHoldingANullMemberIsRefusedRatherThanCrashing` and
-    `aNestedLambdaRebindingTheVariableShadowsTheSubstitution` — the value-list fold under shapes
-    the corpus principal never produces: an empty list, a negated macro, struct elements, a null
-    member, a rebound iteration variable;
-  - `everySpellingOfNonEmptinessIsTheSameCheck` — `size(c) >= 1` and `size(c) != 0`;
-  - `sizeOverAStringOrANumberIsRefusedRatherThanLoweredToExists` — **the suspected live
-    over-grant**: `size(R.attr.aString) > 0` used to lower to `exists`, which matches the indexed
-    empty string `a8` carries while `check()` denies it. The corpus's string-length actions are all
-    thresholds, so none reaches the branch;
-  - `membershipOverNumbersBindsIntegralValuesAsIntegers`,
-    `anIntegralLiteralOutsideTheLongRangeStaysADouble` and
-    `aNonFiniteNumericLiteralIsRefusedAtTheLeaf` — numeric literal conversion the corpus's string
-    `terms` and unfolded `nan-ord-*` divisions never exercise;
-  - `hasIntersectionWithANullElementIsRefusedWhicheverPositionCarriesIt` and
-    `hasIntersectionWithTheProjectionOnEitherSideEmitsTheSameNestedQuery` — the symmetric operand
-    positions `in-null-elem-hasint` and the `map()` projection do not cover;
-  - `aNonScalarLiteralWhereAScalarIsExpectedIsRefused` — list and map literals where a `term` or
-    `range` expects a scalar;
-  - `anEmptyHierarchyDelimiterIsRefused` — `hierarchy(R.attr.scope, "")`.
+  - `anUnfoldableMacroOverAValueListIsRefusedByName` — direct boolean-root `filter` and
+    `map` results; the new actions use computed collections as operands instead;
+  - `exceptIsRefusedByNameWhereverItAppears` — directly negated and nested-lambda arrival
+    positions; root, size and equality positions are now corpus actions;
+  - `everySpellingOfNonEmptinessIsTheSameCheck` — direct flat-collection `size != 0` and its
+    negation; `size-ge-one` covers the inclusive threshold;
+  - `hasIntersectionWithANullElementIsRefusedWhicheverPositionCarriesIt` — intersection
+    inside a nested lambda; the flat and projected operand orders are now corpus actions;
+  - `aNonScalarLiteralWhereAScalarIsExpectedIsRefused` — raw protobuf structured values in
+    ordering and string operations. The new equality actions also cover the planner's
+    `list`/`struct` expression representation, which is a distinct wire shape.
+
+The numeric decoder's exact signed-long boundaries and non-finite protobuf values remain
+wire contracts. The pinned PDP cannot serialize a non-finite literal (see the evidence below).
+The regex surface tests remain mechanism tests against Lucene: they demonstrate why the
+classified regex actions are refused, a property the corpus's refusal assertion cannot measure.
+
+The empty hierarchy delimiter is now covered by `hier-empty-delim`.
 
 **spring-data** (`SpringDataQueryPlanAdapterTest`; the banners in the class are the source, and
 every kind-3 test opens with *Corpus gap.*):
@@ -443,12 +433,11 @@ every kind-3 test opens with *Corpus gap.*):
 - **Kind 3 — a corpus gap wearing a unit test.** Bridges tracked by
   [#414](https://github.com/cerbos/query-plan-adapters/issues/414), grouped as the banners group
   them: `size(collection)` against an arbitrary threshold and the fractional and out-of-int-range
-  thresholds; `except(list, list)` in every arrival shape (the lambda-form assertion that once sat
-  beside them was a phantom no plan produces and is gone); the empty-list intersection
-  short-circuit; `eq`/`ne` against a list or map constant; the `add` solve forms; the CEL primitive
+  thresholds; empty-list intersection over a direct scalar, relation or map projection (the new action
+  covers an absent to-one parent); value-first and relation structured comparisons; suffix and integral `add` solve forms; the CEL primitive
   and minor-operator shapes; collection-macro composition; value-first operand orders beyond the
   ones the corpus carries; the ternary rewrite's nested, negated and value-first forms; the
-  error-message context and no-value-leak discipline; the SQL Server `[` escaping (a gap of the
+  SQL Server `[` escaping (a gap of the
   *store* dimension — no leg executes on SQL Server); the constant-receiver string matches;
   arithmetic as a comparison operand; constant NaN and infinity ordering; and the
   `timestamp(field)` operator cells the corpus does not reach.
@@ -568,6 +557,117 @@ pinned where they were found):
   editing the corpus: it loads a policy of its own into the pinned PDP and asserts the planner really
   ships each shape rather than folding it away, and writes the recorded plans to
   `build/reports/review-planner.txt` for whoever ports them.
+
+Error-message context, list cardinality and value redaction remain independent translator
+contracts even where a corpus action already proves the refusal.
+
+**prisma** (`translator.test.ts`): the caller-crafted nested-map boolean-body
+contract is a permanent kind-1 test. The pinned PDP rejects
+`R.attr.tags.all(t, R.attr.tags.map(x, x.name))` with
+`expected type 'bool' but found 'list(dyn)'`. The test exercises the defensive
+fallback anyway, proving that an inner map's nullable projection cannot leak
+into the outer lambda scope (#430).
+
+### Issue #414 port and planner evidence
+
+The port adds 67 actions. The original families now have corpus spellings: wildcard needles,
+ten regex patterns beyond a literal prefix, the three arrival positions of two-list `except`,
+`size-ge-one`, `in-numbers`, the four empty-list macro identities, principal struct projections,
+variable shadowing, negated principal macros, `root-not-bool`, and literal membership inside a
+lambda. `h4` carries the string `"0"` beside numeric `0`, so heterogeneous equality is also tested
+against SQLite's numeric-string coercion. `h1` carries `a{q}*?b`, `h2` carries `a\nb`, and `h3` carries `ab`: together they distinguish
+literal wildcard escaping, RE2's newline rule, a literal brace, and a real regex match. The
+principal struct fixtures contain `list`/`struct`/`set-field` expressions, which is what the pinned
+planner actually emits; they must not be replaced with assumed protobuf value-list fixtures.
+
+The September 18 follow-up adds heterogeneous equality and string-operation probes, omitted
+variable membership, unsolvable concatenation under negation, a hierarchy prefix whose list
+still reads a missing attribute, empty intersection through an absent parent, a nested divisor,
+and raw temporal equality. `type-string-number` uses principal `zero: 0`, so MySQL coercing a
+non-numeric string to zero is observable. The type probes deliberately have empty oracles: their
+purpose is to catch a datastore matching values CEL cannot compare or operate on. Empty macro
+identities and non-scalar literal probes also need explicit empty/total-oracle assertions rather
+than inclusion in the non-degeneracy lists.
+
+`not-nan-ord-le` distinguishes the ternary arms under the Cerbos 0.55 / CEL 0.30 semantics.
+The boolean-true arm compares `1 <= 2`, so negation denies it. The boolean-false arm compares
+`0.5 <= NaN`, which is false, so **negation allows it**. This changed from 0.54, where that
+unordered comparison raised an error and remained denied under negation. The finite arm was
+changed deliberately during the upgrade: retaining `1 <= 0.5` made the new oracle total and
+tripped every harness's degeneracy guard. See "Evaluation modes and the 0.55 baseline" below.
+
+One requested spelling cannot produce a JSON fixture with the pinned PDP:
+`R.attr.aNumber / (0.0 / 0.0) > 0` compiles, but `PlanResources` returns HTTP 500 with
+`proto: google.protobuf.Value.number_value: invalid NaN value`. It is excluded from the active
+manifest because no adapter receives a plan. This is an upstream serialization limitation,
+not an adapter refusal; the nested finite-divisor case is carried by `div-by-division`.
+
+The Java unit-test registry above remains authoritative for finer operator cells not replaced
+by these actions. A broad family action does not establish coverage of every refusal location,
+operand order, or caller contract; a surviving *Corpus gap.* label is still pending port work.
+
+### Issue #396 regex, indexing and conversion probes
+
+11 actions cover the remaining mechanisms from #396. `h5` carries `"ab\n"`, while
+`h3` carries `"ab"`: `regex-final-newline` distinguishes RE2's absolute-end `$` from an
+engine that also matches before a final newline. The same new seed carries the derived
+`createdBy = "not-a-timestamp"`, exercising conversion failure in both the existing
+`p-timestamp` and the new `cast-not-timestamp` negation. The derivation checker records
+that exception independently; harnesses continue to read the materialised value.
+
+Cerbos 0.55 rejects a **literal** `a(?=b)` at compile time. `regex-lookahead` selects the
+same string through the known principal's `context` attribute, deferring validation until
+evaluation and preserving the original `matches` wire node. This runtime spelling still
+belongs in the corpus; `scripts/check-evaluation-modes.sh` separately asserts the literal's
+compile rejection in both modes. A PCRE engine accepting the expression would allow
+`h3` and `h5`, which the checker denies. `regex-eq-true` separately pins the retained
+`eq(matches(...), true)` expression instead of assuming the planner folds its wrapper.
+
+`index-negative` and `index-fractional` preserve `-1` and `0.5` in their wire nodes. Both
+raise during CEL list access. These two actions and `regex-lookahead` include the independent
+`aNumber == 5` branch: the checker allows `a1` through that branch, keeping the oracle
+non-empty while invalid accesses or a foreign regex engine can still over-grant other rows.
+`index-not-oob` reads index 1 under negation; `a6` supplies an in-bounds unequal value,
+while shorter lists must remain denied instead of making a missing element unequal.
+
+`cast-not-int` and `cast-not-double` have the numeric string `h4` as an allowed witness;
+malformed numeric strings still deny under negation. `cast-not-string-missing` and
+`cast-not-string-null` distinguish an omitted attribute from an explicit null through
+`aOptionalString` and `owner`. Neither conversion error may become an allow under `not`.
+All 11 actions have non-empty, non-total checker oracles and belong in each adapter's
+compared or refusal-liveness guard according to its observed classification (#401).
+
+### Number and boolean list elements
+
+`index-scalar-list` and its companions read `tagNames`, a list of strings, so they never ask
+whether an adapter keeps an element's JSON type when the literal is a number or a boolean. Two seed
+fields exist for that alone: `aNumberList` and `aBoolList`, homogeneous scalar lists on every seed.
+Most rows hold `[]`, where every position is an index error and the PDP denies under both
+polarities. Eight rows hold the values that discriminate:
+
+| seed | `aNumberList` | `aBoolList` | what it witnesses |
+| --- | --- | --- | --- |
+| `a1` | `[2]` | `[true]` | the match, and the `aNumber == 5` branch below |
+| `a3` | `[2, 3]` | `[false]` | a match with a longer list; false leading |
+| `a4` | `[3, 2]` | `[null, true]` | the value at the wrong position; a null element |
+| `a5` | `[-2]` | `[false, true]` | the wrong sign; false leading |
+| `a6` | `[null, 2]` | `[]` | a null element, which is a value: `null == 2` is false, its negation true |
+| `a7` | `[20]` | `[]` | the value a text comparison would take for a prefix |
+| `b4` | `[1]` | `[true]` | 1 and true, which SQLite and MySQL both store as 1 |
+| `c1` | `[0]` | `[true, false]` | a zero a NULL could be mistaken for |
+
+Six actions read them, each with a non-empty, non-total oracle in both evaluation modes:
+`index-number-list` (`[0] == 2`: `a1 a3`) and its negation (`a4 a5 a6 a7 b4 c1`),
+`index-bool-list` (`[0] == true`: `a1 b4 c1`) and its negation (`a3 a4 a5`), and the two
+cross-type probes. `index-bool-list-vs-number` (`aBoolList[0] == 1`) and
+`index-number-list-vs-bool` (`aNumberList[0] == true`) are false for every row in CEL, whose
+equality is heterogeneous. An adapter that reads a JSON element back as SQL and compares it with the
+literal returns `b4` and `c1`, or `b4`, anyway: SQLite and MySQL store a JSON true as 1. Each
+carries the `aNumber == 5` branch, as `index-negative` does, so the oracle is `a1` rather than
+empty.
+
+The two fields are new seed keys, so every harness declares and consumes them. An adapter with no
+positional read of a list refuses all six, exactly as it refuses `index-scalar-list`.
 
 ### The real to-one relation
 
@@ -691,8 +791,28 @@ shortest round-trip the default, so a port built on that divergence would pin no
 `cast-string-bool` is the diverging half, and the reason the two are a pair. SQLite and MySQL have
 no boolean type and store 1/0, so `CAST(a_bool AS TEXT)` is `"1"` where CEL and PostgreSQL say
 `"true"`. One translator, one wire node, two answers decided only by the store — which is why an
-adapter spanning both cannot lower it store-blind. Every SQL adapter refuses it; mongoose and
-convex lower it correctly, because `$toString` and JavaScript render a bool exactly as CEL does.
+adapter spanning both cannot lower it through a `CAST`
+([#418](https://github.com/cerbos/query-plan-adapters/issues/418)):
+
+- **activerecord, sqlalchemy, ent, pgx and drizzle** lower it through
+  `CASE WHEN col IS NULL THEN NULL WHEN col THEN 'true' ELSE 'false' END`, which spells CEL's two
+  words on every engine and keeps a NULL column UNKNOWN.
+- **spring-data** does not build a string at all. It compares the constant in Java: `"true"` and
+  `"false"` become `col = true` and `col = false`, and any other constant matches no row.
+- **mongoose and convex** lower it directly, because `$toString` and JavaScript render a bool
+  exactly as CEL does. **prisma, langchain-chromadb and elasticsearch-java** refuse it: none has a
+  computed string operand.
+
+The `CASE` carries a hazard the corpus action does not reach. Its two words are literals, so MySQL
+compares them in the *connection's* collation rather than a column's, and a driver's default
+connection collation is case-insensitive: on it, `string(flag) == "TRUE"` matches every true row,
+which CEL never does. drizzle renders the literals `COLLATE utf8mb4_0900_bin`, and ent keeps its
+binary-collation `CAST` around the `CASE`, so both are byte-exact on their MySQL legs; activerecord
+and sqlalchemy run no MySQL leg and state the requirement in their READMEs; spring-data never
+compares text. The action only ever compares with `"true"`, and `aBool` is never NULL on any seed,
+so neither the collation nor the `IS NULL` arm is proved against the oracle yet — both are pinned
+in unit tests and golden expectations until the corpus carries a probe for each
+([#469](https://github.com/cerbos/query-plan-adapters/issues/469)).
 
 `id-concat` is the same lesson for `add`. The corpus's `add` is numeric everywhere else, and a
 string concatenation dispatched to SQL `+` is a hard error on PostgreSQL, an under-grant on SQLite
@@ -772,7 +892,7 @@ only inside a shape some adapters throw on is not proven for those adapters.
 
 `root-or`'s second disjunct is `R.attr.aNumber < 0` rather than the `aString != "one"` it was
 specified with: `aString` is never NULL and only one seed holds `"one"`, whose `aBool` is true, so
-that spelling allows all 22 seeds. A total oracle is exactly what the degeneracy guard below exists
+that spelling allows all 27 seeds. A total oracle is exactly what the degeneracy guard below exists
 to catch, and it would have passed against any filter whatsoever.
 
 ### Hazard classes the corpus missed
@@ -797,6 +917,9 @@ bug to several adapters, and no existing action reaches it:
   `== 1` makes the `-5` seed the witness, and the failure direction is an over-grant.
 - **`index-scalar-list`** indexes a scalar list directly, a bare `index(V,K)` in an operand
   position; `p-index` reaches its rejection through the `get-field` projection wrapping it.
+  Its `index-scalar-list-not-eq` and `index-scalar-list-null` companions distinguish an invalid
+  position from an explicit null element: empty lists stay denied under negation, while the
+  valid null first elements in `b5`, `b6`, and `e1` satisfy the null comparison.
 - **`map-eq-list`** compares a projection to a literal list. The corpus only ever fed `map` into
   `hasIntersection` or left it bare.
 - **`vf-lt` / `vf-size` / `vf-hasint`** complete the value-first family, this repository's canonical
@@ -806,6 +929,13 @@ bug to several adapters, and no existing action reaches it:
   `manyTeams` holds eleven elements deliberately, so `pv-exists`/`pv-all` only ever produced the
   value-list form; `fewTeams` is the same witness set at three, which the planner unrolls into an
   or/and chain — the shape most real principals actually produce.
+- **`pv-in` / `pv-in-unrolled`** ([#411](https://github.com/cerbos/query-plan-adapters/issues/411))
+  use direct membership of the omitted-convention `aOptionalString` in `manyTeams` and
+  `fewTeams`. The pinned planner emits `in(variable, value-list)` for both eleven and three
+  elements: the `-unrolled` name identifies the small-list partner, but direct membership does
+  not cross the macro unroll boundary. The pair shares its respective oracle with
+  `pv-exists` / `pv-exists-unrolled`; the different lists discriminate `same`, and missing
+  resource attributes must remain denied.
 - **`filter-as-conjunct`** puts a `filter()` one level below the root. `filter-as-condition` pins
   the rejection at the root, which is the position an adapter checks explicitly; an adapter can
   reject there and still walk a macro sitting in a conjunct.
@@ -833,6 +963,16 @@ lists and carries its own anti-vacuity assertion in every harness: the other con
 `R.attr.aBool`, which `root-bare-bool` spells on its own and which every adapter can express, so an
 adapter that dropped the untranslatable half would emit that filter and return 14 rows the PDP
 denies. The assertion pins that, not merely that a rejection happens.
+
+The #430 audit adds `projection-exists-eq` and `projection-exists-not-eq` to
+exercise a scalar projection lambda's positive and negated bodies. Negating the
+whole macro, as `lambda-in-literal-neg` does, exercises a different branch. The
+new pair also distinguishes an explicit null list element from a missing object
+attribute: `null != "public"` is true, while reading a missing attribute raises.
+`rel-not-eq-hop`, `rel-not-contains-hop` and `rel-not-hierarchy-hop` test negative
+scalar predicates through the real to-one parent. Parentless rows must stay
+excluded, and every harness guards the new actions for non-empty, non-total PDP
+results on its compared or refusal side.
 
 ### The degeneracy guard
 
@@ -930,7 +1070,7 @@ prompt to move the action back into the oracle run.
 
 ### Deterministic derived fields
 
-The corpus keeps raw relational rows compact; five resource attributes and stored columns are
+The corpus keeps raw relational rows compact; six resource attributes and stored columns are
 derived from each seed. **The values live in `derived-fields.json`, one entry per seed id, and
 every harness reads them from there.** They used to be hand-transcribed once per harness, which is
 how a transcription error becomes invisible: the same copy feeds the stored row *and* the check()
@@ -946,12 +1086,17 @@ it replaced it can only fail loudly, never make both sides of a differential agr
 
 The rules the file materialises:
 
-- `createdBy`: `aNumber >= 2 ? "2024-06-01T00:00:00Z" : "2026-06-01T00:00:00Z"`.
+- `createdBy`: `h5 = "not-a-timestamp"`; otherwise
+  `aNumber >= 2 ? "2024-06-01T00:00:00Z" : "2026-06-01T00:00:00Z"`.
 - `aDouble`: `a1 = -0.6`, `a2 = 0.25`, `a3 = NULL`/missing, `g1 = -9.5e18` (the int64-saturation
   witness for `double-huge-lt`/`double-huge-gt`), otherwise `aNumber + 0.3`.
 - `createdAt`: `a1 = 2020-03-15T10:30:00Z`, `a2 = 2037-01-01T00:00:00Z`, `a3 = NULL`/missing,
   `a4 = 2024-06-01T00:00:00Z`, `a5 = 2020-03-15T10:30:00.123456Z`; otherwise use
   `2036-06-06T06:06:06Z` when `aNumber >= 2`, or `2021-05-05T05:05:05Z`.
+- `updatedAt`: `a1 = 2020-03-15T10:30:00.000Z`, `a4 = 2024-06-01T00:00:00Z`; otherwise
+  NULL/missing. `a1` equals `createdAt` as an instant but differs as an RFC 3339 string, while
+  `a4` is equal under both readings. Oracle attributes must preserve these original strings;
+  parsing them and serializing the normalized instant would erase the witness.
 - third-level `labels[].name`: `a1 = ["gold", "silver"]`, `a6 = [missing, "silver"]`,
   `a8 = ["silver"]`, `c1 = ["Gold"]`, otherwise empty.
 - `scope`: `a1=dept`, `a2=dept.eng`, `a3=dept.eng.platform`,
@@ -975,7 +1120,7 @@ one permitted exclusion: it is corpus prose no harness reads. The same assertion
 the one nested object array a seed carries; a key added inside an element is dropped just as
 silently as a top-level one.
 
-The same assertion covers `derived-fields.json`: each harness declares the five fields it consumes
+The same assertion covers `derived-fields.json`: each harness declares the six fields it consumes
 and fails if the file's `fields` list, or any entry's key set, differs. Concretely this is
 `DisallowUnknownFields` plus a key-set assertion in Go, records without
 `@JsonIgnoreProperties(ignoreUnknown = true)` plus a key-set assertion in Java, and an explicit
@@ -995,11 +1140,12 @@ role dropped on the way in changes every policy decision at once; that it is les
 projected away than an attribute is a reason to expect that half of the assertion to stay quiet, not
 a reason to omit it.
 
-The attribute *values* are asserted too, because the key set says nothing about a change inside one
-and three of the four attributes are lists. The corpus carries exactly two shapes — a string and a
-list of strings — and the Java harnesses convert on exactly that basis, so a third shape has to fail
-at the declaration rather than be reshaped by one adapter's SDK and passed through untyped by
-another. That is the same reason the seed guard descends into `tags[]`.
+The attribute *values* are asserted too: string scalars, the numeric `zero`, string lists
+(including `emptyTeams`), and three lists of structs. `manyStructs` has a string `name` on every
+element, `nullableStructs` has an explicit null `name`, and `missingStructs` has empty objects.
+Each struct list has eleven elements to cross the planner's unrolling threshold. The guards
+validate each nested key and value shape so an SDK cannot silently erase a missing/null
+distinction. That is the same reason the seed guard descends into `tags[]`.
 
 The construction itself stays verbatim pass-through: the guard exists to keep it that way, not to
 replace it. `scripts/regenerate-wire-fixtures.sh` needs no equivalent — it copies `.principal`
@@ -1029,10 +1175,8 @@ the acceptance test for these guards; run it before trusting them.
    alongside the classification — see "Pinned throw messages" above. Run the adapter first and pin
    what it actually says; the harness refuses to run with a message missing, so there is no way to
    forget one.
-6. Each harness pins the corpus size AND its throwing-action count as tripwires (e.g.
-   `expect(MANIFEST_ACTIONS.size).toBe(199)` and `expect(THROWING_ACTIONS).toHaveLength(61)` in
-   `prisma/src/adversarial.test.ts`; the oracle counts too in the convex, langchain-chromadb and
-   elasticsearch-java harnesses). Bump them deliberately — those assertions exist so a new action
+6. Each harness pins the corpus size and its throwing-action count as tripwires; convex,
+   langchain-chromadb and elasticsearch-java also pin oracle counts. Bump them deliberately — those assertions exist so a new action
    cannot slip past an adapter unnoticed. The convex harness additionally pins WHICH actions its
    filter engine decides on its own, under each of its two mappers, because its README quotes those
    counts as the coverage the differential actually buys
@@ -1594,6 +1738,68 @@ the policy suite and classify it like anything else.
   Each adapter's README names the stores its contract is actually proved on, and how much of the
   corpus each one actually executes.
 
+## Evaluation modes and the 0.55 baseline
+
+The current baseline is Cerbos **0.55.0**, with both `engine.strictEvaluation=false` (the PDP
+default) and `true`. Every live adapter suite accepts `ADAPTER_TEST_STRICT_EVALUATION=false|true`,
+defaults to `false`, rejects other values, and sets the engine flag explicitly. CI executes both
+modes inside the existing adversarial jobs, retaining the database/ORM dimensions and baseline
+Node gate. Each run compares its translated filter with `check()` from the **same PDP mode**.
+A strict-mode result is never compared with a default-mode oracle.
+
+`scripts/regenerate-wire-fixtures.sh` captures both modes independently: `wire-fixtures/` holds
+default-mode plans and `wire-fixtures-strict/` holds strict-mode plans. It publishes neither
+capture until both succeed. `validate-corpus.sh` checks complete action coverage, response identity,
+plan kinds and timestamp normalization in each directory. Offline translator tests continue to
+consume the default fixtures; the live suites execute plans from both modes. The two fixture sets
+currently match. This is an observed property, not a reason to copy one over the other or assume
+that their check decisions must agree. The classification ledger is shared because current
+adapter support/refusal classifications agree in both modes; any future difference must be
+measured and represented explicitly rather than skipped.
+
+Strict evaluation denies an affected action when a rule condition errors; variable errors affect
+referencing actions, and derived-role errors affect rules using that role. The existing adapter
+corpus predominantly exercises individual conditions. `evaluation-modes/` therefore defines
+**engine contract probes** against dedicated resource kinds in the same `policies/` tree,
+run by `scripts/check-evaluation-modes.sh`: a matching ALLOW alongside
+an erroring DENY, missing attributes, type errors, a referenced variable, a derived role, and an
+unrelated action that must remain allowed. Known principal inputs make these plans unconditional,
+so the probes assert exact Check decisions and Plan kinds in both modes without implementing an
+adapter or weakening the corpus's non-degeneracy guards. They also assert a valid-input control.
+
+The 0.55 upgrade exposed three distinct changes:
+
+- **Invalid literal regexes fail compilation.** The live `regex-lookahead` action uses a
+  principal-selected pattern to retain the hostile plan; the engine probes pin the literal
+  compile failure separately.
+- **Compile-time non-finite arithmetic cannot be serialized in a plan.** The five NaN/infinity
+  actions include `now() == now()`: Cerbos captures one timestamp per evaluation, so it is true,
+  and expressions containing `now()` bypass compile-time constant folding. This preserves the
+  original division subtrees and their adapter coverage. Engine probes separately require the
+  unguarded NaN and infinity plans to fail with their actual HTTP 500 serialization diagnostics,
+  while checking their per-resource decisions. If upstream fixes serialization, those probes
+  fail and prompt removal of the workaround rather than silently losing coverage.
+- **NaN ordering now yields false, including beneath negation.** The original wire plan stayed
+  unchanged while Check decisions changed. Adapters that fold these comparisons must preserve
+  false under negation, rather than treating NaN as an evaluation error. Missing attributes and
+  SQL NULL still retain their own error/unknown semantics. This is a consumer-visible semantic
+  change: the updated adapters target the 0.55 baseline and must not claim unchanged 0.54
+  compatibility for these expressions.
+
+Two additional corpus actions protect the migration fixes. `not-ternary-parent` distinguishes
+an unselected missing relation from a selected missing/null attribute under ternary negation;
+negating the whole translated relation predicate can either deny the former or allow the latter.
+`not-nan-order-string` distinguishes a finite-number/string type error from NaN/string ordering,
+which CEL 0.30 treats as false. Each action is classified from live adapter runs, with its actual
+refusal message where required, and participates in the corresponding non-degeneracy guard.
+The latter also catches SQL dialects inferring an all-NULL conditional expression as text where
+a boolean UNKNOWN is required.
+
+The existing `p-has` planner divergence remains pinned in both modes; strict evaluation does not
+remove that limitation. New SDK/renderer goldens are reviewed only after same-mode live oracle
+checks pass. A future PDP upgrade must review both plan diffs **and** decision changes: identical
+wire output alone does not establish semantic compatibility.
+
 ## Regenerating wire fixtures after a Cerbos version bump
 
 ```bash
@@ -1601,8 +1807,9 @@ the policy suite and classify it like anything else.
 #   docker buildx imagetools inspect ghcr.io/cerbos/cerbos:$(cat CERBOS_VERSION) \
 #     --format '{{.Manifest.Digest}}' > CERBOS_IMAGE_DIGEST
 ./scripts/regenerate-wire-fixtures.sh
-git diff conformance/wire-fixtures   # review exactly what the planner's wire output changed
-./scripts/validate-corpus.sh         # fails if any restatement still names the old tag or digest
+git diff -- wire-fixtures wire-fixtures-strict  # from conformance/: review both modes
+./scripts/check-evaluation-modes.sh # Check/Plan error scoping and planner limitations
+./scripts/validate-corpus.sh        # both fixture sets and every pin restatement
 ```
 
 Requires `docker`, `curl`, and `jq`.

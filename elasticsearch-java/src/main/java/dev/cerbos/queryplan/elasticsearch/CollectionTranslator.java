@@ -52,6 +52,22 @@ final class CollectionTranslator {
         this.leaf = leaf;
     }
 
+    /** A {@code lambda(body, variable)} operand, taken apart. */
+    private record Lambda(Operand body, String variable) {
+
+        /** The body and the bound variable, or a refusal naming what the wire contract broke. */
+        static Lambda of(Expression lambda, String arityMessage) {
+            List<Operand> operands = lambda.getOperandsList();
+            if (operands.size() != 2) {
+                throw malformed(arityMessage);
+            }
+            if (operands.get(1).getNodeCase() != Operand.NodeCase.VARIABLE) {
+                throw malformed("lambda second operand must be a variable");
+            }
+            return new Lambda(operands.get(0), operands.get(1).getVariable());
+        }
+    }
+
     // --- Collection operators (exists, all) ---
 
     Map<String, Object> translateMacro(String operator, List<Operand> operands, Polarity polarity) {
@@ -75,14 +91,19 @@ final class CollectionTranslator {
         }
 
         if (listOperand.getNodeCase() != Operand.NodeCase.VARIABLE) {
-            throw malformed(
-                    operator + " first operand must be a variable, got " + listOperand.getNodeCase());
+            throw unsupported(operator + " over a computed collection cannot be lowered to a nested query");
         }
 
         String cerbosAttr = listOperand.getVariable();
         String esField = root.field(cerbosAttr);
 
         if (!options.nestedPaths().contains(esField)) {
+            if (options.collectionFields().contains(esField)) {
+                Map<String, Object> equality = flatScalarExistsEquality(
+                        operator, lambdaOperand, esField, polarity);
+                if (equality != null) return equality;
+                throw unsupported("Collection macros over flat scalar arrays cannot preserve per-element predicates without a nested mapping");
+            }
             throw unmapped("Field '" + esField + "' is not declared in nestedPaths. "
                     + "Collection operators require nested mappings.");
         }
@@ -96,20 +117,7 @@ final class CollectionTranslator {
             throw malformed(
                     operator + " second operand must be a lambda, got " + lambdaExpr.getOperator());
         }
-
-        List<Operand> lambdaOperands = lambdaExpr.getOperandsList();
-        if (lambdaOperands.size() != 2) {
-            throw malformed("lambda requires exactly 2 operands");
-        }
-
-        Operand bodyOperand = lambdaOperands.get(0);
-
-        Operand lambdaVarOperand = lambdaOperands.get(1);
-        if (lambdaVarOperand.getNodeCase() != Operand.NodeCase.VARIABLE) {
-            throw malformed("lambda second operand must be a variable");
-        }
-        String lambdaVar = lambdaVarOperand.getVariable();
-        Scope scope = Scope.lambda(esField, lambdaVar);
+        Lambda lambda = Lambda.of(lambdaExpr, "lambda requires exactly 2 operands");
 
         if (whenTrue && "all".equals(operator)) {
             throw unsupported(
@@ -120,17 +128,37 @@ final class CollectionTranslator {
                     "Negated exists cannot distinguish a missing collection from an empty collection in Elasticsearch");
         }
 
-        if (whenTrue) {
-            // Only exists reaches here positively.
-            Map<String, Object> innerTrue = walker.operand(bodyOperand, scope, Polarity.TRUE);
-            return Queries.nestedQuery(esField, innerTrue);
-        }
+        // Only exists reaches here positively, and only all negatively: a document qualifies when
+        // it holds an element the predicate is definitely false for. An element for which the
+        // lambda is undefined prevents both true and false, preserving CEL errors.
+        Scope scope = new Scope.Lambda(esField, lambda.variable());
+        return Queries.nestedQuery(esField, walker.operand(lambda.body(), scope, polarity));
+    }
 
-        // Only all reaches here negatively: a document qualifies when it holds an element the
-        // predicate is definitely false for. An element for which the lambda is undefined
-        // prevents both true and false, preserving CEL errors.
-        Map<String, Object> innerFalse = walker.operand(bodyOperand, scope, Polarity.FALSE);
-        return Queries.nestedQuery(esField, innerFalse);
+    /** A positive scalar equality needs one matching term, not per-element correlation. */
+    private Map<String, Object> flatScalarExistsEquality(
+            String operator, Operand lambdaOperand, String field, Polarity polarity) {
+        if (!"exists".equals(operator) || !polarity.holds()
+                || lambdaOperand.getNodeCase() != Operand.NodeCase.EXPRESSION) return null;
+        Expression lambda = lambdaOperand.getExpression();
+        if (!"lambda".equals(lambda.getOperator()) || lambda.getOperandsCount() != 2
+                || lambda.getOperands(1).getNodeCase() != Operand.NodeCase.VARIABLE
+                || lambda.getOperands(0).getNodeCase() != Operand.NodeCase.EXPRESSION) return null;
+        Expression body = lambda.getOperands(0).getExpression();
+        if (!"eq".equals(body.getOperator()) || body.getOperandsCount() != 2) return null;
+        String variable = lambda.getOperands(1).getVariable();
+        Operand left = body.getOperands(0);
+        Operand right = body.getOperands(1);
+        boolean variableFirst = left.getNodeCase() == Operand.NodeCase.VARIABLE
+                && left.getVariable().equals(variable)
+                && right.getNodeCase() == Operand.NodeCase.VALUE;
+        boolean valueFirst = right.getNodeCase() == Operand.NodeCase.VARIABLE
+                && right.getVariable().equals(variable)
+                && left.getNodeCase() == Operand.NodeCase.VALUE;
+        if (!variableFirst && !valueFirst) return null;
+        // Reuse the leaf's scalar/null validation and the caller's operator overrides.
+        return leaf.applyResolvedLeaf("eq", body.getOperandsList(),
+                new Scope.Root(Map.of(variable, field)), Polarity.TRUE);
     }
 
     /**
@@ -164,17 +192,8 @@ final class CollectionTranslator {
                 || !"lambda".equals(lambdaOperand.getExpression().getOperator())) {
             throw malformed(operator + " second operand must be a lambda expression");
         }
-        List<Operand> lambdaOperands = lambdaOperand.getExpression().getOperandsList();
-        if (lambdaOperands.size() != 2) {
-            throw malformed(operator
-                    + " over a literal collection supports single-variable lambdas only");
-        }
-        Operand bodyOperand = lambdaOperands.get(0);
-        Operand lambdaVarOperand = lambdaOperands.get(1);
-        if (lambdaVarOperand.getNodeCase() != Operand.NodeCase.VARIABLE) {
-            throw malformed("lambda second operand must be a variable");
-        }
-        String lambdaVar = lambdaVarOperand.getVariable();
+        Lambda lambda = Lambda.of(lambdaOperand.getExpression(),
+                operator + " over a literal collection supports single-variable lambdas only");
 
         List<Value> elements = collectionValue.getListValue().getValuesList();
         if (elements.isEmpty()) {
@@ -185,7 +204,7 @@ final class CollectionTranslator {
         Expression.Builder combined = Expression.newBuilder()
                 .setOperator("exists".equals(operator) ? "or" : "and");
         for (Value element : elements) {
-            combined.addOperands(substituteLambdaVariable(bodyOperand, lambdaVar, element));
+            combined.addOperands(substituteLambdaVariable(lambda.body(), lambda.variable(), element));
         }
         Expression folded = combined.build();
         return walker.expression(folded, root, polarity);
@@ -344,26 +363,12 @@ final class CollectionTranslator {
             throw malformed("map second operand must be a lambda");
         }
 
-        Expression lambdaExpr = lambdaOperand.getExpression();
-        List<Operand> lambdaOperands = lambdaExpr.getOperandsList();
-        if (lambdaOperands.size() != 2) {
-            throw malformed("lambda requires exactly 2 operands");
-        }
-
-        Operand projectionOperand = lambdaOperands.get(0);
-        Operand lambdaVarOperand = lambdaOperands.get(1);
-        if (lambdaVarOperand.getNodeCase() != Operand.NodeCase.VARIABLE) {
-            throw malformed("lambda second operand must be a variable");
-        }
-        String lambdaVar = lambdaVarOperand.getVariable();
-
-        if (projectionOperand.getNodeCase() != Operand.NodeCase.VARIABLE) {
+        Lambda lambda = Lambda.of(lambdaOperand.getExpression(), "lambda requires exactly 2 operands");
+        if (lambda.body().getNodeCase() != Operand.NodeCase.VARIABLE) {
             throw unsupported("map lambda body must be a simple variable projection");
         }
-
-        String projectionVar = projectionOperand.getVariable();
-        String suffix = Scope.extractLambdaSuffix(projectionVar, lambdaVar);
-        String nestedField = esField + "." + suffix;
+        String nestedField = new Scope.Lambda(esField, lambda.variable())
+                .field(lambda.body().getVariable());
 
         if (valuesOperand.getNodeCase() != Operand.NodeCase.VALUE) {
             throw unsupported("hasIntersection second operand must be a value list");
@@ -374,8 +379,8 @@ final class CollectionTranslator {
         LeafTranslator.rejectNullIntersection(valueList);
         LeafTranslator.rejectNonScalarElements("hasIntersection", valueList);
 
-        Map<String, Object> matchingValue = Queries.nestedQuery(
-                esField, Map.of("terms", Map.of(nestedField, valueList)));
+        Map<String, Object> matchingValue =
+                Queries.nestedQuery(esField, Queries.terms(nestedField, valueList));
         Map<String, Object> missingProjection = Queries.nestedQuery(esField, Queries.notExists(nestedField));
         return Queries.boolMust(List.of(matchingValue, Queries.notQuery(missingProjection)));
     }

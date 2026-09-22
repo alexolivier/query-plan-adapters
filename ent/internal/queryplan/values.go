@@ -14,9 +14,20 @@ import (
 )
 
 // A resolved operand is either a plain Go constant folded out of the plan (float64, string, bool,
-// nil, []any), an Expr, or one of the two symbolic forms below. Keeping constants unlifted lets
+// nil, []any), an Expr, or a symbolic form. Keeping constants unlifted lets
 // whole comparisons fold at translation time — `"const".contains("other")` never reaches SQL.
 type value = any
+
+// symbolicValue marks operands that must be consumed before lowering to SQL parameters.
+// Keep isSymbolic separate: it identifies only values that need non-finite folding.
+type symbolicValue interface {
+	isSymbolicValue()
+}
+
+func (ieeeConst) isSymbolicValue()          {}
+func (condValue) isSymbolicValue()          {}
+func (hierarchyValue) isSymbolicValue()     {}
+func (deferredCollection) isSymbolicValue() {}
 
 // ieeeConst is a non-finite CEL double. It is deliberately NOT lowered into SQL: no portable SQL
 // literal denotes NaN or an infinity, and PostgreSQL's NaN ordering is not IEEE's. Comparisons
@@ -31,6 +42,19 @@ type condValue struct {
 	cond Expr
 	then value
 	els  value
+}
+
+// mapArms applies f to both arms, keeping the condition.
+func (cv condValue) mapArms(f func(value) (value, error)) (condValue, error) {
+	then, err := f(cv.then)
+	if err != nil {
+		return condValue{}, err
+	}
+	els, err := f(cv.els)
+	if err != nil {
+		return condValue{}, err
+	}
+	return condValue{cond: cv.cond, then: then, els: els}, nil
 }
 
 const likeEscape = `\`
@@ -75,6 +99,10 @@ func escapeLikeColumn(needle Expr) Expr {
 // case-insensitive collation over-grants here. That is a documented part of each adapter's
 // contract rather than something the translator can fix.
 func stringMatch(receiver, needle value, prefix, suffix bool) (Expr, error) {
+	if knownNonString(receiver) || knownNonString(needle) {
+		// A string operator over a declared non-string is a CEL no-overload error: UNKNOWN.
+		return Lit{V: nil}, nil
+	}
 	recvStr, recvIsStr := receiver.(string)
 	needleStr, needleIsStr := needle.(string)
 
@@ -273,26 +301,12 @@ func arithOverConditional(op ArithOp, l, r value) (value, bool, error) {
 	}
 
 	if cv, ok := l.(condValue); ok {
-		then, err := combine(cv.then, r)
-		if err != nil {
-			return nil, true, err
-		}
-		els, err := combine(cv.els, r)
-		if err != nil {
-			return nil, true, err
-		}
-		return condValue{cond: cv.cond, then: then, els: els}, true, nil
+		out, err := cv.mapArms(func(arm value) (value, error) { return combine(arm, r) })
+		return out, true, err
 	}
 	if cv, ok := r.(condValue); ok {
-		then, err := combine(l, cv.then)
-		if err != nil {
-			return nil, true, err
-		}
-		els, err := combine(l, cv.els)
-		if err != nil {
-			return nil, true, err
-		}
-		return condValue{cond: cv.cond, then: then, els: els}, true, nil
+		out, err := cv.mapArms(func(arm value) (value, error) { return combine(l, arm) })
+		return out, true, err
 	}
 	return nil, false, nil
 }
@@ -372,7 +386,8 @@ func compareLeaf(op CmpOp, l, r value) (Expr, error) {
 			other = nil
 		}
 
-		// CEL follows IEEE: NaN is unequal to everything and unordered against everything.
+		// Cerbos 0.55 follows IEEE: NaN is unequal to everything; ordered comparisons
+		// are false, so negation is true. Missing attributes still propagate UNKNOWN below.
 		result := BoolConst{V: op == OpNe}
 
 		if _, ok := asFloat(other); ok || other == nil {
@@ -424,6 +439,9 @@ func compareOrdered[T cmp.Ordered](op CmpOp, l, r T) bool {
 
 // applyComparison lowers a comparison whose operands are ordinary constants or expressions.
 func applyComparison(op CmpOp, l, r value) (Expr, error) {
+	if mixed, ok := compareMixedTypes(op, l, r); ok {
+		return mixed, nil
+	}
 	if nullTest, ok, err := nullComparison(op, l, r); err != nil || ok {
 		return nullTest, err
 	}
@@ -561,6 +579,9 @@ func explicitNullColumn(e Expr) (Expr, bool) {
 // the corpus's explicit-null convention sends a NULL column as a real null attribute. SQL's
 // `IN (NULL, 'a')` never matches a NULL row, so the null members become an explicit IS NULL arm.
 func membership(x, values value) (Expr, error) {
+	if _, list := x.([]any); list {
+		return nil, fmt.Errorf("membership with a list-valued element cannot be represented by scalar SQL IN")
+	}
 	members, ok := values.([]any)
 	if !ok {
 		members = []any{values}
@@ -766,24 +787,19 @@ func asExpr(v value) (Expr, error) {
 		// translator emitted a filter for a shape it cannot express and only the driver's
 		// encoder refused it, at execution time (cerbos/query-plan-adapters#387).
 		return nil, fmt.Errorf("'%s' produces a collection rather than a plain value; it only translates inside size() or hasIntersection(), which give the collection a scalar meaning", t.macro())
+	case symbolicValue:
+		return nil, fmt.Errorf("symbolic value %T has no SQL representation", v)
 	default:
 		return Lit{V: v}, nil
 	}
 }
 
-// asFloat reports whether v is a numeric constant. Booleans are excluded: CEL does not treat
-// them as numbers, and Go would happily compare them if they slipped through.
+// asFloat reports whether v is a numeric constant. Every number the plan carries decodes to
+// float64 (see decodeValue), and every constant the translator folds stays one. Booleans are
+// excluded: CEL does not treat them as numbers.
 func asFloat(v value) (float64, bool) {
-	switch t := v.(type) {
-	case float64:
-		return t, true
-	case int:
-		return float64(t), true
-	case int64:
-		return float64(t), true
-	default:
-		return 0, false
-	}
+	f, ok := v.(float64)
+	return f, ok
 }
 
 // asFloatExpr lifts an operand to a float-typed expression, casting a column so that integer

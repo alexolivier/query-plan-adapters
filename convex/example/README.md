@@ -14,6 +14,9 @@ the functions, builds the client, and runs it.
 
 It follows [`prisma/example/`](../../prisma/example/), which is the reference implementation.
 
+Install the adapter's build dependencies with `npm ci` in [`../`](..) before running
+the example; `run.sh` builds the adapter before packing it.
+
 ## What it proves
 
 Not what the adapter translates — [`../src/adversarial.test.ts`](../src/adversarial.test.ts)
@@ -40,8 +43,8 @@ and it is the row where the two resolvers differ:
 
 | Break                                   | `npx convex deploy`                                | `npm run build` (client) | `npm test`  |
 | --------------------------------------- | -------------------------------------------------- | ------------------------ | ----------- |
-| `exports["."]` points at a missing file  | fails — `The module "./lib/missing.js" was not found on the file system` | fails (TS2307) | 457 passing |
-| `lib/**/*.js` dropped from `files`       | fails — `The module "./lib/index.js" was not found on the file system`   | **passes** — the `.d.ts` files are still shipped, so the types resolve and only the bundle does not | 457 passing |
+| `exports["."]` points at a missing file  | fails — `The module "./lib/missing.js" was not found on the file system` | fails (TS2307) | passes |
+| `lib/**/*.js` dropped from `files`       | fails — `The module "./lib/index.js" was not found on the file system`   | **passes** — the `.d.ts` files are still shipped, so the types resolve and only the bundle does not | passes |
 
 That second row is why the deploy is not redundant with the client compile: a `files` allowlist can
 ship every type declaration and no implementation, and only something that has to *execute* the
@@ -180,12 +183,12 @@ anything is still a denial and it must not be reachable through that path.
 ## Ports
 
 The Convex backend runs on **13210/13211**, not Convex's default 3210/3211, and the PDP on
-13592/13593. Those defaults are what `npm run convex:up` and every adapter's `cerbos run` test
-sidecar bind, and a demo container holding one of them would not fail — it would let this example
-deploy over the functions a conformance run is using, or plan against the conformance corpus while
-diffing against the demo expectations. Both are reached through the environment (`$CONVEX_URL`,
-`$CERBOS_HOST`) with no fallback, so neither number is written down twice and neither can be
-defaulted into.
+13592/13593. The Convex defaults are what `npm run convex:up` binds, and 3592/3593 are Cerbos's
+defaults, which any other local PDP may be holding. Sharing either would not fail — it would let
+this example deploy over the functions a conformance run is using, or plan against some other policy
+suite while diffing against the demo expectations. Both are reached through the environment
+(`$CONVEX_URL`, `$CERBOS_HOST`) with no fallback, so neither number is written down twice and
+neither can be defaulted into.
 
 The backend is started from [`../docker-compose.yml`](../docker-compose.yml) — the adapter's own
 file, with the ports overridden — rather than a copy, so the image pin stays in one place.

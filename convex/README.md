@@ -58,6 +58,12 @@ documents read, so `allowPostFilter: true` is required.
 
 ### `allowPostFilter` opt-in
 
+**Breaking API change in 0.3.0:** `QueryPlanToConvexResult` is a discriminated union.
+After narrowing `kind` to `CONDITIONAL`, its `path` declares the required payloads:
+`"db"` carries `filter`, `"post"` carries `postFilter`, and `"split"` carries both.
+Unconditional results carry neither. Existing destructuring remains supported, but code
+constructing a conditional result must supply `path` and its corresponding functions.
+
 By default, `queryPlanToConvex` throws an error when the query plan requires a `postFilter`. This is because post-filter operators cause documents to be read before the complete authorization predicate is applied — the DB-level filter alone may not fully enforce the authorization policy.
 
 To enable post-filtering, pass `allowPostFilter: true`:
@@ -108,12 +114,25 @@ under any nesting. See [#302](https://github.com/cerbos/query-plan-adapters/issu
 
 ## Conformance contract
 
-The adapter is differentially tested with 22 hostile seed documents against Cerbos PDP 0.54.0 `checkResource` decisions: each query plan is translated by the adapter and executed inside a Convex query function, and the returned document IDs must equal the PDP's per-document decisions. The Spring Data adapter defines the reference semantics for this compatibility snapshot. How much of that execution is Convex's filter engine and how much is the adapter's `postFilter` is set out below.
+Conformance runs select the PDP engine mode with `ADAPTER_TEST_STRICT_EVALUATION=false`
+(the default) or `ADAPTER_TEST_STRICT_EVALUATION=true`; other values are rejected.
+For example, `ADAPTER_TEST_STRICT_EVALUATION=true npm run test:adversarial` runs the
+corpus with strict evaluation enabled for both planning and the `check()` oracle.
+CI runs both modes for each existing adversarial store and client-version combination.
+
+**Breaking compatibility change for Cerbos 0.55.** Ordered comparisons involving NaN
+now evaluate to false, so their negation can allow a row. The adapter follows that
+behavior; Cerbos 0.54 treated the unordered comparison as an error and denied the row
+even under negation. Use this adapter with Cerbos 0.55 when policies can produce
+NaN in a negated comparison. Missing attributes and null values retain their existing
+handling.
+
+The adapter is differentially tested with 27 hostile seed documents against Cerbos PDP 0.55.0 `checkResource` decisions in both evaluation modes: each query plan is translated by the adapter and executed inside a Convex query function, and the returned document IDs must equal the PDP's per-document decisions. The Spring Data adapter defines the reference semantics for this compatibility snapshot. How much of that execution is Convex's filter engine and how much is the adapter's `postFilter` is set out below.
 
 | Classification | Coverage |
 | --- | --- |
-| Oracle-tested | 189 of the 192 reference conformance actions, plus `matches()`, list indexing/`get-field`, `timestamp()`, and `int()`/`double()` cast plans that the Spring Data reference adapter rejects — the post-filter reimplements CEL cast semantics exactly (whole-string parse, truncation toward zero), so the SQL divergences do not apply (196 actions total) |
-| Fail-closed | `filter()`/`map()` used as a condition or as a conjunct (they return a list, not a boolean, in either position), a constant zero divisor whose sign the JSON hop into a Convex function discards, and a hierarchy path constructed by `list()`, an operator the adapter has no case for (6 actions). All six throw during translation, before any filter exists; unknown operators and invalid expression structures still throw |
+| Oracle-tested | 262 reference conformance actions, plus `matches()`, list indexing/`get-field`, `timestamp()`, and `int()`/`double()` cast plans that the Spring Data reference adapter rejects — the post-filter reimplements CEL cast semantics exactly (whole-string parse, truncation toward zero), so the SQL divergences do not apply (269 actions total). A positional read of a number or boolean list keeps the element's JSON type, so `true` never equals `1` and a null element is a value that negation admits (the `index-number-list*` and `index-bool-list*` actions) |
+| Fail-closed | `filter()`/`map()` used as a condition or conjunct; `list`, `struct`, and `except` constructor/operator forms without a lowering; regex patterns outside the supported RE2 subset; a constant zero divisor whose sign the JSON hop discards; and a nested division denominator whose numeric type the plan does not preserve (30 actions). All 30 throw during translation, before any filter exists; unknown operators and invalid expression structures still throw |
 | Explicit opt-in | Any plan that cannot be represented entirely as a Convex database filter requires `allowPostFilter: true` |
 | Representation-dependent | `null-eq-missing` — rejected under `nullAttributeRepresentation: "omitted"`. Under the default it already returns the empty set the PDP demands *when the document omits the field for a NULL value*, which is what the conformance harness seeds. The alignment is the `postFilter`'s doing, not a Convex filter's: the field is `nullable: true`, so the predicate is evaluated in JavaScript and the absent path raises the same CEL missing-attribute error that made `check()` deny. A deployment that stores explicit nulls while omitting the attribute would over-grant |
 | Attribute NULL convention | Needs no declaration: Convex stores the value the caller sent, so a stored null already compares as a null *value* exactly as CEL does, and a stored null stays distinguishable from an absent field. Every `null-value-*` corpus probe for the explicit convention (cerbos/query-plan-adapters#308) was aligned before that option existed — including `null-value-f2f-mixed`, which Convex and Mongoose are the only two adapters to translate rather than refuse |
@@ -134,13 +153,13 @@ the split is pinned by the conformance run instead of being left to inference:
 
 | Decided by | Default mapper | Pushdown mapper |
 | --- | --- | --- |
-| Convex's filter engine, alone | 22 | 33 |
+| Convex's filter engine, alone | 29 | 40 |
 | the engine narrowing and the `postFilter` deciding (`rel-hop-and-root`) | 1 | 1 |
-| the adapter's `postFilter`, alone | 167 | 156 |
-| folded to `ALWAYS_DENIED` before any filter exists (`in-empty`) | 1 | 1 |
+| the adapter's `postFilter`, alone | 233 | 222 |
+| folded to an unconditional plan before any filter exists | 6 | 6 |
 
-For the 167 post-filtered actions the differential compares the adapter's CEL evaluator against the
-PDP's CEL evaluator; Convex's own comparison and ordering semantics only get a say on the 22.
+For the 233 post-filtered actions the differential compares the adapter's CEL evaluator against the
+PDP's CEL evaluator; Convex's own comparison and ordering semantics only get a say on the 29.
 The **pushdown mapper** is a second leg that clears `nullable` on `owner` — the one nullable field
 the seeded documents always carry, since the table declares it `v.union(v.string(), v.null())`
 rather than `v.optional(...)`. That moves the null-comparison family (`null-eq`, `null-ne`,
@@ -152,7 +171,7 @@ is translated identically by both — a claim the suites pin rather than assume,
 `npm test` and again against the running backend.
 
 It cannot go further without lying about the documents: the other `nullable` fields
-(`aOptionalString`, `aDouble`, `createdAt`, `scope`, `mainCategory` and its two chained paths) are
+(`aOptionalString`, `aDouble`, `createdAt`, `updatedAt`, `scope`, `mainCategory` and its two chained paths) are
 genuinely **absent** from some seeds, and a comparison against an absent path has CEL
 missing-attribute semantics that a Convex filter cannot reproduce — which is exactly what
 `nullable: true` exists to prevent.
@@ -163,6 +182,13 @@ filter engine, value ordering, or the `undefined`/`null` distinction — is outs
 contract proves.
 
 **Behaviour change.** `filter()` and `map()` are now refused in **every** boolean position, not only at the root of the condition. `all: [R.attr.tags.filter(...), R.attr.aBool]` used to translate: the post-filter read the held list through a boolean coercion, got an evaluation error and denied every row — an emitted filter for a shape with no boolean meaning, which happened to agree with the PDP for the wrong reason. It now throws, which is a consumer-visible break for anyone relying on the empty result ([#387](https://github.com/cerbos/query-plan-adapters/issues/387)).
+
+The new fail-closed shapes include the planner's `struct`, `set-field`, `list` and `except`
+constructors that the evaluator does not implement, regex patterns outside its documented RE2
+subset, and a division expression used as another division's denominator. The latter now fails
+during translation; previously a zero divisor could fail only while evaluating a document.
+This earlier refusal is a breaking change. NaN ordering now evaluates to false on Cerbos 0.55,
+so its negation admits the affected rows; missing operands still produce evaluation errors.
 
 ## Mapping hazards
 

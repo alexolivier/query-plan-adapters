@@ -16,6 +16,8 @@ import {
   boolean,
   doublePrecision,
   integer as pgInteger,
+  json as pgJson,
+  jsonb,
   pgTable,
   text as pgText,
   timestamp,
@@ -25,6 +27,7 @@ import {
   datetime,
   double,
   int as mysqlInt,
+  json as mysqlJson,
   mysqlTable,
   varchar,
 } from "drizzle-orm/mysql-core";
@@ -60,7 +63,47 @@ import type { MapperEntry, RelationMapping } from ".";
 
 export const ADAPTER = "drizzle";
 
-export const CONFORMANCE_DIR = path.join(__dirname, "..", "..", "conformance");
+const CONFORMANCE_DIR = path.join(__dirname, "..", "..", "conformance");
+
+// -- the PDP -------------------------------------------------------------------------------------
+
+/**
+ * The gRPC address of the PDP `scripts/run-adversarial.sh` started for THIS run: a Unix socket in a
+ * directory that run created, exported by `cerbos run` as CERBOS_GRPC. There is deliberately no
+ * default and no TCP form. A fixed port is how a suite ends up planning against another run's PDP
+ * (cerbos/query-plan-adapters#476): `cerbos run` does not fail on a port that is already bound, and
+ * whichever PDP answers wins — possibly on another corpus revision or evaluation mode.
+ */
+export function pdpAddress(): string {
+  const address = process.env["CERBOS_GRPC"];
+  if (address === undefined || !address.startsWith("unix:")) {
+    throw new Error(
+      `CERBOS_GRPC is ${JSON.stringify(address)}, expected the unix: socket scripts/run-adversarial.sh ` +
+        "starts the PDP on. Run this suite through `npm run test:adversarial`, not jest directly.",
+    );
+  }
+  return address;
+}
+
+/**
+ * Fails the run unless the PDP reports the version pinned in conformance/CERBOS_VERSION. The wire
+ * fixtures and every classification are recorded against that version, and locally `cerbos run`
+ * is whatever `cerbos` binary is on PATH, so a stale one would otherwise pass or fail the corpus
+ * for reasons the corpus does not describe.
+ */
+export async function assertPinnedPdp(pdp: {
+  serverInfo(): Promise<{ version: string }>;
+}): Promise<void> {
+  const pinned = fs
+    .readFileSync(path.join(CONFORMANCE_DIR, "CERBOS_VERSION"), "utf8")
+    .trim();
+  const { version } = await pdp.serverInfo();
+  if (version !== pinned) {
+    throw new Error(
+      `The PDP at ${pdpAddress()} reports version ${version}, but conformance/CERBOS_VERSION pins ${pinned}.`,
+    );
+  }
+}
 
 const WIRE_FIXTURES_DIR = path.join(CONFORMANCE_DIR, "wire-fixtures");
 
@@ -161,9 +204,7 @@ export function classifyActionsForAdapter(
     ),
   );
   const oracleActions = [
-    ...manifest.conformance.filter(
-      (action) => !unsupportedActions.has(action),
-    ),
+    ...manifest.conformance.filter((action) => !unsupportedActions.has(action)),
     ...supportedExpected,
   ];
   const throwingActions: ThrowingAction[] = [
@@ -232,7 +273,9 @@ function operandFromWire(
   if (node.expression) {
     return new PlanExpression(
       node.expression.operator,
-      node.expression.operands.map((child) => operandFromWire(child, plannedAt)),
+      node.expression.operands.map((child) =>
+        operandFromWire(child, plannedAt),
+      ),
     );
   }
   if (node.variable !== undefined) {
@@ -456,6 +499,10 @@ export interface AdversarialSchema {
     createdBy: AnyColumn;
     scope: AnyColumn;
     createdAt: AnyColumn;
+    updatedAt: AnyColumn;
+    tagNamesJson: AnyColumn;
+    aNumberListJson: AnyColumn;
+    aBoolListJson: AnyColumn;
   };
   parents: Table & {
     id: AnyColumn;
@@ -504,6 +551,10 @@ export function sqliteSchema() {
       createdBy: text("created_by").notNull(),
       scope: text("scope"),
       createdAt: text("created_at"),
+      updatedAt: text("updated_at"),
+      tagNamesJson: text("tag_names_json", { mode: "json" }).$type<(string | null)[]>(),
+      aNumberListJson: text("a_number_list_json", { mode: "json" }).$type<(number | null)[]>(),
+      aBoolListJson: text("a_bool_list_json", { mode: "json" }).$type<(boolean | null)[]>(),
     }),
 
     // The corpus's one real to-one chain, one owned row per level and per resource.
@@ -574,6 +625,19 @@ export function postgresSchema() {
       createdBy: pgText("created_by").notNull(),
       scope: pgText("scope"),
       createdAt: timestamp("created_at", {
+        withTimezone: true,
+        mode: "string",
+      }),
+      tagNamesJson: jsonb("tag_names_json").$type<(string | null)[]>(),
+      tagNamesPlainJson: pgJson("tag_names_plain_json").$type<(string | null)[]>(),
+      tagNamesArray: pgText("tag_names_array").array(),
+      aNumberListJson: jsonb("a_number_list_json").$type<(number | null)[]>(),
+      aNumberListPlainJson: pgJson("a_number_list_plain_json").$type<(number | null)[]>(),
+      aNumberListArray: pgInteger("a_number_list_array").array(),
+      aBoolListJson: jsonb("a_bool_list_json").$type<(boolean | null)[]>(),
+      aBoolListPlainJson: pgJson("a_bool_list_plain_json").$type<(boolean | null)[]>(),
+      aBoolListArray: boolean("a_bool_list_array").array(),
+      updatedAt: timestamp("updated_at", {
         withTimezone: true,
         mode: "string",
       }),
@@ -662,6 +726,10 @@ export function mysqlSchema() {
       createdBy: varchar("created_by", { length: 64 }).notNull(),
       scope: varchar("scope", { length: 255 }),
       createdAt: datetime("created_at", { mode: "string", fsp: 6 }),
+      updatedAt: datetime("updated_at", { mode: "string", fsp: 6 }),
+      tagNamesJson: mysqlJson("tag_names_json").$type<(string | null)[]>(),
+      aNumberListJson: mysqlJson("a_number_list_json").$type<(number | null)[]>(),
+      aBoolListJson: mysqlJson("a_bool_list_json").$type<(boolean | null)[]>(),
     }),
 
     // The corpus's one real to-one chain, one owned row per level and per resource.
@@ -753,6 +821,10 @@ export function buildMapper(
       column: schema.resources.createdAt,
       valueType: "timestamp",
     },
+    "request.resource.attr.updatedAt": {
+      column: schema.resources.updatedAt,
+      valueType: "timestamp",
+    },
     // `owner` and `coOwner` alias columns that `aOptionalString` and `scope` also map, under the
     // OTHER null convention: the oracle sends a real null attribute for them rather than omitting
     // it. Declaring that here is what makes the equality family definite for these two
@@ -816,6 +888,8 @@ export function buildMapper(
       },
     },
     "request.resource.attr.tagNames": {
+      column: schema.resources.tagNamesJson,
+      indexable: "json",
       collectionValueType: "scalar",
       relation: {
         type: "many",
@@ -824,6 +898,20 @@ export function buildMapper(
         targetColumn: schema.tags.resourceId,
         field: schema.tags.name,
       },
+    },
+    // Homogeneous number and boolean lists, read only by position (`index-number-list`,
+    // `index-bool-list` and their negated and cross-type siblings). No relation: nothing in the
+    // corpus asks a collection predicate of them, so the ordered column is the whole mapping. The
+    // cross-type probes are why these exist — SQLite's `json_extract` reads a JSON `true` back as
+    // 1 and MySQL's `TRUE` is the integer 1, so a comparison that drops the element's JSON type
+    // matches `[true][0] == 1` or `[1][0] == true`, both false in CEL.
+    "request.resource.attr.aNumberList": {
+      column: schema.resources.aNumberListJson,
+      indexable: "json",
+    },
+    "request.resource.attr.aBoolList": {
+      column: schema.resources.aBoolListJson,
+      indexable: "json",
     },
     "request.resource.attr.categories": {
       relation: {

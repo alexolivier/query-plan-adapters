@@ -23,6 +23,7 @@ module CorpusAttributes
     "request.resource.attr.createdBy" => field("created_by"),
     "request.resource.attr.scope" => field("scope"),
     "request.resource.attr.createdAt" => field("created_at"),
+    "request.resource.attr.updatedAt" => field("updated_at"),
     # `owner` and `coOwner` alias the columns that `aOptionalString` and `scope` also map,
     # under the OTHER null convention: the oracle sends a real null attribute for them and
     # does not remove it. The declaration here is what makes the equality family definite for
@@ -66,6 +67,14 @@ module CorpusAttributes
     ),
     # The scalar values of tags[].name. A NULL name stays in the list as a null element.
     "request.resource.attr.tagNames" => relation(:tags, member_field: "name"),
+
+    # The number and boolean scalar lists, mapped the same way as `tagNames`. Every corpus
+    # action that reads them indexes them, and a relation mapping has no element order, so the
+    # translator refuses each one at `index`. They are mapped anyway: an unmapped attribute is
+    # refused one step earlier, with a message about the attribute map, and the classification
+    # would then rest on the harness and not on the mechanism its reason names.
+    "request.resource.attr.aNumberList" => relation(:number_list_elements, member_field: "value"),
+    "request.resource.attr.aBoolList" => relation(:bool_list_elements, member_field: "value"),
 
     "request.resource.attr.categories" => relation(:categories, fields: {
       # The category itself carries a name, and a lambda body can read it

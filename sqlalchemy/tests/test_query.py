@@ -1,23 +1,9 @@
-"""``get_query``'s contract for plans the planner cannot produce, and for options no
-policy can reach.
+"""Caller-option and malformed-plan contracts for ``get_query``.
 
-Every plan here is built by hand, and that is deliberate rather than an oversight: each
-one is either malformed by construction — an operand shape the planner never emits, a
-lambda reading a path no element carries — or a call-level argument the corpus has no
-action for, such as an unknown ``null_attribute_representation`` or a model built with
-the SQLAlchemy 2.0 declarative style. Neither can come from a wire fixture, because
-neither corresponds to a policy.
-
-What used to sit above all of this was 48 tests that planned corpus-adjacent shapes
-against a live PDP loaded with the shared policy suite, executed the query against three
-seeded rows and compared the result with a hardcoded count. Those are retired: the shapes are
-all corpus actions now, ``test_translator.py`` pins the SQL each one emits and
-``test_adversarial_conformance.py`` proves the rows against ``check()`` over 22 hostile
-seeds instead of 3 friendly ones. A shape CEL *can* express belongs there, not here,
-whatever its plan looks like — see
-`ADR 0006 <../../docs/adr/0006-translator-unit-tests-take-their-plans-from-wire-fixtures.md>`_.
-
-Nothing in this file starts a PDP or a container.
+Hand-built plans here isolate inputs a policy cannot vary, such as operator overrides
+and model declarations. Policy-reachable translation shapes belong in the shared
+corpus; ``test_translator.py`` pins their emitted SQL and the adversarial suite
+compares executed queries with the PDP. These tests need no PDP or container.
 """
 
 import math
@@ -30,7 +16,7 @@ from cerbos.sdk.model import (
 )
 
 from cerbos_sqlalchemy import get_query
-from sqlalchemy import Boolean, DateTime, String, column, func, literal, table
+from sqlalchemy import Boolean, DateTime, String, column, create_engine, literal, table
 from sqlalchemy.dialects import postgresql
 
 
@@ -283,6 +269,28 @@ class TestAttributeNullRepresentation:
             self._comparison("in", "request.resource.attr.owner", ["x", "y"]),
         )
         assert "IS NOT NULL" in compiled
+
+    @pytest.mark.parametrize("operator, expected", [("eq", []), ("ne", [1, 2])])
+    def test_explicit_null_does_not_enable_string_number_coercion(
+        self, resource_table, operator, expected
+    ):
+        engine = create_engine("sqlite://")
+        resource_table.metadata.create_all(engine)
+        with engine.begin() as connection:
+            connection.execute(
+                resource_table.__table__.insert(),
+                [{"id": 1, "name": "0"}, {"id": 2, "name": None}],
+            )
+            query = get_query(
+                _conditional_plan(
+                    self._comparison(operator, "request.resource.attr.owner", 0)
+                ),
+                resource_table,
+                self._attr_map(resource_table),
+                attribute_null_representation=self._declared(),
+            )
+            assert [row.id for row in connection.execute(query)] == expected
+        engine.dispose()
 
     def test_two_explicit_nulls_match_field_to_field(self, resource_table):
         compiled = self._compiled(
@@ -679,6 +687,41 @@ class TestSemanticEdgeTranslations:
 
 
 class TestGetQueryOverrides:
+    @pytest.mark.parametrize("overrides", [{}, {"eq": None, "add": None}])
+    def test_none_override_uses_default_for_nested_expression(
+        self, resource_table, conn, overrides
+    ):
+        plan = _conditional_plan(
+            {
+                "operator": "eq",
+                "operands": [
+                    {
+                        "expression": {
+                            "operator": "add",
+                            "operands": [
+                                {"variable": "request.resource.attr.aNumber"},
+                                {"value": 0},
+                            ],
+                        }
+                    },
+                    {"value": 1},
+                ],
+            }
+        )
+        query = get_query(
+            plan,
+            resource_table,
+            {"request.resource.attr.aNumber": resource_table.aNumber},
+            operator_override_fns=overrides,
+        )
+        expected = get_query(
+            plan,
+            resource_table,
+            {"request.resource.attr.aNumber": resource_table.aNumber},
+        )
+        assert conn.execute(query).fetchall() == conn.execute(expected).fetchall()
+        assert str(query) == str(expected)
+
     def test_unrelated_override_does_not_bypass_table_mapping_validation(
         self, resource_table, user_table
     ):
@@ -1129,15 +1172,6 @@ class TestDeclarativeStyles:
             }
         )
 
-    def test_declarative_base_is_not_a_declarative_meta(self, modern_resource_table):
-        # Pins *why* `GenericTable` needs the extra member: if SQLAlchemy ever
-        # folds the 2.0 metaclass back under `DeclarativeMeta`, this fails and
-        # the member becomes removable.
-        from sqlalchemy.orm import DeclarativeBase, DeclarativeMeta
-
-        assert issubclass(modern_resource_table, DeclarativeBase)
-        assert not isinstance(modern_resource_table, DeclarativeMeta)
-
     def test_declarative_base_model_filters(self, modern_resource_table, conn):
         query = get_query(
             self._eq_bool_plan(),
@@ -1149,7 +1183,7 @@ class TestDeclarativeStyles:
     def test_declarative_base_cross_table_mapping(
         self, modern_resource_table, modern_user_table, conn
     ):
-        # Exercises `_get_table_name` on both sides of the mapping: the root
+        # Exercises the table-name lookup on both sides of the mapping: the root
         # model and the joined one are both 2.0-style.
         plan = _conditional_plan(
             {
@@ -1204,3 +1238,22 @@ class TestDeclarativeStyles:
             {"request.resource.attr.aBool": core_resource.c.aBool},
         )
         assert {row.name for row in conn.execute(query)} == {"resource1", "resource3"}
+
+
+class TestPlanOperandBoundary:
+    @pytest.mark.parametrize(
+        "operand",
+        [
+            {"value": False, "variable": "request.resource.attr.aBool"},
+            {"expression": {"value": True}, "value": None},
+            {"operator": "eq", "operands": None},
+            {"variable": ["request.resource.attr.aBool"]},
+        ],
+    )
+    def test_malformed_nodes_are_rejected_before_semantic_traversal(self, operand):
+        # Malformed oneof/discriminator values cannot come from the planner. Reject
+        # them at the decode boundary instead of choosing a branch by key order.
+        from cerbos_sqlalchemy._plan import parse_operand
+
+        with pytest.raises(ValueError, match="Unrecognised operand shape"):
+            parse_operand(operand)

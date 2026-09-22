@@ -4,6 +4,7 @@ import dev.cerbos.api.v1.engine.Engine.PlanResourcesFilter;
 import dev.cerbos.api.v1.engine.Engine.PlanResourcesFilter.Expression.Operand;
 
 import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 
@@ -11,6 +12,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
+import java.time.temporal.Temporal;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -77,11 +79,8 @@ final class ComparisonTranslator {
     static final Set<String> COMPARISON_OPS =
             Set.of("eq", "ne", "lt", "gt", "le", "ge");
 
-    /** The receiver-sensitive CEL string-match methods (see {@link NormalizedBinary}). */
-    private static final Set<String> STRING_MATCH_OPS =
-            Set.of("contains", "startsWith", "endsWith");
-
     private final CriteriaBuilder cb;
+    private final TriPredicate tri;
     private final LeafTranslator leaf;
     private final TernaryTranslator ternary;
     private final SizeTranslator sizes;
@@ -90,6 +89,7 @@ final class ComparisonTranslator {
     ComparisonTranslator(CriteriaBuilder cb, TriPredicate tri, LeafTranslator leaf,
                          TernaryTranslator ternary, SizeTranslator sizes) {
         this.cb = cb;
+        this.tri = tri;
         this.leaf = leaf;
         this.ternary = ternary;
         this.sizes = sizes;
@@ -235,6 +235,14 @@ final class ComparisonTranslator {
         }
 
         /**
+         * {@code string(variable)} — CEL's string conversion over a mapped column. Only a
+         * BOOLEAN column has a lowering ({@link #booleanStringComparison}); the column's type is
+         * read at the consuming dispatch site, and every other type is refused there with the
+         * leaf-operand message a {@code string()} operand has always raised.
+         */
+        record StringOfField(String variable) implements Resolved {}
+
+        /**
          * An operand no leaf comparison understands ({@code map()}, {@code lambda},
          * {@code timestamp()} over a nested expression, an unset node...). Dispatch
          * routes these to {@link #leafOperandError}, which reports from the RAW operands
@@ -268,6 +276,12 @@ final class ComparisonTranslator {
                         yield new Resolved.TimestampConstant(arg);
                     }
                     yield new Resolved.Opaque();
+                }
+                // string(variable). Anything else inside string() — a nested expression, a
+                // constant — stays Opaque → leafOperandError.
+                if ("string".equals(exprOp) && e.getOperandsCount() == 1
+                        && e.getOperands(0).getNodeCase() == Operand.NodeCase.VARIABLE) {
+                    yield new Resolved.StringOfField(e.getOperands(0).getVariable());
                 }
                 if (!ArithmeticTranslator.ARITHMETIC_OPS.contains(exprOp)) {
                     yield new Resolved.Opaque();
@@ -332,7 +346,8 @@ final class ComparisonTranslator {
         // needle (NormalizedBinary deliberately leaves these in source order). An unfolded
         // concat receiver (`("a" + "b").contains(R.attr.x)`) folds here too — NOT into the
         // add-solve path, which would translate the INVERTED column-haystack LIKE.
-        if (STRING_MATCH_OPS.contains(op) && right instanceof Resolved.Field needleField) {
+        StringMatch match = StringMatch.of(op);
+        if (match != null && right instanceof Resolved.Field needleField) {
             Object receiver = left instanceof Resolved.Constant c ? c.value()
                     : left instanceof Resolved.ConstantAdd ca ? ca.fold()
                     : null;
@@ -340,18 +355,13 @@ final class ComparisonTranslator {
                 if (!(receiver instanceof String haystack)) {
                     // `5.contains(x)` has no overload in CEL; the planner never folds one.
                     throw Refusals.malformed(
-                            op + " requires a string receiver, got " + typeName(receiver));
+                            op + " requires a string receiver, got "
+                                    + PlanValues.typeName(receiver));
                 }
                 Path<?> needle = scope.path(needleField.variable());
                 // The needle is a column, so it is escaped dynamically; a NULL needle is
                 // a missing attribute → CEL error → deny (fieldToFieldLike guards it).
-                return switch (op) {
-                    case "contains" -> fieldToFieldLike(cb.literal(haystack), needle, true, true);
-                    case "startsWith" -> fieldToFieldLike(cb.literal(haystack), needle, false, true);
-                    case "endsWith" -> fieldToFieldLike(cb.literal(haystack), needle, true, false);
-                    default -> throw Refusals.internal(
-                            "Unsupported string-match operator: " + op);
-                };
+                return fieldToFieldLike(cb.literal(haystack), needle, match);
             }
             // A NULL receiver constant is not a haystack; fall through so the null-RHS
             // leaf branch below owns the error message.
@@ -377,6 +387,16 @@ final class ComparisonTranslator {
             if (left instanceof Resolved.TimestampConstant lts
                     && right instanceof Resolved.TimestampConstant rts) {
                 return timestampConstantComparison(op, lts.instant(), rts.instant());
+            }
+            // string(column) eq/ne a string constant. NormalizedBinary puts the string()
+            // operand first (an EXPRESSION outranks a VALUE), so the value-first spelling
+            // arrives here too. Ordering operators and non-string constants fall through to
+            // leafOperandError, as does every column that is not a boolean.
+            if (("eq".equals(op) || "ne".equals(op))
+                    && left instanceof Resolved.StringOfField sf
+                    && right instanceof Resolved.Constant c
+                    && c.value() instanceof String text) {
+                return booleanStringComparison(op, sf, text, operands, scope);
             }
             // Fold: `field op add(value, value)` — the folded constant compares like any
             // plan constant (normalization guarantees the field arrives first). Strings
@@ -544,24 +564,59 @@ final class ComparisonTranslator {
      * is total and exact, so the collapse is oracle-faithful.
      */
     private Predicate timestampConstantComparison(String op, Instant left, Instant right) {
-        int cmp = left.compareTo(right);
-        boolean result = switch (op) {
-            case "eq" -> cmp == 0;
-            case "ne" -> cmp != 0;
-            case "lt" -> cmp < 0;
-            case "gt" -> cmp > 0;
-            case "le" -> cmp <= 0;
-            case "ge" -> cmp >= 0;
-            default -> throw Refusals.internal(
-                    "Unsupported constant timestamp comparison operator: " + op);
-        };
-        return result ? cb.conjunction() : cb.disjunction();
+        return constant(holds(op, left.compareTo(right)));
+    }
+
+    /**
+     * {@code string(boolColumn) eq/ne "text"}: CEL's string conversion of a boolean column,
+     * compared with a string constant.
+     *
+     * <p>CEL renders a bool as exactly {@code "true"} or {@code "false"}, so the comparison is
+     * decided HERE, byte for byte, and the store is only ever asked about the boolean column:
+     * {@code string(x) == "true"} is {@code x == true}, {@code string(x) == "false"} is
+     * {@code x == false}, and any other constant matches no value at all. Both SQL spellings of
+     * the conversion are wrong somewhere. A {@code CAST} renders {@code 'true'} on H2 and
+     * PostgreSQL and {@code '1'} on MySQL, which stores a boolean as a number. And
+     * {@code CASE WHEN col IS NULL THEN NULL WHEN col THEN 'true' ELSE 'false' END} compared
+     * with the constant puts two LITERALS on the comparison, which a store compares in its
+     * CONNECTION collation rather than a column's: MySQL Connector/J leaves that at
+     * {@code utf8mb4_0900_ai_ci} even on a server whose columns are case-sensitive, and there
+     * the CASE form returned every true row for {@code string(x) == "TRUE"}, all of which CEL
+     * denies (measured on this repository's MySQL leg; cerbos/query-plan-adapters#418 proposed
+     * the CASE).
+     *
+     * <p>A NULL column is a missing attribute, or an explicit null, on the check side, and CEL
+     * has no {@code string()} for either: it raises, and the PDP denies the row under both
+     * polarities. The two word arms keep that by construction ({@code NULL = true} is UNKNOWN);
+     * the no-match arm states it, as {@link #solveAddComparison} does for an unsolvable
+     * concatenation. That is also why an explicit-null declaration does not make this equality
+     * definite the way it does a plain column's.
+     *
+     * <p>The two word arms go through {@link LeafTranslator#applyLeaf} with the boolean the
+     * constant names, as the bare boolean attribute does, so an {@code eq}/{@code ne} override
+     * sees them. Every other column type keeps the refusal a {@code string()} operand has always
+     * raised: a number's or an instant's text form is what the dialects render on their own
+     * terms, and nothing here reproduces CEL's. {@link Boolean} only, not the primitive: the
+     * leaf's type check would read a {@code boolean} path as incompatible with a
+     * {@link Boolean} value and fold the comparison to a constant.
+     */
+    private Predicate booleanStringComparison(String op, Resolved.StringOfField field,
+                                              String value, List<Operand> operands, Scope scope) {
+        Path<?> path = scope.path(field.variable());
+        if (!Boolean.class.equals(path.getJavaType())) {
+            throw leafOperandError(op, operands);
+        }
+        if ("true".equals(value) || "false".equals(value)) {
+            return leaf.applyLeaf(op, path, Boolean.valueOf(value));
+        }
+        return tri.baseUnlessUnknown("ne".equals(op) ? cb.conjunction() : cb.disjunction(),
+                () -> cb.isNull(path));
     }
 
     /**
      * Shape description for a structured constant in an error message: size and kind
      * only — never element values, matching the adapter's no-value-leak discipline
-     * (see {@link #typeName}).
+     * (see {@link PlanValues#typeName}).
      */
     private static String constantShape(Object value) {
         if (value instanceof List<?> l) {
@@ -593,10 +648,8 @@ final class ComparisonTranslator {
         Object addConst = PlanValues.protoValueToJava(fpc.constant().getValue());
         Object solved = PlanValues.solveAdd(otherValue, addConst, fpc.fieldIsLeft());
         if (solved == null) {
-            if ("eq".equals(op)) {
-                return cb.disjunction();
-            }
-            return cb.isNotNull(scope.path(fpc.fieldVariable()));
+            return tri.baseUnlessUnknown("ne".equals(op) ? cb.conjunction() : cb.disjunction(),
+                    () -> cb.isNull(scope.path(fpc.fieldVariable())));
         }
         return leaf.applyLeaf(op, scope.path(fpc.fieldVariable()), solved);
     }
@@ -709,53 +762,58 @@ final class ComparisonTranslator {
      * {@code 0.0}), so {@code Double.compare} would collapse {@code gt}/{@code ge}
      * against a NaN constant — reachable via an unfolded {@code div(0,0)}, e.g. the
      * else arm of {@code (aBool ? 1.0 : 0.0/0.0) > 0.5} — to always-true, returning
-     * rows the PDP denies. CEL/IEEE define every ordering comparison involving NaN as
-     * false → {@code cb.disjunction()} (exclusion).
+     * rows the PDP denies. Cerbos 0.55 uses IEEE false for an unordered NaN pair, so the primitive
+     * comparison also preserves its result under negation.
      */
     Predicate constantComparison(String op, Object left, Object right) {
-        boolean result;
         if ("eq".equals(op) || "ne".equals(op)) {
             boolean equal = (left instanceof Number ln && right instanceof Number rn)
                     ? ln.doubleValue() == rn.doubleValue()
                     : Objects.equals(left, right);
-            result = "eq".equals(op) == equal;
-        } else if (left instanceof Number ln && right instanceof Number rn) {
+            return constant("eq".equals(op) == equal);
+        }
+        if (left instanceof Number ln && right instanceof Number rn) {
             double l = ln.doubleValue();
             double r = rn.doubleValue();
-            result = switch (op) {
+            return constant(switch (op) {
                 case "lt" -> l < r;
                 case "gt" -> l > r;
                 case "le" -> l <= r;
                 case "ge" -> l >= r;
                 default -> throw Refusals.internal(
                         "Unsupported constant comparison operator: " + op);
-            };
-        } else if (left instanceof String ls && right instanceof String rs) {
-            int cmp = ls.compareTo(rs);
-            result = switch (op) {
-                case "lt" -> cmp < 0;
-                case "gt" -> cmp > 0;
-                case "le" -> cmp <= 0;
-                case "ge" -> cmp >= 0;
-                default -> throw Refusals.internal(
-                        "Unsupported constant comparison operator: " + op);
-            };
-        } else {
-            // Ordering two booleans, or a string against a number, has no CEL
-            // overload: the planner would have rejected the policy.
-            throw Refusals.malformed(
-                    "Cannot order constant operands of " + op + ": "
-                            + typeName(left) + " vs " + typeName(right));
+            });
         }
-        return result ? cb.conjunction() : cb.disjunction();
+        if (left instanceof String ls && right instanceof String rs) {
+            return constant(holds(op, ls.compareTo(rs)));
+        }
+        // Ordering two booleans, or a string against a number, has no CEL
+        // overload: the planner would have rejected the policy.
+        throw Refusals.malformed(
+                "Cannot order constant operands of " + op + ": "
+                        + PlanValues.typeName(left) + " vs " + PlanValues.typeName(right));
     }
 
     /**
-     * The runtime type of a converted plan constant, for error messages — the type only,
-     * never the value, matching the adapter's no-value-leak discipline.
+     * Whether {@code op} holds for a {@link Comparable#compareTo} result — the total orders
+     * (strings, instants). Numbers never come through here: see {@link #constantComparison}.
      */
-    static String typeName(Object o) {
-        return o == null ? "null" : o.getClass().getSimpleName();
+    private static boolean holds(String op, int cmp) {
+        return switch (op) {
+            case "eq" -> cmp == 0;
+            case "ne" -> cmp != 0;
+            case "lt" -> cmp < 0;
+            case "gt" -> cmp > 0;
+            case "le" -> cmp <= 0;
+            case "ge" -> cmp >= 0;
+            default -> throw Refusals.internal(
+                    "Unsupported constant comparison operator: " + op);
+        };
+    }
+
+    /** A statically decided comparison: always-true ({@code 1=1}) or always-false ({@code 1=0}). */
+    private Predicate constant(boolean result) {
+        return result ? cb.conjunction() : cb.disjunction();
     }
 
     /**
@@ -765,10 +823,20 @@ final class ComparisonTranslator {
      */
     private Predicate fieldToFieldComparison(String op, String leftVar, String rightVar,
                                              Scope scope) {
-        jakarta.persistence.criteria.Expression<?> left = scope.path(leftVar);
-        jakarta.persistence.criteria.Expression<?> right = scope.path(rightVar);
+        Expression<?> left = scope.path(leftVar);
+        Expression<?> right = scope.path(rightVar);
+        if (Temporal.class.isAssignableFrom(left.getJavaType())
+                || Temporal.class.isAssignableFrom(right.getJavaType())) {
+            throw Refusals.unsupported("Bare temporal comparison cannot preserve CEL string "
+                    + "equality; use timestamp() explicitly");
+        }
         boolean leftExplicit = leaf.isExplicitNull(leftVar, scope);
         boolean rightExplicit = leaf.isExplicitNull(rightVar, scope);
+        if (!LeafTranslator.compatibleTypes(left.getJavaType(), right.getJavaType())) {
+            return "eq".equals(op) || "ne".equals(op)
+                    ? leaf.definiteEquality(op, left, right, leftExplicit, rightExplicit)
+                    : tri.unknown();
+        }
         // Mixing the two conventions across one comparison has no faithful rendering.
         // The declared side needs a definite answer for its NULL (CEL holds a null
         // VALUE); the undeclared side needs UNKNOWN for its NULL (a missing attribute,
@@ -790,15 +858,16 @@ final class ComparisonTranslator {
         if (("eq".equals(op) || "ne".equals(op)) && leftExplicit && rightExplicit) {
             return leaf.definiteEquality(op, left, right, leftExplicit, rightExplicit);
         }
-        return switch (op) {
-            case "eq", "ne", "lt", "gt", "le", "ge" -> comparePredicate(op, left, right);
-            case "contains" -> fieldToFieldLike(left, right, true, true);
-            case "startsWith" -> fieldToFieldLike(left, right, false, true);
-            case "endsWith" -> fieldToFieldLike(left, right, true, false);
-            default -> throw Refusals.unsupported(
-                    "Field-to-field comparison is not supported for operator '" + op + "': "
-                            + leftVar + " vs " + rightVar);
-        };
+        if (COMPARISON_OPS.contains(op)) {
+            return comparePredicate(op, left, right);
+        }
+        StringMatch match = StringMatch.of(op);
+        if (match != null) {
+            return fieldToFieldLike(left, right, match);
+        }
+        throw Refusals.unsupported(
+                "Field-to-field comparison is not supported for operator '" + op + "': "
+                        + leftVar + " vs " + rightVar);
     }
 
     /**
@@ -809,8 +878,8 @@ final class ComparisonTranslator {
      */
     @SuppressWarnings({"rawtypes", "unchecked"})
     Predicate comparePredicate(String op,
-                               jakarta.persistence.criteria.Expression left,
-                               jakarta.persistence.criteria.Expression right) {
+                               Expression left,
+                               Expression right) {
         return switch (op) {
             case "eq" -> cb.equal(left, right);
             case "ne" -> cb.notEqual(left, right);
@@ -822,6 +891,9 @@ final class ComparisonTranslator {
                     "Unsupported arithmetic comparison operator: " + op);
         };
     }
+
+    /** Escaped by {@link #fieldToFieldLike} in this order: the escape character itself first. */
+    private static final List<String> LIKE_METACHARACTERS = List.of("\\", "%", "_", "[");
 
     /**
      * {@code haystackColumn LIKE wildcards(escape(needleColumn))} — the column-to-column
@@ -844,27 +916,20 @@ final class ComparisonTranslator {
      * dialects whose {@code CONCAT} treats NULL as {@code ''} and would otherwise build a
      * match-anything {@code '%%'}.
      */
-    private Predicate fieldToFieldLike(jakarta.persistence.criteria.Expression<?> haystack,
-                                       jakarta.persistence.criteria.Expression<?> needle,
-                                       boolean leadingWildcard, boolean trailingWildcard) {
-        jakarta.persistence.criteria.Expression<String> escaped =
-                needle.as(String.class);
-        escaped = cb.function("replace", String.class,
-                escaped, cb.literal("\\"), cb.literal("\\\\"));
-        escaped = cb.function("replace", String.class,
-                escaped, cb.literal("%"), cb.literal("\\%"));
-        escaped = cb.function("replace", String.class,
-                escaped, cb.literal("_"), cb.literal("\\_"));
-        escaped = cb.function("replace", String.class,
-                escaped, cb.literal("["), cb.literal("\\["));
-        jakarta.persistence.criteria.Expression<String> pattern = escaped;
-        if (leadingWildcard) {
+    private Predicate fieldToFieldLike(Expression<?> haystack, Expression<?> needle,
+                                       StringMatch match) {
+        Expression<String> pattern = needle.as(String.class);
+        for (String metacharacter : LIKE_METACHARACTERS) {
+            pattern = cb.function("replace", String.class,
+                    pattern, cb.literal(metacharacter), cb.literal("\\" + metacharacter));
+        }
+        if (match.leadingWildcard) {
             pattern = cb.concat(cb.literal("%"), pattern);
         }
-        if (trailingWildcard) {
+        if (match.trailingWildcard) {
             pattern = cb.concat(pattern, cb.literal("%"));
         }
-        jakarta.persistence.criteria.Expression<String> guardedPattern =
+        Expression<String> guardedPattern =
                 cb.<String>selectCase()
                         .when(cb.isNull(needle), cb.nullLiteral(String.class))
                         .otherwise(pattern);

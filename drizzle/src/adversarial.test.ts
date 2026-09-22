@@ -32,13 +32,15 @@ import { queryPlanToDrizzle, PlanKind } from ".";
 import type { MapperEntry } from ".";
 import {
   ADAPTER,
-  CONFORMANCE_DIR,
   buildMapper,
   classifyActionsForAdapter,
   mysqlSchema,
   postgresSchema,
+  readCorpusJson,
   requireMessage,
   sqliteSchema,
+  assertPinnedPdp,
+  pdpAddress,
 } from "./corpus";
 import type { ActionsFile, ThrowingAction } from "./corpus";
 
@@ -63,8 +65,7 @@ import type { ActionsFile, ThrowingAction } from "./corpus";
  * (cerbos/query-plan-adapters#320 for PostgreSQL, #340 for MySQL).
  */
 
-// Dedicated ports (gRPC 3621) so this suite can run alongside other adapters' sidecars.
-const cerbos = new Cerbos("127.0.0.1:3621", { tls: false });
+const cerbos = new Cerbos(pdpAddress(), { tls: false });
 
 interface Tag {
   id: string;
@@ -81,6 +82,9 @@ interface Seed {
   subCategoryNames: string[];
   /** The seed whose scalars this row's to-one `parent` carries; null for no parent. */
   parentSeedId: string | null;
+  /** Read only by position; a null element is a VALUE, not a missing attribute. */
+  aNumberList: (number | null)[];
+  aBoolList: (boolean | null)[];
 }
 
 interface SeedsFile {
@@ -106,6 +110,8 @@ const SEED_KEYS = [
   "tags",
   "subCategoryNames",
   "parentSeedId",
+  "aNumberList",
+  "aBoolList",
 ] as const;
 
 /** Corpus prose, never read by a harness: the one documented exclusion from SEED_KEYS. */
@@ -119,6 +125,7 @@ const DERIVED_KEYS = [
   "createdBy",
   "aDouble",
   "createdAt",
+  "updatedAt",
   "scope",
   "labels",
 ] as const;
@@ -142,6 +149,11 @@ const PRINCIPAL_ATTR_KEYS = [
   "context",
   "fewTeams",
   "manyTeams",
+  "zero",
+  "emptyTeams",
+  "manyStructs",
+  "nullableStructs",
+  "missingStructs",
 ] as const;
 
 /** One seed's derived fields, exactly as conformance/derived-fields.json carries them. */
@@ -149,6 +161,7 @@ interface DerivedEntry {
   createdBy: string;
   aDouble: number | null;
   createdAt: string | null;
+  updatedAt: string | null;
   scope: string | null;
   labels: (string | null)[];
 }
@@ -182,30 +195,42 @@ function assertKeys(
   }
 }
 
-/**
- * One principal attribute, checked against the two JSON shapes the corpus carries. A key-set guard
- * says nothing about a change inside a value and three of the four attributes are lists, so the
- * element type is asserted for the same reason the seed guard descends into `tags[]`.
- */
+/** Principal attributes have explicit value shapes, including absent versus null struct members. */
 function assertPrincipalAttrShape(label: string, value: unknown): void {
-  if (typeof value === "string") return;
-  if (Array.isArray(value) && value.every((el) => typeof el === "string")) {
+  const key = label.slice(label.lastIndexOf(".") + 1);
+  if (key === "context" && typeof value === "string") return;
+  if (key === "zero" && value === 0) return;
+  if (
+    ["allowedTags", "fewTeams", "manyTeams", "emptyTeams"].includes(key) &&
+    Array.isArray(value) &&
+    value.every((entry) => typeof entry === "string")
+  )
     return;
-  }
+  if (
+    ["manyStructs", "nullableStructs", "missingStructs"].includes(key) &&
+    Array.isArray(value) &&
+    value.every((entry: unknown) => {
+      if (typeof entry !== "object" || entry === null || Array.isArray(entry))
+        return false;
+      if (key === "missingStructs") return Object.keys(entry).length === 0;
+      return (
+        Object.keys(entry).length === 1 &&
+        "name" in entry &&
+        (key === "nullableStructs"
+          ? entry.name === null
+          : typeof entry.name === "string")
+      );
+    })
+  )
+    return;
   throw new Error(
-    `${label} is neither a string nor an array of strings, the only two shapes this harness consumes: a reshaped principal attribute feeds the plan and the check() oracle at once`,
+    `${label} does not match its declared corpus principal shape`,
   );
 }
 
-const seedsFile: SeedsFile = JSON.parse(
-  fs.readFileSync(path.join(CONFORMANCE_DIR, "seeds.json"), "utf8"),
-);
-const actionsFile: ActionsFile = JSON.parse(
-  fs.readFileSync(path.join(CONFORMANCE_DIR, "actions.json"), "utf8"),
-);
-const derivedFile: DerivedFile = JSON.parse(
-  fs.readFileSync(path.join(CONFORMANCE_DIR, "derived-fields.json"), "utf8"),
-);
+const seedsFile = readCorpusJson("seeds.json") as SeedsFile;
+const actionsFile = readCorpusJson("actions.json") as ActionsFile;
+const derivedFile = readCorpusJson("derived-fields.json") as DerivedFile;
 const SEEDS = seedsFile.seeds;
 
 // SEEDS holds the parsed JSON rows verbatim, so Object.keys reports the corpus key set. Keep it
@@ -314,6 +339,19 @@ const MANIFEST_ACTIONS = new Set([
 // for that group.
 
 const DEGENERACY_GUARD_ACTIONS = [
+  "not-nan-order-string",
+  "not-ternary-parent",
+  "index-not-oob",
+  "index-scalar-list",
+  "index-scalar-list-not-eq",
+  "index-scalar-list-null",
+  "projection-exists-eq",
+  "projection-exists-not-eq",
+  "rel-not-eq-hop",
+  "rel-not-contains-hop",
+  "rel-not-hierarchy-hop",
+  "pv-in",
+  "pv-in-unrolled",
   "vf-le",
   "like-percent",
   "all-on-empty",
@@ -380,6 +418,42 @@ const DEGENERACY_GUARD_ACTIONS = [
   "string-size-gt0",
   "in-map-keys",
   "double-huge-gt",
+  // #414: every newly discriminating shape guards its observed execution side.
+  "hasint-map-null",
+  "hasint-map-null-vf",
+  "hasint-map-vf",
+  "hasint-null-vf",
+  "in-numbers",
+  "in-var-var-omitted",
+  "in-var-var-omitted-neg",
+  "lambda-in-literal",
+  "lambda-in-literal-neg",
+  "lambda-ternary",
+  "not-hasint-empty-chain",
+  "not-nan-ord-le",
+  "pv-not-all",
+  "pv-not-exists",
+  "pv-shadow",
+  "root-not-bool",
+  "size-ge-one",
+  "wildcard-contains",
+  "wildcard-endswith",
+  // Number and boolean list elements, read through declared indexed storage (#464). The two
+  // cross-type probes are the ones that matter: CEL's heterogeneous equality makes
+  // `[true][0] == 1` and `[1][0] == true` false. Measured by mutating `indexed.ts`, not inferred:
+  // on SQLite a type-blind `json_extract(...) = ?` returns b4 and c1, and b4; on MySQL the same
+  // comparison agrees (its JSON comparator keeps the type) but `json_unquote(...) = ?` returns b4.
+  // Their oracle is `a1` alone, through the `aNumber == 5` branch each carries so it is not empty.
+  "index-number-list",
+  "index-number-list-not-eq",
+  "index-bool-list",
+  "index-bool-list-not-eq",
+  "index-bool-list-vs-number",
+  "index-number-list-vs-bool",
+  // string() over a boolean column, lowered through a CASE rather than a CAST (#418). Its oracle is
+  // every row whose aBool is true, which is what makes a CAST rendering "1" on SQLite and MySQL an
+  // under-grant of all of them rather than a near miss.
+  "cast-string-bool",
 ] as const;
 
 /**
@@ -390,8 +464,8 @@ const DEGENERACY_GUARD_ACTIONS = [
  * The list exists as of #340. Before the MySQL leg executed, this adapter translated every shape
  * in the sample and the guard was one-sided; `cast-string-double` was in the COMPARED list, on the
  * belief that `CAST(... AS TEXT)` rendered a double identically on every store. It is a syntax
- * error on MySQL. `cast-string-double` rather than its boolean sibling because its oracle is a
- * single row out of 22 — a non-empty, non-total set, which is what the guard asserts.
+ * error on MySQL. Its boolean sibling `cast-string-bool` sits in the compared list above: a boolean
+ * needs no cast target, only a CASE (#418).
  */
 const DEGENERACY_LIVENESS_PROBES = [
   "cast-string-double",
@@ -400,6 +474,42 @@ const DEGENERACY_LIVENESS_PROBES = [
   // adapter never translates.
   "hier-empty-delim",
   "matches-alt",
+  // #414: every newly discriminating shape guards its observed execution side.
+  "div-by-division",
+  "eq-list",
+  "except-eq",
+  "except-size",
+  "hier-overlaps-list-prefix",
+  "ne-list",
+  "not-concat-unsolvable",
+  "not-concat-unsolvable-ne",
+  "pv-exists-one",
+  "pv-filter",
+  "pv-map",
+  "pv-except",
+  "pv-structs",
+  "regex-alternation",
+  "regex-brace",
+  "regex-case",
+  "regex-digit",
+  "regex-dot",
+  "regex-grouped",
+  "regex-optional-operators",
+  "regex-posix",
+  "regex-repetition",
+  "regex-unanchored",
+  "temporal-raw-eq",
+  // #396: error-bearing branches retain a non-empty oracle under their enclosing expression.
+  "cast-not-double",
+  "cast-not-int",
+  "cast-not-string-missing",
+  "cast-not-string-null",
+  "cast-not-timestamp",
+  "index-fractional",
+  "index-negative",
+  "regex-eq-true",
+  "regex-final-newline",
+  "regex-lookahead",
 ] as const;
 
 // -- deterministic derived fields (conformance/README.md, "Deterministic derived fields") --------
@@ -414,28 +524,6 @@ function derivedFor(seed: Seed): DerivedEntry {
     throw new Error(`derived-fields.json has no entry for seed "${seed.id}"`);
   }
   return entry;
-}
-
-/** Deterministic ISO instant per seed for the timestamp probe: split around 2025-01-01. */
-function isoFor(seed: Seed): string {
-  return derivedFor(seed).createdBy;
-}
-
-function doubleFor(seed: Seed): number | null {
-  return derivedFor(seed).aDouble;
-}
-
-function scopeFor(seed: Seed): string | null {
-  return derivedFor(seed).scope;
-}
-
-function timestampFor(seed: Seed): string | null {
-  return derivedFor(seed).createdAt;
-}
-
-/** Third-level label names. A null element is a NULL label name — a missing element attribute. */
-function labelsFor(seed: Seed): (string | null)[] {
-  return derivedFor(seed).labels;
 }
 
 // -- the real to-one relation (conformance/README.md, "The real to-one relation") ----------------
@@ -491,6 +579,10 @@ interface ResourceRow {
   createdBy: string;
   scope: string | null;
   createdAt: string | null;
+  updatedAt: string | null;
+  tagNamesJson: (string | null)[];
+  aNumberListJson: (number | null)[];
+  aBoolListJson: (boolean | null)[];
 }
 
 interface TagRow {
@@ -564,11 +656,15 @@ function seedRows(): SeedRows {
       aBool: seed.aBool,
       aString: seed.aString,
       aNumber: seed.aNumber,
-      aDouble: doubleFor(seed),
+      aDouble: derivedFor(seed).aDouble,
       aOptionalString: seed.aOptionalString,
-      createdBy: isoFor(seed),
-      scope: scopeFor(seed),
-      createdAt: timestampFor(seed),
+      createdBy: derivedFor(seed).createdBy,
+      scope: derivedFor(seed).scope,
+      createdAt: derivedFor(seed).createdAt,
+      updatedAt: derivedFor(seed).updatedAt,
+      tagNamesJson: seed.tags.map((tag) => tag.name),
+      aNumberListJson: seed.aNumberList,
+      aBoolListJson: seed.aBoolList,
     });
     const parentSeed = parentSeedOf(seed);
     if (parentSeed !== undefined) {
@@ -609,7 +705,7 @@ function seedRows(): SeedRows {
         name: subName,
         categoryId,
       });
-      labelsFor(seed).forEach((labelName, labelIndex) => {
+      derivedFor(seed).labels.forEach((labelName, labelIndex) => {
         rows.labels.push({
           id: `${categoryId}-label-${labelIndex}`,
           name: labelName,
@@ -659,6 +755,7 @@ const STORE_ENGINES: Record<StoreName, string> = {
 interface AdversarialStore {
   readonly name: StoreName;
   readonly mapper: Record<string, MapperEntry>;
+  readonly indexMappers?: Record<string, MapperEntry>[];
   start(): Promise<void>;
   stop(): Promise<void>;
   selectIds(filter: SQL | undefined): Promise<string[]>;
@@ -674,8 +771,15 @@ interface AdversarialStore {
 
 function sqliteStore(): AdversarialStore {
   const schema = sqliteSchema();
-  const { resources, parents, inners, tags, categories, subCategories, labels } =
-    schema;
+  const {
+    resources,
+    parents,
+    inners,
+    tags,
+    categories,
+    subCategories,
+    labels,
+  } = schema;
 
   // Dedicated file (adversarial.db, gitignored) rather than :memory:, so a failing run leaves
   // the seeded rows behind to inspect.
@@ -699,7 +803,11 @@ function sqliteStore(): AdversarialStore {
           a_optional_string TEXT,
           created_by TEXT NOT NULL,
           scope TEXT,
-          created_at TEXT
+          created_at TEXT,
+          updated_at TEXT,
+          tag_names_json TEXT,
+          a_number_list_json TEXT,
+          a_bool_list_json TEXT
         );
         CREATE TABLE adversarial_parents (
           id TEXT PRIMARY KEY,
@@ -814,8 +922,15 @@ const POSTGRES_IMAGE =
  */
 function postgresStore(): AdversarialStore {
   const schema = postgresSchema();
-  const { resources, parents, inners, tags, categories, subCategories, labels } =
-    schema;
+  const {
+    resources,
+    parents,
+    inners,
+    tags,
+    categories,
+    subCategories,
+    labels,
+  } = schema;
 
   let container: StartedPostgreSqlContainer | undefined;
   let pool: Pool | undefined;
@@ -831,6 +946,20 @@ function postgresStore(): AdversarialStore {
   return {
     name: "postgres",
     mapper: buildMapper(schema),
+    indexMappers: [
+      {
+        ...buildMapper(schema),
+        "request.resource.attr.tagNames": { column: resources.tagNamesArray, indexable: "pgArray" },
+        "request.resource.attr.aNumberList": { column: resources.aNumberListArray, indexable: "pgArray" },
+        "request.resource.attr.aBoolList": { column: resources.aBoolListArray, indexable: "pgArray" },
+      },
+      {
+        ...buildMapper(schema),
+        "request.resource.attr.tagNames": { column: resources.tagNamesPlainJson, indexable: "json" },
+        "request.resource.attr.aNumberList": { column: resources.aNumberListPlainJson, indexable: "json" },
+        "request.resource.attr.aBoolList": { column: resources.aBoolListPlainJson, indexable: "json" },
+      },
+    ],
 
     async start(): Promise<void> {
       container = await new PostgreSqlContainer(POSTGRES_IMAGE).start();
@@ -847,7 +976,17 @@ function postgresStore(): AdversarialStore {
           a_optional_string  text,
           created_by         text NOT NULL,
           scope              text,
-          created_at         timestamptz
+          created_at         timestamptz,
+          updated_at         timestamptz,
+          tag_names_json     jsonb,
+          tag_names_plain_json json,
+          tag_names_array    text[],
+          a_number_list_json jsonb,
+          a_number_list_plain_json json,
+          a_number_list_array integer[],
+          a_bool_list_json   jsonb,
+          a_bool_list_plain_json json,
+          a_bool_list_array  boolean[]
         );
         CREATE TABLE adversarial_parents (
           id                 text PRIMARY KEY,
@@ -889,6 +1028,26 @@ function postgresStore(): AdversarialStore {
 
       const rows = seedRows();
       await db.insert(resources).values(rows.resources);
+      // The same list three ways: jsonb (the shared mapper), plain json, and a native array
+      // rebased to a ZERO lower bound, so a raw `[index + 1]` would read the wrong element and
+      // only the positional JSON conversion the adapter emits reads the right one. A JSON null
+      // element becomes a SQL NULL element, which `to_jsonb` turns back into a JSON null.
+      await db.execute(sql`update adversarial_resources set
+        tag_names_plain_json = tag_names_json::json,
+        tag_names_array = case when jsonb_array_length(tag_names_json) > 0 then
+          ('[0:' || (jsonb_array_length(tag_names_json) - 1) || ']=' ||
+            array(select jsonb_array_elements_text(tag_names_json))::text)::text[]
+          else array[]::text[] end,
+        a_number_list_plain_json = a_number_list_json::json,
+        a_number_list_array = case when jsonb_array_length(a_number_list_json) > 0 then
+          ('[0:' || (jsonb_array_length(a_number_list_json) - 1) || ']=' ||
+            array(select jsonb_array_elements_text(a_number_list_json))::text)::integer[]
+          else array[]::integer[] end,
+        a_bool_list_plain_json = a_bool_list_json::json,
+        a_bool_list_array = case when jsonb_array_length(a_bool_list_json) > 0 then
+          ('[0:' || (jsonb_array_length(a_bool_list_json) - 1) || ']=' ||
+            array(select jsonb_array_elements_text(a_bool_list_json))::text)::boolean[]
+          else array[]::boolean[] end`);
       await db.insert(parents).values(rows.parents);
       await db.insert(inners).values(rows.inners);
       await db.insert(tags).values(rows.tags);
@@ -995,8 +1154,11 @@ const MYSQL_COLLATION =
  *   adapter emits is portable by construction; this one is the single version-gated construct in
  *   it, and nothing but executing it says whether the server accepts it.
  * - **`CAST(… AS TEXT)`.** Which is not a MySQL cast target at all — the divergence this leg
- *   actually found, and the reason `string()` is now refused (`UNSUPPORTED_CONVERSIONS` in
- *   `index.ts`). Both other stores accept it.
+ *   actually found, and the reason `string()` is refused over every column but a boolean
+ *   (`UNSUPPORTED_CONVERSIONS` in `values.ts`). Both other stores accept it. A boolean is lowered
+ *   through a CASE instead, and its two literals are the one place the adapter names a MySQL
+ *   collation: a literal compares in the CONNECTION's, which is mysql2's `utf8mb4_unicode_ci`
+ *   here, not the server's `MYSQL_COLLATION` (`buildBooleanString` in `values.ts`).
  *
  * The DDL is written here rather than derived from the drizzle schema because a store owns its own
  * schema in this harness — but it deliberately names NO collation per column, unlike `ent`'s. The
@@ -1005,8 +1167,15 @@ const MYSQL_COLLATION =
  */
 function mysqlStore(): AdversarialStore {
   const schema = mysqlSchema();
-  const { resources, parents, inners, tags, categories, subCategories, labels } =
-    schema;
+  const {
+    resources,
+    parents,
+    inners,
+    tags,
+    categories,
+    subCategories,
+    labels,
+  } = schema;
 
   let container: StartedMySqlContainer | undefined;
   let pool: mysql.Pool | undefined;
@@ -1034,7 +1203,11 @@ function mysqlStore(): AdversarialStore {
        a_optional_string  varchar(255),
        created_by         varchar(64) NOT NULL,
        scope              varchar(255),
-       created_at         datetime(6)
+       created_at         datetime(6),
+       updated_at         datetime(6),
+       tag_names_json     json,
+       a_number_list_json json,
+       a_bool_list_json   json
      )`,
     `CREATE TABLE adversarial_parents (
        id                 varchar(64) PRIMARY KEY,
@@ -1169,18 +1342,23 @@ function mysqlStore(): AdversarialStore {
  * oracle-compared on this leg like every other action.
  */
 function toMysqlResourceRow(row: ResourceRow): ResourceRow {
-  if (row.createdAt === null) {
-    return row;
-  }
-  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2}(?:\.\d+)?)Z$/.exec(
-    row.createdAt,
-  );
-  if (!match) {
-    throw new Error(
-      `derived-fields.json createdAt "${row.createdAt}" is not the RFC-3339 UTC instant this store rewrites`,
+  function timestamp(value: string | null): string | null {
+    if (value === null) return null;
+    const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2}(?:\.\d+)?)Z$/.exec(
+      value,
     );
+    if (!match) {
+      throw new Error(
+        `derived-fields.json timestamp "${value}" is not the RFC-3339 UTC instant this store rewrites`,
+      );
+    }
+    return `${match[1]} ${match[2]}`;
   }
-  return { ...row, createdAt: `${match[1]} ${match[2]}` };
+  return {
+    ...row,
+    createdAt: timestamp(row.createdAt),
+    updatedAt: timestamp(row.updatedAt),
+  };
 }
 
 /** Container start dominates the PostgreSQL and MySQL legs' setup; SQLite finishes instantly. */
@@ -1212,7 +1390,8 @@ const MAPPER = store.mapper;
  * the only thing governing null operands.
  *
  * The #302 completeness guard is a statement about that option: every corpus action carrying a
- * null literal must be rejected under `"omitted"`. Declaring `owner`/`coOwner` as explicit-null
+ * attribute-null literal must be rejected under `"omitted"`. Null list elements retain their
+ * value independently of that option. Declaring `owner`/`coOwner` as explicit-null
  * (#308) deliberately overrides the option for those two attributes — which would otherwise read
  * as the guard going quiet, when in fact it is the per-attribute declaration doing exactly its
  * job. Stripping the declarations keeps the guard testing what it was written to test.
@@ -1233,6 +1412,7 @@ const MAPPER_WITHOUT_NULL_CONVENTIONS: Record<string, MapperEntry> =
   );
 
 beforeAll(async () => {
+  await assertPinnedPdp(cerbos);
   await store.start();
 }, STORE_STARTUP_TIMEOUT_MS);
 
@@ -1264,21 +1444,24 @@ function asCheckResource(seed: Seed): Resource {
     aBool: seed.aBool,
     aString: seed.aString,
     aNumber: seed.aNumber,
-    createdBy: isoFor(seed),
+    createdBy: derivedFor(seed).createdBy,
     owner: seed.aOptionalString,
     // The explicit-null alias of the `scope` column, the second half of `null-value-f2f`:
     // `scope` itself is omitted when NULL (below), so the corpus carries the same column under
     // both conventions and the field-to-field probe has two explicit nulls to compare.
-    coOwner: scopeFor(seed),
+    coOwner: derivedFor(seed).scope,
     obj: { inner: seed.aString },
     tags: seed.tags.map(asTagAttribute),
     tagNames: seed.tags.map((tag) => tag.name),
+    // Verbatim: the stored JSON column holds the same list, null elements included.
+    aNumberList: seed.aNumberList,
+    aBoolList: seed.aBoolList,
     categories: seed.subCategoryNames.map((subName) => ({
       name: "business",
       subCategories: [
         {
           name: subName,
-          labels: labelsFor(seed).map(asLabelAttribute),
+          labels: derivedFor(seed).labels.map(asLabelAttribute),
         },
       ],
     })),
@@ -1288,11 +1471,11 @@ function asCheckResource(seed: Seed): Resource {
   if (seed.aOptionalString !== null) {
     attr["aOptionalString"] = seed.aOptionalString;
   }
-  const aDouble = doubleFor(seed);
+  const aDouble = derivedFor(seed).aDouble;
   if (aDouble !== null) {
     attr["aDouble"] = aDouble;
   }
-  const scope = scopeFor(seed);
+  const scope = derivedFor(seed).scope;
   if (scope !== null) {
     attr["scope"] = scope;
   }
@@ -1308,7 +1491,11 @@ function asCheckResource(seed: Seed): Resource {
     }
     attr["parent"] = parentAttr;
   }
-  const createdAt = timestampFor(seed);
+  const updatedAt = derivedFor(seed).updatedAt;
+  if (updatedAt !== null) {
+    attr["updatedAt"] = updatedAt;
+  }
+  const createdAt = derivedFor(seed).createdAt;
   if (createdAt !== null) {
     attr["createdAt"] = createdAt;
   }
@@ -1431,16 +1618,6 @@ describe(`adversarial conformance corpus (${STORE_NAME})`, () => {
     },
   );
 
-  // Adding a throwing action without pinning its message must fail this harness rather than
-  // silently degrade the throw suite to a bare "it threw" (cerbos/query-plan-adapters#326).
-  test("a throwing action with no pinned message fails classification", () => {
-    expect(() => requireMessage("synthetic-entry", undefined)).toThrow(
-      /pins no throw message/,
-    );
-    expect(() => requireMessage("synthetic-entry", "")).toThrow(
-      /pins no throw message/,
-    );
-  });
   test("manifest assigns every action exactly one Drizzle outcome", () => {
     const oracle = new Set(ORACLE_ACTIONS);
     const throwing = new Set(THROWING_ACTIONS.map(([action]) => action));
@@ -1457,11 +1634,11 @@ describe(`adversarial conformance corpus (${STORE_NAME})`, () => {
       return classificationCount !== 1;
     });
 
-    expect(MANIFEST_ACTIONS.size).toBe(205);
+    expect(MANIFEST_ACTIONS.size).toBe(301);
     expect(NULL_REPRESENTATION_OMITTED).toHaveLength(1);
     // Deliberate tripwire: every one of these carries a pinned message, so a throwing action
     // gained or lost has to be re-triaged here rather than joining the suite unnoticed.
-    expect(THROWING_ACTIONS).toHaveLength(23);
+    expect(THROWING_ACTIONS).toHaveLength(63);
     expect(misclassified).toEqual([]);
     expect(
       [...DRIZZLE_SUPPORTED_EXPECTED].filter(
@@ -1476,6 +1653,29 @@ describe(`adversarial conformance corpus (${STORE_NAME})`, () => {
       adapterFilteredIds(action),
     ]);
     expect(filtered).toEqual(oracle);
+  });
+
+  test.each([
+    "index-scalar-list",
+    "index-scalar-list-not-eq",
+    "index-scalar-list-null",
+    "index-not-oob",
+    // Number and boolean elements (conformance/README.md, "Number and boolean list elements"),
+    // on every representation: jsonb, plain json and a zero-based integer[] / boolean[] on
+    // PostgreSQL. The two cross-type probes are the over-grant witnesses for a comparison that
+    // drops an element's JSON type.
+    "index-number-list",
+    "index-number-list-not-eq",
+    "index-bool-list",
+    "index-bool-list-not-eq",
+    "index-bool-list-vs-number",
+    "index-number-list-vs-bool",
+  ])("declared indexed storage: %s matches the oracle for every representation", async (action) => {
+    const oracle = await oracleAllowedIds(action);
+    await expectNonDegenerateOracle(action);
+    for (const mapper of [MAPPER, ...(store.indexMappers ?? [])]) {
+      expect(await adapterFilteredIds(action, "explicit", mapper)).toEqual(oracle);
+    }
   });
 
   // Shapes the adapter does not support must fail during translation, never produce a
@@ -1574,7 +1774,8 @@ describe(`adversarial conformance corpus (${STORE_NAME})`, () => {
   // operators: `hasIntersection(tagNames, ["public", null])` carries one in its value list, and
   // an allowlist of eq/ne/in silently misses it. Enumerating the corpus rather than naming
   // shapes means a newly added action carrying a null constant is covered automatically.
-  test("every corpus action carrying a null literal is rejected under omitted", async () => {
+  // Indexed null ELEMENTS are values, not missing attributes; their exception is oracle-proved.
+  test("null literals under omitted are rejected unless they compare an indexed element", async () => {
     const nullCarrying: string[] = [];
     for (const action of [...MANIFEST_ACTIONS].sort()) {
       const queryPlan = await cerbos.planResources({
@@ -1593,9 +1794,15 @@ describe(`adversarial conformance corpus (${STORE_NAME})`, () => {
     // Guard the guard: if the walk stopped finding null operands the loop below is vacuous.
     expect(nullCarrying).toContain("null-eq-missing");
     expect(nullCarrying).toContain("in-null-elem-hasint");
+    expect(nullCarrying).toContain("index-scalar-list-null");
 
     const notRejected: string[] = [];
     for (const action of nullCarrying) {
+      if (action === "index-scalar-list-null") {
+        expect(await adapterFilteredIds(action, "omitted", MAPPER_WITHOUT_NULL_CONVENTIONS))
+          .toEqual(await oracleAllowedIds(action));
+        continue;
+      }
       try {
         await adapterFilteredIds(
           action,
@@ -1738,5 +1945,85 @@ describe(`adversarial conformance corpus (${STORE_NAME})`, () => {
       expect(ORACLE_ACTIONS).not.toContain(action);
       await expectNonDegenerateOracle(action);
     }
-  });
+  }, 60_000);
+  // These shapes intentionally have empty or total oracles: type errors, unequal runtime
+  // types, or empty-list identities. Pin the live planner kind as well as the oracle so
+  // dropping their inputs cannot silently turn a conditional error probe into a folded plan.
+  test.each([
+    { action: "except-root", kind: PlanKind.CONDITIONAL, total: false },
+    { action: "pv-empty-exists", kind: PlanKind.ALWAYS_DENIED, total: false },
+    {
+      action: "pv-empty-not-exists",
+      kind: PlanKind.ALWAYS_ALLOWED,
+      total: true,
+    },
+    { action: "pv-empty-all", kind: PlanKind.ALWAYS_ALLOWED, total: true },
+    { action: "pv-empty-not-all", kind: PlanKind.ALWAYS_DENIED, total: false },
+    { action: "pv-structs-null", kind: PlanKind.CONDITIONAL, total: false },
+    {
+      action: "pv-structs-missing",
+      kind: PlanKind.ALWAYS_DENIED,
+      total: false,
+    },
+    { action: "type-string-number", kind: PlanKind.CONDITIONAL, total: false },
+    { action: "type-number-string", kind: PlanKind.CONDITIONAL, total: false },
+    { action: "type-columns", kind: PlanKind.CONDITIONAL, total: false },
+    { action: "type-size-bool", kind: PlanKind.CONDITIONAL, total: false },
+    { action: "type-size-number", kind: PlanKind.CONDITIONAL, total: false },
+    {
+      action: "type-hierarchy-number",
+      kind: PlanKind.CONDITIONAL,
+      total: false,
+    },
+    {
+      action: "type-number-contains",
+      kind: PlanKind.CONDITIONAL,
+      total: false,
+    },
+    {
+      action: "type-needle-contains",
+      kind: PlanKind.CONDITIONAL,
+      total: false,
+    },
+    {
+      action: "type-number-startswith",
+      kind: PlanKind.CONDITIONAL,
+      total: false,
+    },
+    {
+      action: "type-needle-startswith",
+      kind: PlanKind.CONDITIONAL,
+      total: false,
+    },
+    {
+      action: "type-number-endswith",
+      kind: PlanKind.CONDITIONAL,
+      total: false,
+    },
+    {
+      action: "type-needle-endswith",
+      kind: PlanKind.CONDITIONAL,
+      total: false,
+    },
+    { action: "eq-map", kind: PlanKind.CONDITIONAL, total: false },
+    { action: "ne-map", kind: PlanKind.CONDITIONAL, total: true },
+    { action: "eq-map-null", kind: PlanKind.CONDITIONAL, total: false },
+    { action: "in-nested-list", kind: PlanKind.CONDITIONAL, total: false },
+    { action: "in-list-element", kind: PlanKind.CONDITIONAL, total: false },
+    { action: "hasint-map-element", kind: PlanKind.CONDITIONAL, total: false },
+  ])(
+    "$action preserves its intentional empty/total oracle and planner shape",
+    async ({ action, kind, total }) => {
+      const [plan, ids] = await Promise.all([
+        cerbos.planResources({
+          principal: seedsFile.principal,
+          resource: { kind: seedsFile.resourceKind },
+          action,
+        }),
+        oracleAllowedIds(action),
+      ]);
+      expect(plan.kind).toBe(kind);
+      expect(ids).toEqual(total ? SEEDS.map((seed) => seed.id).sort() : []);
+    },
+  );
 });

@@ -131,6 +131,33 @@
         "param_1": 2
       }
     },
+    "cast-not-string-missing": {
+      "where": {
+        "sqlite": "CAST(adversarial_resource.a_optional_string AS VARCHAR) != ?",
+        "postgresql": "CAST(adversarial_resource.a_optional_string AS VARCHAR) != %(param_1)s"
+      },
+      "params": {
+        "param_1": "set"
+      }
+    },
+    "cast-not-string-null": {
+      "where": {
+        "sqlite": "CAST(adversarial_resource.a_optional_string AS VARCHAR) != ?",
+        "postgresql": "CAST(adversarial_resource.a_optional_string AS VARCHAR) != %(param_1)s"
+      },
+      "params": {
+        "param_1": "set"
+      }
+    },
+    "cast-string-bool": {
+      "where": {
+        "sqlite": "CASE WHEN (adversarial_resource.a_bool IS NULL) THEN NULL WHEN adversarial_resource.a_bool THEN 'true' ELSE 'false' END = ?",
+        "postgresql": "CASE WHEN (adversarial_resource.a_bool IS NULL) THEN NULL WHEN adversarial_resource.a_bool THEN 'true' ELSE 'false' END = %(param_1)s"
+      },
+      "params": {
+        "param_1": "true"
+      }
+    },
     "cast-string-double": {
       "where": {
         "sqlite": "CAST(adversarial_resource.a_double AS VARCHAR) = ?",
@@ -288,8 +315,8 @@
     },
     "cr-size-frac-ge": {
       "where": {
-        "sqlite": "(SELECT count(*) AS count_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id) >= ?",
-        "postgresql": "(SELECT count(*) AS count_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id) >= %(param_1)s"
+        "sqlite": "CASE WHEN json_type(adversarial_resource.tags_json) = 'array' THEN json_array_length(adversarial_resource.tags_json) END >= ?",
+        "postgresql": "CASE WHEN jsonb_typeof(CAST(adversarial_resource.tags_json AS JSONB)) = 'array' THEN jsonb_array_length(CAST(adversarial_resource.tags_json AS JSONB)) END >= %(param_1)s"
       },
       "params": {
         "param_1": 1.5
@@ -501,6 +528,50 @@
         "a_number_1": 1
       }
     },
+    "hasint-map-null": {
+      "where": {
+        "sqlite": "CASE WHEN (EXISTS (SELECT ? AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name IS NULL)) THEN NULL WHEN (EXISTS (SELECT ? AS anon_2 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name IN (?) OR adversarial_tag.name IS NULL))) THEN 1 ELSE 0 END = 1",
+        "postgresql": "CASE WHEN (EXISTS (SELECT %(param_1)s AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name IS NULL)) THEN NULL WHEN (EXISTS (SELECT %(param_2)s AS anon_2 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name IN (%(name_1_1)s) OR adversarial_tag.name IS NULL))) THEN true ELSE false END"
+      },
+      "params": {
+        "param_1": 1,
+        "param_2": 1,
+        "name_1_1": "public"
+      }
+    },
+    "hasint-map-null-vf": {
+      "where": {
+        "sqlite": "CASE WHEN (EXISTS (SELECT ? AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name IS NULL)) THEN NULL WHEN (EXISTS (SELECT ? AS anon_2 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name IN (?) OR adversarial_tag.name IS NULL))) THEN 1 ELSE 0 END = 1",
+        "postgresql": "CASE WHEN (EXISTS (SELECT %(param_1)s AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name IS NULL)) THEN NULL WHEN (EXISTS (SELECT %(param_2)s AS anon_2 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name IN (%(name_1_1)s) OR adversarial_tag.name IS NULL))) THEN true ELSE false END"
+      },
+      "params": {
+        "param_1": 1,
+        "param_2": 1,
+        "name_1_1": "public"
+      }
+    },
+    "hasint-map-vf": {
+      "where": {
+        "sqlite": "CASE WHEN (EXISTS (SELECT ? AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name IS NULL)) THEN NULL WHEN (EXISTS (SELECT ? AS anon_2 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name IN (?, ?))) THEN 1 ELSE 0 END = 1",
+        "postgresql": "CASE WHEN (EXISTS (SELECT %(param_1)s AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name IS NULL)) THEN NULL WHEN (EXISTS (SELECT %(param_2)s AS anon_2 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name IN (%(name_1_1)s, %(name_1_2)s))) THEN true ELSE false END"
+      },
+      "params": {
+        "param_1": 1,
+        "param_2": 1,
+        "name_1_1": "public",
+        "name_1_2": "other"
+      }
+    },
+    "hasint-null-vf": {
+      "where": {
+        "sqlite": "EXISTS (SELECT ? AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name IN (?) OR adversarial_tag.name IS NULL))",
+        "postgresql": "EXISTS (SELECT %(param_1)s AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name IN (%(name_1_1)s) OR adversarial_tag.name IS NULL))"
+      },
+      "params": {
+        "param_1": 1,
+        "name_1_1": "public"
+      }
+    },
     "hier-ancestor-cf": {
       "where": {
         "sqlite": "adversarial_resource.scope LIKE ? ESCAPE '\\'",
@@ -652,8 +723,8 @@
     },
     "in-map-keys": {
       "where": {
-        "sqlite": "adversarial_resource.a_string IN (?, ?)",
-        "postgresql": "adversarial_resource.a_string IN (%(a_string_1_1)s, %(a_string_1_2)s)"
+        "sqlite": "CASE WHEN (adversarial_resource.a_string IS NOT NULL) THEN adversarial_resource.a_string IN (?, ?) END = 1",
+        "postgresql": "CASE WHEN (adversarial_resource.a_string IS NOT NULL) THEN adversarial_resource.a_string IN (%(a_string_1_1)s, %(a_string_1_2)s) END"
       },
       "params": {
         "a_string_1_1": "one",
@@ -722,6 +793,17 @@
         "param_1": 1
       }
     },
+    "in-numbers": {
+      "where": {
+        "sqlite": "CASE WHEN (adversarial_resource.a_number IS NOT NULL) THEN adversarial_resource.a_number IN (?, ?, ?) END = 1",
+        "postgresql": "CASE WHEN (adversarial_resource.a_number IS NOT NULL) THEN adversarial_resource.a_number IN (%(a_number_1_1)s, %(a_number_1_2)s, %(a_number_1_3)s) END"
+      },
+      "params": {
+        "a_number_1_1": 2,
+        "a_number_1_2": 3,
+        "a_number_1_3": 5
+      }
+    },
     "in-single": {
       "where": {
         "sqlite": "adversarial_resource.a_string = ?",
@@ -749,6 +831,114 @@
         "param_1": 1
       }
     },
+    "in-var-var-omitted": {
+      "where": {
+        "sqlite": "CASE WHEN (adversarial_resource.a_optional_string IS NOT NULL) THEN EXISTS (SELECT ? AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name = adversarial_resource.a_optional_string OR adversarial_tag.name IS NULL AND adversarial_resource.a_optional_string IS NULL)) END = 1",
+        "postgresql": "CASE WHEN (adversarial_resource.a_optional_string IS NOT NULL) THEN EXISTS (SELECT %(param_1)s AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name = adversarial_resource.a_optional_string OR adversarial_tag.name IS NULL AND adversarial_resource.a_optional_string IS NULL)) END"
+      },
+      "params": {
+        "param_1": 1
+      }
+    },
+    "in-var-var-omitted-neg": {
+      "where": {
+        "sqlite": "CASE WHEN (adversarial_resource.a_optional_string IS NOT NULL) THEN EXISTS (SELECT ? AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name = adversarial_resource.a_optional_string OR adversarial_tag.name IS NULL AND adversarial_resource.a_optional_string IS NULL)) END = 0",
+        "postgresql": "NOT CASE WHEN (adversarial_resource.a_optional_string IS NOT NULL) THEN EXISTS (SELECT %(param_1)s AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name = adversarial_resource.a_optional_string OR adversarial_tag.name IS NULL AND adversarial_resource.a_optional_string IS NULL)) END"
+      },
+      "params": {
+        "param_1": 1
+      }
+    },
+    "index-bool-list": {
+      "where": {
+        "sqlite": "CASE WHEN json_type(adversarial_resource.a_bool_list_json) = 'array' AND json_type(adversarial_resource.a_bool_list_json, '$[0]') IS NOT NULL THEN (json_type(adversarial_resource.a_bool_list_json, '$[0]') IN ('true', 'false') AND json_extract(adversarial_resource.a_bool_list_json, '$[0]') = ?) END = 1",
+        "postgresql": "CASE WHEN jsonb_typeof(CAST(adversarial_resource.a_bool_list_json AS JSONB)) = 'array' AND (CAST(adversarial_resource.a_bool_list_json AS JSONB) -> 0) IS NOT NULL THEN (CAST(adversarial_resource.a_bool_list_json AS JSONB) -> 0) = to_jsonb(CAST(%(param_1)s AS BOOLEAN)) END"
+      },
+      "params": {
+        "param_1": true
+      }
+    },
+    "index-bool-list-not-eq": {
+      "where": {
+        "sqlite": "CASE WHEN json_type(adversarial_resource.a_bool_list_json) = 'array' AND json_type(adversarial_resource.a_bool_list_json, '$[0]') IS NOT NULL THEN (json_type(adversarial_resource.a_bool_list_json, '$[0]') IN ('true', 'false') AND json_extract(adversarial_resource.a_bool_list_json, '$[0]') = ?) END = 0",
+        "postgresql": "NOT CASE WHEN jsonb_typeof(CAST(adversarial_resource.a_bool_list_json AS JSONB)) = 'array' AND (CAST(adversarial_resource.a_bool_list_json AS JSONB) -> 0) IS NOT NULL THEN (CAST(adversarial_resource.a_bool_list_json AS JSONB) -> 0) = to_jsonb(CAST(%(param_1)s AS BOOLEAN)) END"
+      },
+      "params": {
+        "param_1": true
+      }
+    },
+    "index-bool-list-vs-number": {
+      "where": {
+        "sqlite": "CASE WHEN json_type(adversarial_resource.a_bool_list_json) = 'array' AND json_type(adversarial_resource.a_bool_list_json, '$[0]') IS NOT NULL THEN CASE WHEN json_type(adversarial_resource.a_bool_list_json, '$[0]') IN ('integer', 'real') THEN CAST(json_extract(adversarial_resource.a_bool_list_json, '$[0]') AS REAL) = CAST(? AS REAL) ELSE 0 END END = 1 OR adversarial_resource.a_number = ?",
+        "postgresql": "CASE WHEN jsonb_typeof(CAST(adversarial_resource.a_bool_list_json AS JSONB)) = 'array' AND (CAST(adversarial_resource.a_bool_list_json AS JSONB) -> 0) IS NOT NULL THEN CASE WHEN jsonb_typeof((CAST(adversarial_resource.a_bool_list_json AS JSONB) -> 0)) = 'number' THEN CAST((CAST(adversarial_resource.a_bool_list_json AS JSONB) -> 0) #>> '{}' AS FLOAT(53)) = CAST(%(param_1)s AS FLOAT(53)) ELSE false END END OR adversarial_resource.a_number = %(a_number_1)s"
+      },
+      "params": {
+        "param_1": 1,
+        "a_number_1": 5
+      }
+    },
+    "index-not-oob": {
+      "where": {
+        "sqlite": "CASE WHEN json_type(adversarial_resource.tag_names_json) = 'array' AND json_type(adversarial_resource.tag_names_json, '$[1]') IS NOT NULL THEN (json_type(adversarial_resource.tag_names_json, '$[1]') = 'text' AND json_extract(adversarial_resource.tag_names_json, '$[1]') = ?) END = 0",
+        "postgresql": "NOT CASE WHEN jsonb_typeof(CAST(adversarial_resource.tag_names_json AS JSONB)) = 'array' AND (CAST(adversarial_resource.tag_names_json AS JSONB) -> 1) IS NOT NULL THEN (CAST(adversarial_resource.tag_names_json AS JSONB) -> 1) = to_jsonb(CAST(%(param_1)s AS TEXT)) END"
+      },
+      "params": {
+        "param_1": "public"
+      }
+    },
+    "index-number-list": {
+      "where": {
+        "sqlite": "CASE WHEN json_type(adversarial_resource.a_number_list_json) = 'array' AND json_type(adversarial_resource.a_number_list_json, '$[0]') IS NOT NULL THEN CASE WHEN json_type(adversarial_resource.a_number_list_json, '$[0]') IN ('integer', 'real') THEN CAST(json_extract(adversarial_resource.a_number_list_json, '$[0]') AS REAL) = CAST(? AS REAL) ELSE 0 END END = 1",
+        "postgresql": "CASE WHEN jsonb_typeof(CAST(adversarial_resource.a_number_list_json AS JSONB)) = 'array' AND (CAST(adversarial_resource.a_number_list_json AS JSONB) -> 0) IS NOT NULL THEN CASE WHEN jsonb_typeof((CAST(adversarial_resource.a_number_list_json AS JSONB) -> 0)) = 'number' THEN CAST((CAST(adversarial_resource.a_number_list_json AS JSONB) -> 0) #>> '{}' AS FLOAT(53)) = CAST(%(param_1)s AS FLOAT(53)) ELSE false END END"
+      },
+      "params": {
+        "param_1": 2
+      }
+    },
+    "index-number-list-not-eq": {
+      "where": {
+        "sqlite": "CASE WHEN json_type(adversarial_resource.a_number_list_json) = 'array' AND json_type(adversarial_resource.a_number_list_json, '$[0]') IS NOT NULL THEN CASE WHEN json_type(adversarial_resource.a_number_list_json, '$[0]') IN ('integer', 'real') THEN CAST(json_extract(adversarial_resource.a_number_list_json, '$[0]') AS REAL) = CAST(? AS REAL) ELSE 0 END END = 0",
+        "postgresql": "NOT CASE WHEN jsonb_typeof(CAST(adversarial_resource.a_number_list_json AS JSONB)) = 'array' AND (CAST(adversarial_resource.a_number_list_json AS JSONB) -> 0) IS NOT NULL THEN CASE WHEN jsonb_typeof((CAST(adversarial_resource.a_number_list_json AS JSONB) -> 0)) = 'number' THEN CAST((CAST(adversarial_resource.a_number_list_json AS JSONB) -> 0) #>> '{}' AS FLOAT(53)) = CAST(%(param_1)s AS FLOAT(53)) ELSE false END END"
+      },
+      "params": {
+        "param_1": 2
+      }
+    },
+    "index-number-list-vs-bool": {
+      "where": {
+        "sqlite": "CASE WHEN json_type(adversarial_resource.a_number_list_json) = 'array' AND json_type(adversarial_resource.a_number_list_json, '$[0]') IS NOT NULL THEN (json_type(adversarial_resource.a_number_list_json, '$[0]') IN ('true', 'false') AND json_extract(adversarial_resource.a_number_list_json, '$[0]') = ?) END = 1 OR adversarial_resource.a_number = ?",
+        "postgresql": "CASE WHEN jsonb_typeof(CAST(adversarial_resource.a_number_list_json AS JSONB)) = 'array' AND (CAST(adversarial_resource.a_number_list_json AS JSONB) -> 0) IS NOT NULL THEN (CAST(adversarial_resource.a_number_list_json AS JSONB) -> 0) = to_jsonb(CAST(%(param_1)s AS BOOLEAN)) END OR adversarial_resource.a_number = %(a_number_1)s"
+      },
+      "params": {
+        "param_1": true,
+        "a_number_1": 5
+      }
+    },
+    "index-scalar-list": {
+      "where": {
+        "sqlite": "CASE WHEN json_type(adversarial_resource.tag_names_json) = 'array' AND json_type(adversarial_resource.tag_names_json, '$[0]') IS NOT NULL THEN (json_type(adversarial_resource.tag_names_json, '$[0]') = 'text' AND json_extract(adversarial_resource.tag_names_json, '$[0]') = ?) END = 1",
+        "postgresql": "CASE WHEN jsonb_typeof(CAST(adversarial_resource.tag_names_json AS JSONB)) = 'array' AND (CAST(adversarial_resource.tag_names_json AS JSONB) -> 0) IS NOT NULL THEN (CAST(adversarial_resource.tag_names_json AS JSONB) -> 0) = to_jsonb(CAST(%(param_1)s AS TEXT)) END"
+      },
+      "params": {
+        "param_1": "public"
+      }
+    },
+    "index-scalar-list-not-eq": {
+      "where": {
+        "sqlite": "CASE WHEN json_type(adversarial_resource.tag_names_json) = 'array' AND json_type(adversarial_resource.tag_names_json, '$[0]') IS NOT NULL THEN (json_type(adversarial_resource.tag_names_json, '$[0]') = 'text' AND json_extract(adversarial_resource.tag_names_json, '$[0]') = ?) END = 0",
+        "postgresql": "NOT CASE WHEN jsonb_typeof(CAST(adversarial_resource.tag_names_json AS JSONB)) = 'array' AND (CAST(adversarial_resource.tag_names_json AS JSONB) -> 0) IS NOT NULL THEN (CAST(adversarial_resource.tag_names_json AS JSONB) -> 0) = to_jsonb(CAST(%(param_1)s AS TEXT)) END"
+      },
+      "params": {
+        "param_1": "public"
+      }
+    },
+    "index-scalar-list-null": {
+      "where": {
+        "sqlite": "CASE WHEN json_type(adversarial_resource.tag_names_json) = 'array' AND json_type(adversarial_resource.tag_names_json, '$[0]') IS NOT NULL THEN json_type(adversarial_resource.tag_names_json, '$[0]') = 'null' END = 1",
+        "postgresql": "CASE WHEN jsonb_typeof(CAST(adversarial_resource.tag_names_json AS JSONB)) = 'array' AND (CAST(adversarial_resource.tag_names_json AS JSONB) -> 0) IS NOT NULL THEN jsonb_typeof((CAST(adversarial_resource.tag_names_json AS JSONB) -> 0)) = 'null' END"
+      },
+      "params": {}
+    },
     "lambda-field-to-field": {
       "where": {
         "sqlite": "CASE WHEN (EXISTS (SELECT ? AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name = adversarial_resource.a_string)) THEN 1 WHEN (EXISTS (SELECT ? AS anon_2 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name = adversarial_resource.a_string) IS NULL)) THEN NULL ELSE 0 END",
@@ -759,16 +949,51 @@
         "param_2": 1
       }
     },
+    "lambda-in-literal": {
+      "where": {
+        "sqlite": "CASE WHEN (EXISTS (SELECT ? AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name IS NOT NULL AND adversarial_tag.name IN (?, ?))) THEN 1 WHEN (EXISTS (SELECT ? AS anon_2 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name IS NOT NULL AND adversarial_tag.name IN (?, ?)) IS NULL)) THEN NULL ELSE 0 END",
+        "postgresql": "CASE WHEN (EXISTS (SELECT %(param_1)s AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name IS NOT NULL AND adversarial_tag.name IN (%(name_1_1)s, %(name_1_2)s))) THEN true WHEN (EXISTS (SELECT %(param_2)s AS anon_2 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name IS NOT NULL AND adversarial_tag.name IN (%(name_1_1)s, %(name_1_2)s)) IS NULL)) THEN NULL ELSE false END"
+      },
+      "params": {
+        "param_1": 1,
+        "param_2": 1,
+        "name_1_1": "public",
+        "name_1_2": "other"
+      }
+    },
+    "lambda-in-literal-neg": {
+      "where": {
+        "sqlite": "NOT CASE WHEN (EXISTS (SELECT ? AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name IS NOT NULL AND adversarial_tag.name IN (?, ?))) THEN 1 WHEN (EXISTS (SELECT ? AS anon_2 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name IS NOT NULL AND adversarial_tag.name IN (?, ?)) IS NULL)) THEN NULL ELSE 0 END",
+        "postgresql": "NOT CASE WHEN (EXISTS (SELECT %(param_1)s AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name IS NOT NULL AND adversarial_tag.name IN (%(name_1_1)s, %(name_1_2)s))) THEN true WHEN (EXISTS (SELECT %(param_2)s AS anon_2 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name IS NOT NULL AND adversarial_tag.name IN (%(name_1_1)s, %(name_1_2)s)) IS NULL)) THEN NULL ELSE false END"
+      },
+      "params": {
+        "param_1": 1,
+        "param_2": 1,
+        "name_1_1": "public",
+        "name_1_2": "other"
+      }
+    },
     "lambda-in-principal": {
       "where": {
-        "sqlite": "CASE WHEN (EXISTS (SELECT ? AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name IN (?, ?))) THEN 1 WHEN (EXISTS (SELECT ? AS anon_2 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name IN (?, ?)) IS NULL)) THEN NULL ELSE 0 END",
-        "postgresql": "CASE WHEN (EXISTS (SELECT %(param_1)s AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name IN (%(name_1_1)s, %(name_1_2)s))) THEN true WHEN (EXISTS (SELECT %(param_2)s AS anon_2 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name IN (%(name_1_1)s, %(name_1_2)s)) IS NULL)) THEN NULL ELSE false END"
+        "sqlite": "CASE WHEN (EXISTS (SELECT ? AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND CASE WHEN (adversarial_tag.name IS NOT NULL) THEN adversarial_tag.name IN (?, ?) END = 1)) THEN 1 WHEN (EXISTS (SELECT ? AS anon_2 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND CASE WHEN (adversarial_tag.name IS NOT NULL) THEN adversarial_tag.name IN (?, ?) END IS NULL)) THEN NULL ELSE 0 END",
+        "postgresql": "CASE WHEN (EXISTS (SELECT %(param_1)s AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND CASE WHEN (adversarial_tag.name IS NOT NULL) THEN adversarial_tag.name IN (%(name_1_1)s, %(name_1_2)s) END)) THEN true WHEN (EXISTS (SELECT %(param_2)s AS anon_2 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND CASE WHEN (adversarial_tag.name IS NOT NULL) THEN adversarial_tag.name IN (%(name_1_1)s, %(name_1_2)s) END IS NULL)) THEN NULL ELSE false END"
       },
       "params": {
         "param_1": 1,
         "param_2": 1,
         "name_1_1": "public",
         "name_1_2": "special"
+      }
+    },
+    "lambda-ternary": {
+      "where": {
+        "sqlite": "CASE WHEN (EXISTS (SELECT ? AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND CASE WHEN (adversarial_tag.name = ?) THEN adversarial_resource.a_bool WHEN (adversarial_tag.name != ?) THEN adversarial_resource.a_bool = 0 END = 1)) THEN 1 WHEN (EXISTS (SELECT ? AS anon_2 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND CASE WHEN (adversarial_tag.name = ?) THEN adversarial_resource.a_bool WHEN (adversarial_tag.name != ?) THEN adversarial_resource.a_bool = 0 END IS NULL)) THEN NULL ELSE 0 END",
+        "postgresql": "CASE WHEN (EXISTS (SELECT %(param_1)s AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND CASE WHEN (adversarial_tag.name = %(name_1)s) THEN adversarial_resource.a_bool WHEN (adversarial_tag.name != %(name_1)s) THEN NOT adversarial_resource.a_bool END)) THEN true WHEN (EXISTS (SELECT %(param_2)s AS anon_2 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND CASE WHEN (adversarial_tag.name = %(name_1)s) THEN adversarial_resource.a_bool WHEN (adversarial_tag.name != %(name_1)s) THEN NOT adversarial_resource.a_bool END IS NULL)) THEN NULL ELSE false END"
+      },
+      "params": {
+        "param_1": 1,
+        "name_1": "public",
+        "param_2": 1
       }
     },
     "le-bare": {
@@ -966,6 +1191,26 @@
         "a_string_1": "one"
       }
     },
+    "not-concat-unsolvable": {
+      "where": {
+        "sqlite": "(adversarial_resource.a_optional_string || ?) != ?",
+        "postgresql": "(adversarial_resource.a_optional_string || %(a_optional_string_1)s) != %(param_1)s"
+      },
+      "params": {
+        "a_optional_string_1": "!",
+        "param_1": "nope"
+      }
+    },
+    "not-concat-unsolvable-ne": {
+      "where": {
+        "sqlite": "(adversarial_resource.a_optional_string || ?) != ?",
+        "postgresql": "(adversarial_resource.a_optional_string || %(a_optional_string_1)s) != %(param_1)s"
+      },
+      "params": {
+        "a_optional_string_1": "!",
+        "param_1": "nope"
+      }
+    },
     "not-contains": {
       "where": {
         "sqlite": "adversarial_resource.a_string NOT LIKE (? || replace(replace(replace(replace(adversarial_resource.a_optional_string, ?, ?), ?, ?), ?, ?), ?, ?) || ?) ESCAPE '\\'",
@@ -986,8 +1231,8 @@
     },
     "not-empty": {
       "where": {
-        "sqlite": "(SELECT count(*) AS count_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id) != ?",
-        "postgresql": "(SELECT count(*) AS count_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id) != %(param_1)s"
+        "sqlite": "CASE WHEN json_type(adversarial_resource.tags_json) = 'array' THEN json_array_length(adversarial_resource.tags_json) END != ?",
+        "postgresql": "CASE WHEN jsonb_typeof(CAST(adversarial_resource.tags_json AS JSONB)) = 'array' THEN jsonb_array_length(CAST(adversarial_resource.tags_json AS JSONB)) END != %(param_1)s"
       },
       "params": {
         "param_1": 0
@@ -1013,6 +1258,15 @@
         "a_number_1": 1
       }
     },
+    "not-hasint-empty-chain": {
+      "where": {
+        "sqlite": "CASE WHEN (EXISTS (SELECT ? AS anon_1 FROM adversarial_category WHERE adversarial_category.resource_id = adversarial_resource.id)) THEN 0 END = 0",
+        "postgresql": "NOT CASE WHEN (EXISTS (SELECT %(param_1)s AS anon_1 FROM adversarial_category WHERE adversarial_category.resource_id = adversarial_resource.id)) THEN false END"
+      },
+      "params": {
+        "param_1": 1
+      }
+    },
     "not-lt": {
       "where": {
         "sqlite": "adversarial_resource.a_number >= ?",
@@ -1020,6 +1274,27 @@
       },
       "params": {
         "a_number_1": 2
+      }
+    },
+    "not-nan-ord-le": {
+      "where": {
+        "sqlite": "NOT CASE WHEN adversarial_resource.a_bool THEN CASE WHEN adversarial_resource.a_bool THEN ? WHEN adversarial_resource.a_bool = 0 THEN ? END <= ? WHEN adversarial_resource.a_bool = 0 THEN CASE WHEN (CASE WHEN adversarial_resource.a_bool THEN ? WHEN adversarial_resource.a_bool = 0 THEN ? END IS NULL) THEN NULL ELSE ? END END",
+        "postgresql": "NOT CASE WHEN adversarial_resource.a_bool THEN CASE WHEN adversarial_resource.a_bool THEN %(param_1)s WHEN NOT adversarial_resource.a_bool THEN %(param_2)s END <= %(param_3)s WHEN NOT adversarial_resource.a_bool THEN CASE WHEN (CASE WHEN adversarial_resource.a_bool THEN %(param_1)s WHEN NOT adversarial_resource.a_bool THEN %(param_2)s END IS NULL) THEN NULL ELSE %(param_4)s END END"
+      },
+      "params": {
+        "param_1": 1.0,
+        "param_2": 0.5,
+        "param_3": 2,
+        "param_4": false
+      }
+    },
+    "not-nan-order-string": {
+      "where": {
+        "sqlite": "NOT CASE WHEN adversarial_resource.a_bool THEN CASE WHEN (adversarial_resource.a_string IS NOT NULL) THEN NULL END WHEN adversarial_resource.a_bool = 0 THEN CASE WHEN (adversarial_resource.a_string IS NULL) THEN NULL ELSE ? END END",
+        "postgresql": "NOT CASE WHEN adversarial_resource.a_bool THEN CASE WHEN (adversarial_resource.a_string IS NOT NULL) THEN NULL END WHEN NOT adversarial_resource.a_bool THEN CASE WHEN (adversarial_resource.a_string IS NULL) THEN NULL ELSE %(param_1)s END END"
+      },
+      "params": {
+        "param_1": false
       }
     },
     "not-startswith": {
@@ -1037,6 +1312,16 @@
         "replace_7": "[",
         "replace_8": "\\[",
         "param_1": "%"
+      }
+    },
+    "not-ternary-parent": {
+      "where": {
+        "sqlite": "CASE WHEN adversarial_resource.a_bool THEN ? WHEN adversarial_resource.a_bool = 0 THEN (SELECT adversarial_parent.a_optional_string FROM adversarial_parent WHERE adversarial_parent.resource_id = adversarial_resource.id) END != ?",
+        "postgresql": "CASE WHEN adversarial_resource.a_bool THEN %(param_1)s WHEN NOT adversarial_resource.a_bool THEN (SELECT adversarial_parent.a_optional_string FROM adversarial_parent WHERE adversarial_parent.resource_id = adversarial_resource.id) END != %(param_2)s"
+      },
+      "params": {
+        "param_1": "one",
+        "param_2": "set"
       }
     },
     "null-eq": {
@@ -1226,8 +1511,8 @@
     },
     "p-in-null-multi": {
       "where": {
-        "sqlite": "adversarial_resource.a_optional_string IN (?, ?)",
-        "postgresql": "adversarial_resource.a_optional_string IN (%(a_optional_string_1_1)s, %(a_optional_string_1_2)s)"
+        "sqlite": "CASE WHEN (adversarial_resource.a_optional_string IS NOT NULL) THEN adversarial_resource.a_optional_string IN (?, ?) END = 1",
+        "postgresql": "CASE WHEN (adversarial_resource.a_optional_string IS NOT NULL) THEN adversarial_resource.a_optional_string IN (%(a_optional_string_1_1)s, %(a_optional_string_1_2)s) END"
       },
       "params": {
         "a_optional_string_1_1": "x",
@@ -1374,6 +1659,28 @@
         "param_3": 2
       }
     },
+    "projection-exists-eq": {
+      "where": {
+        "sqlite": "CASE WHEN (EXISTS (SELECT ? AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name IS NOT NULL AND adversarial_tag.name = ?)) THEN 1 WHEN (EXISTS (SELECT ? AS anon_2 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name IS NOT NULL AND adversarial_tag.name = ?) IS NULL)) THEN NULL ELSE 0 END",
+        "postgresql": "CASE WHEN (EXISTS (SELECT %(param_1)s AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name IS NOT NULL AND adversarial_tag.name = %(name_1)s)) THEN true WHEN (EXISTS (SELECT %(param_2)s AS anon_2 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name IS NOT NULL AND adversarial_tag.name = %(name_1)s) IS NULL)) THEN NULL ELSE false END"
+      },
+      "params": {
+        "param_1": 1,
+        "name_1": "public",
+        "param_2": 1
+      }
+    },
+    "projection-exists-not-eq": {
+      "where": {
+        "sqlite": "CASE WHEN (EXISTS (SELECT ? AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND NOT (adversarial_tag.name IS NOT NULL AND adversarial_tag.name = ?))) THEN 1 WHEN (EXISTS (SELECT ? AS anon_2 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (NOT (adversarial_tag.name IS NOT NULL AND adversarial_tag.name = ?)) IS NULL)) THEN NULL ELSE 0 END",
+        "postgresql": "CASE WHEN (EXISTS (SELECT %(param_1)s AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND NOT (adversarial_tag.name IS NOT NULL AND adversarial_tag.name = %(name_1)s))) THEN true WHEN (EXISTS (SELECT %(param_2)s AS anon_2 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (NOT (adversarial_tag.name IS NOT NULL AND adversarial_tag.name = %(name_1)s)) IS NULL)) THEN NULL ELSE false END"
+      },
+      "params": {
+        "param_1": 1,
+        "name_1": "public",
+        "param_2": 1
+      }
+    },
     "pv-all": {
       "where": {
         "sqlite": "adversarial_resource.a_optional_string != ? AND adversarial_resource.a_optional_string != ? AND adversarial_resource.a_optional_string != ? AND adversarial_resource.a_optional_string != ? AND adversarial_resource.a_optional_string != ? AND adversarial_resource.a_optional_string != ? AND adversarial_resource.a_optional_string != ? AND adversarial_resource.a_optional_string != ? AND adversarial_resource.a_optional_string != ? AND adversarial_resource.a_optional_string != ? AND adversarial_resource.a_optional_string != ?",
@@ -1404,6 +1711,34 @@
         "a_optional_string_3": "%_o"
       }
     },
+    "pv-empty-all": {
+      "where": {
+        "sqlite": null,
+        "postgresql": null
+      },
+      "params": {}
+    },
+    "pv-empty-exists": {
+      "where": {
+        "sqlite": "0 = 1",
+        "postgresql": "false"
+      },
+      "params": {}
+    },
+    "pv-empty-not-all": {
+      "where": {
+        "sqlite": "0 = 1",
+        "postgresql": "false"
+      },
+      "params": {}
+    },
+    "pv-empty-not-exists": {
+      "where": {
+        "sqlite": null,
+        "postgresql": null
+      },
+      "params": {}
+    },
     "pv-exists": {
       "where": {
         "sqlite": "adversarial_resource.a_optional_string = ? OR adversarial_resource.a_optional_string = ? OR adversarial_resource.a_optional_string = ? OR adversarial_resource.a_optional_string = ? OR adversarial_resource.a_optional_string = ? OR adversarial_resource.a_optional_string = ? OR adversarial_resource.a_optional_string = ? OR adversarial_resource.a_optional_string = ? OR adversarial_resource.a_optional_string = ? OR adversarial_resource.a_optional_string = ? OR adversarial_resource.a_optional_string = ?",
@@ -1433,6 +1768,122 @@
         "a_optional_string_2": "",
         "a_optional_string_3": "%_o"
       }
+    },
+    "pv-in": {
+      "where": {
+        "sqlite": "CASE WHEN (adversarial_resource.a_optional_string IS NOT NULL) THEN adversarial_resource.a_optional_string IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) END = 1",
+        "postgresql": "CASE WHEN (adversarial_resource.a_optional_string IS NOT NULL) THEN adversarial_resource.a_optional_string IN (%(a_optional_string_1_1)s, %(a_optional_string_1_2)s, %(a_optional_string_1_3)s, %(a_optional_string_1_4)s, %(a_optional_string_1_5)s, %(a_optional_string_1_6)s, %(a_optional_string_1_7)s, %(a_optional_string_1_8)s, %(a_optional_string_1_9)s, %(a_optional_string_1_10)s, %(a_optional_string_1_11)s) END"
+      },
+      "params": {
+        "a_optional_string_1_1": "set",
+        "a_optional_string_1_2": "same",
+        "a_optional_string_1_3": "",
+        "a_optional_string_1_4": "%_o",
+        "a_optional_string_1_5": "X",
+        "a_optional_string_1_6": "Y",
+        "a_optional_string_1_7": "MIRROR",
+        "a_optional_string_1_8": "filler-1",
+        "a_optional_string_1_9": "filler-2",
+        "a_optional_string_1_10": "filler-3",
+        "a_optional_string_1_11": "filler-4"
+      }
+    },
+    "pv-in-unrolled": {
+      "where": {
+        "sqlite": "CASE WHEN (adversarial_resource.a_optional_string IS NOT NULL) THEN adversarial_resource.a_optional_string IN (?, ?, ?) END = 1",
+        "postgresql": "CASE WHEN (adversarial_resource.a_optional_string IS NOT NULL) THEN adversarial_resource.a_optional_string IN (%(a_optional_string_1_1)s, %(a_optional_string_1_2)s, %(a_optional_string_1_3)s) END"
+      },
+      "params": {
+        "a_optional_string_1_1": "set",
+        "a_optional_string_1_2": "",
+        "a_optional_string_1_3": "%_o"
+      }
+    },
+    "pv-not-all": {
+      "where": {
+        "sqlite": "NOT (adversarial_resource.a_optional_string = ? AND adversarial_resource.a_optional_string = ? AND adversarial_resource.a_optional_string = ? AND adversarial_resource.a_optional_string = ? AND adversarial_resource.a_optional_string = ? AND adversarial_resource.a_optional_string = ? AND adversarial_resource.a_optional_string = ? AND adversarial_resource.a_optional_string = ? AND adversarial_resource.a_optional_string = ? AND adversarial_resource.a_optional_string = ? AND adversarial_resource.a_optional_string = ?)",
+        "postgresql": "NOT (adversarial_resource.a_optional_string = %(a_optional_string_1)s AND adversarial_resource.a_optional_string = %(a_optional_string_2)s AND adversarial_resource.a_optional_string = %(a_optional_string_3)s AND adversarial_resource.a_optional_string = %(a_optional_string_4)s AND adversarial_resource.a_optional_string = %(a_optional_string_5)s AND adversarial_resource.a_optional_string = %(a_optional_string_6)s AND adversarial_resource.a_optional_string = %(a_optional_string_7)s AND adversarial_resource.a_optional_string = %(a_optional_string_8)s AND adversarial_resource.a_optional_string = %(a_optional_string_9)s AND adversarial_resource.a_optional_string = %(a_optional_string_10)s AND adversarial_resource.a_optional_string = %(a_optional_string_11)s)"
+      },
+      "params": {
+        "a_optional_string_1": "set",
+        "a_optional_string_2": "same",
+        "a_optional_string_3": "",
+        "a_optional_string_4": "%_o",
+        "a_optional_string_5": "X",
+        "a_optional_string_6": "Y",
+        "a_optional_string_7": "MIRROR",
+        "a_optional_string_8": "filler-1",
+        "a_optional_string_9": "filler-2",
+        "a_optional_string_10": "filler-3",
+        "a_optional_string_11": "filler-4"
+      }
+    },
+    "pv-not-exists": {
+      "where": {
+        "sqlite": "NOT (adversarial_resource.a_optional_string = ? OR adversarial_resource.a_optional_string = ? OR adversarial_resource.a_optional_string = ? OR adversarial_resource.a_optional_string = ? OR adversarial_resource.a_optional_string = ? OR adversarial_resource.a_optional_string = ? OR adversarial_resource.a_optional_string = ? OR adversarial_resource.a_optional_string = ? OR adversarial_resource.a_optional_string = ? OR adversarial_resource.a_optional_string = ? OR adversarial_resource.a_optional_string = ?)",
+        "postgresql": "NOT (adversarial_resource.a_optional_string = %(a_optional_string_1)s OR adversarial_resource.a_optional_string = %(a_optional_string_2)s OR adversarial_resource.a_optional_string = %(a_optional_string_3)s OR adversarial_resource.a_optional_string = %(a_optional_string_4)s OR adversarial_resource.a_optional_string = %(a_optional_string_5)s OR adversarial_resource.a_optional_string = %(a_optional_string_6)s OR adversarial_resource.a_optional_string = %(a_optional_string_7)s OR adversarial_resource.a_optional_string = %(a_optional_string_8)s OR adversarial_resource.a_optional_string = %(a_optional_string_9)s OR adversarial_resource.a_optional_string = %(a_optional_string_10)s OR adversarial_resource.a_optional_string = %(a_optional_string_11)s)"
+      },
+      "params": {
+        "a_optional_string_1": "set",
+        "a_optional_string_2": "same",
+        "a_optional_string_3": "",
+        "a_optional_string_4": "%_o",
+        "a_optional_string_5": "X",
+        "a_optional_string_6": "Y",
+        "a_optional_string_7": "MIRROR",
+        "a_optional_string_8": "filler-1",
+        "a_optional_string_9": "filler-2",
+        "a_optional_string_10": "filler-3",
+        "a_optional_string_11": "filler-4"
+      }
+    },
+    "pv-shadow": {
+      "where": {
+        "sqlite": "CASE WHEN (EXISTS (SELECT ? AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name = ?)) THEN 1 WHEN (EXISTS (SELECT ? AS anon_2 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name = ?) IS NULL)) THEN NULL ELSE 0 END OR CASE WHEN (EXISTS (SELECT ? AS anon_3 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name = ?)) THEN 1 WHEN (EXISTS (SELECT ? AS anon_4 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name = ?) IS NULL)) THEN NULL ELSE 0 END OR CASE WHEN (EXISTS (SELECT ? AS anon_5 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name = ?)) THEN 1 WHEN (EXISTS (SELECT ? AS anon_6 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name = ?) IS NULL)) THEN NULL ELSE 0 END OR CASE WHEN (EXISTS (SELECT ? AS anon_7 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name = ?)) THEN 1 WHEN (EXISTS (SELECT ? AS anon_8 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name = ?) IS NULL)) THEN NULL ELSE 0 END OR CASE WHEN (EXISTS (SELECT ? AS anon_9 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name = ?)) THEN 1 WHEN (EXISTS (SELECT ? AS anon_10 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name = ?) IS NULL)) THEN NULL ELSE 0 END OR CASE WHEN (EXISTS (SELECT ? AS anon_11 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name = ?)) THEN 1 WHEN (EXISTS (SELECT ? AS anon_12 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name = ?) IS NULL)) THEN NULL ELSE 0 END OR CASE WHEN (EXISTS (SELECT ? AS anon_13 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name = ?)) THEN 1 WHEN (EXISTS (SELECT ? AS anon_14 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name = ?) IS NULL)) THEN NULL ELSE 0 END OR CASE WHEN (EXISTS (SELECT ? AS anon_15 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name = ?)) THEN 1 WHEN (EXISTS (SELECT ? AS anon_16 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name = ?) IS NULL)) THEN NULL ELSE 0 END OR CASE WHEN (EXISTS (SELECT ? AS anon_17 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name = ?)) THEN 1 WHEN (EXISTS (SELECT ? AS anon_18 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name = ?) IS NULL)) THEN NULL ELSE 0 END OR CASE WHEN (EXISTS (SELECT ? AS anon_19 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name = ?)) THEN 1 WHEN (EXISTS (SELECT ? AS anon_20 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name = ?) IS NULL)) THEN NULL ELSE 0 END OR CASE WHEN (EXISTS (SELECT ? AS anon_21 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name = ?)) THEN 1 WHEN (EXISTS (SELECT ? AS anon_22 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name = ?) IS NULL)) THEN NULL ELSE 0 END",
+        "postgresql": "CASE WHEN (EXISTS (SELECT %(param_1)s AS anon_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name = %(name_1)s)) THEN true WHEN (EXISTS (SELECT %(param_2)s AS anon_2 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name = %(name_1)s) IS NULL)) THEN NULL ELSE false END OR CASE WHEN (EXISTS (SELECT %(param_3)s AS anon_3 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name = %(name_2)s)) THEN true WHEN (EXISTS (SELECT %(param_4)s AS anon_4 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name = %(name_2)s) IS NULL)) THEN NULL ELSE false END OR CASE WHEN (EXISTS (SELECT %(param_5)s AS anon_5 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name = %(name_3)s)) THEN true WHEN (EXISTS (SELECT %(param_6)s AS anon_6 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name = %(name_3)s) IS NULL)) THEN NULL ELSE false END OR CASE WHEN (EXISTS (SELECT %(param_7)s AS anon_7 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name = %(name_4)s)) THEN true WHEN (EXISTS (SELECT %(param_8)s AS anon_8 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name = %(name_4)s) IS NULL)) THEN NULL ELSE false END OR CASE WHEN (EXISTS (SELECT %(param_9)s AS anon_9 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name = %(name_5)s)) THEN true WHEN (EXISTS (SELECT %(param_10)s AS anon_10 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name = %(name_5)s) IS NULL)) THEN NULL ELSE false END OR CASE WHEN (EXISTS (SELECT %(param_11)s AS anon_11 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name = %(name_6)s)) THEN true WHEN (EXISTS (SELECT %(param_12)s AS anon_12 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name = %(name_6)s) IS NULL)) THEN NULL ELSE false END OR CASE WHEN (EXISTS (SELECT %(param_13)s AS anon_13 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name = %(name_7)s)) THEN true WHEN (EXISTS (SELECT %(param_14)s AS anon_14 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name = %(name_7)s) IS NULL)) THEN NULL ELSE false END OR CASE WHEN (EXISTS (SELECT %(param_15)s AS anon_15 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name = %(name_8)s)) THEN true WHEN (EXISTS (SELECT %(param_16)s AS anon_16 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name = %(name_8)s) IS NULL)) THEN NULL ELSE false END OR CASE WHEN (EXISTS (SELECT %(param_17)s AS anon_17 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name = %(name_9)s)) THEN true WHEN (EXISTS (SELECT %(param_18)s AS anon_18 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name = %(name_9)s) IS NULL)) THEN NULL ELSE false END OR CASE WHEN (EXISTS (SELECT %(param_19)s AS anon_19 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name = %(name_10)s)) THEN true WHEN (EXISTS (SELECT %(param_20)s AS anon_20 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name = %(name_10)s) IS NULL)) THEN NULL ELSE false END OR CASE WHEN (EXISTS (SELECT %(param_21)s AS anon_21 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND adversarial_tag.name = %(name_11)s)) THEN true WHEN (EXISTS (SELECT %(param_22)s AS anon_22 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id AND (adversarial_tag.name = %(name_11)s) IS NULL)) THEN NULL ELSE false END"
+      },
+      "params": {
+        "param_1": 1,
+        "name_1": "public",
+        "param_2": 1,
+        "param_3": 1,
+        "name_2": "public",
+        "param_4": 1,
+        "param_5": 1,
+        "name_3": "public",
+        "param_6": 1,
+        "param_7": 1,
+        "name_4": "public",
+        "param_8": 1,
+        "param_9": 1,
+        "name_5": "public",
+        "param_10": 1,
+        "param_11": 1,
+        "name_6": "public",
+        "param_12": 1,
+        "param_13": 1,
+        "name_7": "public",
+        "param_14": 1,
+        "param_15": 1,
+        "name_8": "public",
+        "param_16": 1,
+        "param_17": 1,
+        "name_9": "public",
+        "param_18": 1,
+        "param_19": 1,
+        "name_10": "public",
+        "param_20": 1,
+        "param_21": 1,
+        "name_11": "public",
+        "param_22": 1
+      }
+    },
+    "pv-structs-missing": {
+      "where": {
+        "sqlite": "0 = 1",
+        "postgresql": "false"
+      },
+      "params": {}
     },
     "rel-bool-hop": {
       "where": {
@@ -1546,6 +1997,34 @@
       },
       "params": {}
     },
+    "rel-not-contains-hop": {
+      "where": {
+        "sqlite": "(SELECT adversarial_parent.a_string FROM adversarial_parent WHERE adversarial_parent.resource_id = adversarial_resource.id) NOT LIKE ? ESCAPE '\\'",
+        "postgresql": "(SELECT adversarial_parent.a_string FROM adversarial_parent WHERE adversarial_parent.resource_id = adversarial_resource.id) NOT LIKE %(param_1)s ESCAPE '\\\\'"
+      },
+      "params": {
+        "param_1": "%done%"
+      }
+    },
+    "rel-not-eq-hop": {
+      "where": {
+        "sqlite": "(SELECT adversarial_parent.a_string FROM adversarial_parent WHERE adversarial_parent.resource_id = adversarial_resource.id) != ?",
+        "postgresql": "(SELECT adversarial_parent.a_string FROM adversarial_parent WHERE adversarial_parent.resource_id = adversarial_resource.id) != %(param_1)s"
+      },
+      "params": {
+        "param_1": "One"
+      }
+    },
+    "rel-not-hierarchy-hop": {
+      "where": {
+        "sqlite": "NOT ((SELECT adversarial_parent.a_string FROM adversarial_parent WHERE adversarial_parent.resource_id = adversarial_resource.id) = ? OR (SELECT adversarial_parent.a_string FROM adversarial_parent WHERE adversarial_parent.resource_id = adversarial_resource.id) IN (SELECT 1 FROM (SELECT 1) WHERE 1!=1) OR (SELECT adversarial_parent.a_string FROM adversarial_parent WHERE adversarial_parent.resource_id = adversarial_resource.id) LIKE ? ESCAPE '\\')",
+        "postgresql": "NOT ((SELECT adversarial_parent.a_string FROM adversarial_parent WHERE adversarial_parent.resource_id = adversarial_resource.id) = %(param_1)s OR (SELECT adversarial_parent.a_string FROM adversarial_parent WHERE adversarial_parent.resource_id = adversarial_resource.id) IN (NULL) AND (1 != 1) OR (SELECT adversarial_parent.a_string FROM adversarial_parent WHERE adversarial_parent.resource_id = adversarial_resource.id) LIKE %(param_3)s ESCAPE '\\\\')"
+      },
+      "params": {
+        "param_1": "one",
+        "param_3": "one.%"
+      }
+    },
     "rel-range-hop": {
       "where": {
         "sqlite": "(SELECT adversarial_parent.a_number FROM adversarial_parent WHERE adversarial_parent.resource_id = adversarial_resource.id) > ? AND (SELECT adversarial_parent.a_number FROM adversarial_parent WHERE adversarial_parent.resource_id = adversarial_resource.id) < ?",
@@ -1572,6 +2051,13 @@
       },
       "params": {}
     },
+    "root-not-bool": {
+      "where": {
+        "sqlite": "adversarial_resource.a_bool = 0",
+        "postgresql": "NOT adversarial_resource.a_bool"
+      },
+      "params": {}
+    },
     "root-or": {
       "where": {
         "sqlite": "adversarial_resource.a_bool = 1 OR adversarial_resource.a_number < ?",
@@ -1590,6 +2076,15 @@
         "param_1": 1,
         "name_1": "public",
         "param_2": 1
+      }
+    },
+    "size-ge-one": {
+      "where": {
+        "sqlite": "CASE WHEN json_type(adversarial_resource.tags_json) = 'array' THEN json_array_length(adversarial_resource.tags_json) END >= ?",
+        "postgresql": "CASE WHEN jsonb_typeof(CAST(adversarial_resource.tags_json AS JSONB)) = 'array' THEN jsonb_array_length(CAST(adversarial_resource.tags_json AS JSONB)) END >= %(param_1)s"
+      },
+      "params": {
+        "param_1": 1
       }
     },
     "size-huge-gt": {
@@ -1612,8 +2107,8 @@
     },
     "size-threshold": {
       "where": {
-        "sqlite": "(SELECT count(*) AS count_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id) > ?",
-        "postgresql": "(SELECT count(*) AS count_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id) > %(param_1)s"
+        "sqlite": "CASE WHEN json_type(adversarial_resource.tags_json) = 'array' THEN json_array_length(adversarial_resource.tags_json) END > ?",
+        "postgresql": "CASE WHEN jsonb_typeof(CAST(adversarial_resource.tags_json AS JSONB)) = 'array' THEN jsonb_array_length(CAST(adversarial_resource.tags_json AS JSONB)) END > %(param_1)s"
       },
       "params": {
         "param_1": 1
@@ -1745,6 +2240,100 @@
         "created_at_1": "2024-06-01T00:00:00+00:00"
       }
     },
+    "type-columns": {
+      "where": {
+        "sqlite": "CASE WHEN (adversarial_resource.a_number IS NOT NULL) THEN CASE WHEN (adversarial_resource.a_string IS NOT NULL) THEN ? END END = 1",
+        "postgresql": "CASE WHEN (adversarial_resource.a_number IS NOT NULL) THEN CASE WHEN (adversarial_resource.a_string IS NOT NULL) THEN %(param_1)s END END"
+      },
+      "params": {
+        "param_1": false
+      }
+    },
+    "type-hierarchy-number": {
+      "where": {
+        "sqlite": "NULL",
+        "postgresql": "NULL"
+      },
+      "params": {}
+    },
+    "type-needle-contains": {
+      "where": {
+        "sqlite": "NULL",
+        "postgresql": "NULL"
+      },
+      "params": {}
+    },
+    "type-needle-endswith": {
+      "where": {
+        "sqlite": "NULL",
+        "postgresql": "NULL"
+      },
+      "params": {}
+    },
+    "type-needle-startswith": {
+      "where": {
+        "sqlite": "NULL",
+        "postgresql": "NULL"
+      },
+      "params": {}
+    },
+    "type-number-contains": {
+      "where": {
+        "sqlite": "NULL",
+        "postgresql": "NULL"
+      },
+      "params": {}
+    },
+    "type-number-endswith": {
+      "where": {
+        "sqlite": "NULL",
+        "postgresql": "NULL"
+      },
+      "params": {}
+    },
+    "type-number-startswith": {
+      "where": {
+        "sqlite": "NULL",
+        "postgresql": "NULL"
+      },
+      "params": {}
+    },
+    "type-number-string": {
+      "where": {
+        "sqlite": "CASE WHEN (adversarial_resource.a_number IS NOT NULL) THEN ? END = 1",
+        "postgresql": "CASE WHEN (adversarial_resource.a_number IS NOT NULL) THEN %(param_1)s END"
+      },
+      "params": {
+        "param_1": false
+      }
+    },
+    "type-size-bool": {
+      "where": {
+        "sqlite": "NULL > ?",
+        "postgresql": "NULL > %(param_1)s"
+      },
+      "params": {
+        "param_1": 0
+      }
+    },
+    "type-size-number": {
+      "where": {
+        "sqlite": "NULL > ?",
+        "postgresql": "NULL > %(param_1)s"
+      },
+      "params": {
+        "param_1": 0
+      }
+    },
+    "type-string-number": {
+      "where": {
+        "sqlite": "CASE WHEN (adversarial_resource.a_string IS NOT NULL) THEN ? END = 1",
+        "postgresql": "CASE WHEN (adversarial_resource.a_string IS NOT NULL) THEN %(param_1)s END"
+      },
+      "params": {
+        "param_1": false
+      }
+    },
     "unicode-eq": {
       "where": {
         "sqlite": "adversarial_resource.a_string = ?",
@@ -1810,8 +2399,8 @@
     },
     "vf-size": {
       "where": {
-        "sqlite": "(SELECT count(*) AS count_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id) > ?",
-        "postgresql": "(SELECT count(*) AS count_1 FROM adversarial_tag WHERE adversarial_tag.resource_id = adversarial_resource.id) > %(param_1)s"
+        "sqlite": "CASE WHEN json_type(adversarial_resource.tags_json) = 'array' THEN json_array_length(adversarial_resource.tags_json) END > ?",
+        "postgresql": "CASE WHEN jsonb_typeof(CAST(adversarial_resource.tags_json AS JSONB)) = 'array' THEN jsonb_array_length(CAST(adversarial_resource.tags_json AS JSONB)) END > %(param_1)s"
       },
       "params": {
         "param_1": 0
@@ -1889,62 +2478,56 @@
     },
     "w1-not-size-chain": {
       "where": {
-        "sqlite": "CASE WHEN (EXISTS (SELECT ? AS anon_1 FROM adversarial_category WHERE adversarial_category.resource_id = adversarial_resource.id)) THEN (SELECT count(*) AS count_1 FROM adversarial_sub_category, adversarial_category WHERE adversarial_sub_category.category_id = adversarial_category.id AND adversarial_category.resource_id = adversarial_resource.id) END <= ?",
-        "postgresql": "CASE WHEN (EXISTS (SELECT %(param_1)s AS anon_1 FROM adversarial_category WHERE adversarial_category.resource_id = adversarial_resource.id)) THEN (SELECT count(*) AS count_1 FROM adversarial_sub_category, adversarial_category WHERE adversarial_sub_category.category_id = adversarial_category.id AND adversarial_category.resource_id = adversarial_resource.id) END <= %(param_2)s"
+        "sqlite": "CASE WHEN json_type(adversarial_resource.main_sub_categories_json) = 'array' THEN json_array_length(adversarial_resource.main_sub_categories_json) END <= ?",
+        "postgresql": "CASE WHEN jsonb_typeof(CAST(adversarial_resource.main_sub_categories_json AS JSONB)) = 'array' THEN jsonb_array_length(CAST(adversarial_resource.main_sub_categories_json AS JSONB)) END <= %(param_1)s"
       },
       "params": {
-        "param_1": 1,
-        "param_2": 0
+        "param_1": 0
       }
     },
     "w1-size-chain": {
       "where": {
-        "sqlite": "CASE WHEN (EXISTS (SELECT ? AS anon_1 FROM adversarial_category WHERE adversarial_category.resource_id = adversarial_resource.id)) THEN (SELECT count(*) AS count_1 FROM adversarial_sub_category, adversarial_category WHERE adversarial_sub_category.category_id = adversarial_category.id AND adversarial_category.resource_id = adversarial_resource.id) END > ?",
-        "postgresql": "CASE WHEN (EXISTS (SELECT %(param_1)s AS anon_1 FROM adversarial_category WHERE adversarial_category.resource_id = adversarial_resource.id)) THEN (SELECT count(*) AS count_1 FROM adversarial_sub_category, adversarial_category WHERE adversarial_sub_category.category_id = adversarial_category.id AND adversarial_category.resource_id = adversarial_resource.id) END > %(param_2)s"
+        "sqlite": "CASE WHEN json_type(adversarial_resource.main_sub_categories_json) = 'array' THEN json_array_length(adversarial_resource.main_sub_categories_json) END > ?",
+        "postgresql": "CASE WHEN jsonb_typeof(CAST(adversarial_resource.main_sub_categories_json AS JSONB)) = 'array' THEN jsonb_array_length(CAST(adversarial_resource.main_sub_categories_json AS JSONB)) END > %(param_1)s"
       },
       "params": {
-        "param_1": 1,
-        "param_2": 0
+        "param_1": 0
       }
     },
     "w1-size-frac-chain": {
       "where": {
-        "sqlite": "CASE WHEN (EXISTS (SELECT ? AS anon_1 FROM adversarial_category WHERE adversarial_category.resource_id = adversarial_resource.id)) THEN (SELECT count(*) AS count_1 FROM adversarial_sub_category, adversarial_category WHERE adversarial_sub_category.category_id = adversarial_category.id AND adversarial_category.resource_id = adversarial_resource.id) END >= ?",
-        "postgresql": "CASE WHEN (EXISTS (SELECT %(param_1)s AS anon_1 FROM adversarial_category WHERE adversarial_category.resource_id = adversarial_resource.id)) THEN (SELECT count(*) AS count_1 FROM adversarial_sub_category, adversarial_category WHERE adversarial_sub_category.category_id = adversarial_category.id AND adversarial_category.resource_id = adversarial_resource.id) END >= %(param_2)s"
+        "sqlite": "CASE WHEN json_type(adversarial_resource.main_sub_categories_json) = 'array' THEN json_array_length(adversarial_resource.main_sub_categories_json) END >= ?",
+        "postgresql": "CASE WHEN jsonb_typeof(CAST(adversarial_resource.main_sub_categories_json AS JSONB)) = 'array' THEN jsonb_array_length(CAST(adversarial_resource.main_sub_categories_json AS JSONB)) END >= %(param_1)s"
       },
       "params": {
-        "param_1": 1,
-        "param_2": 1.5
+        "param_1": 1.5
       }
     },
     "w1-size-frac-le-chain": {
       "where": {
-        "sqlite": "CASE WHEN (EXISTS (SELECT ? AS anon_1 FROM adversarial_category WHERE adversarial_category.resource_id = adversarial_resource.id)) THEN (SELECT count(*) AS count_1 FROM adversarial_sub_category, adversarial_category WHERE adversarial_sub_category.category_id = adversarial_category.id AND adversarial_category.resource_id = adversarial_resource.id) END <= ?",
-        "postgresql": "CASE WHEN (EXISTS (SELECT %(param_1)s AS anon_1 FROM adversarial_category WHERE adversarial_category.resource_id = adversarial_resource.id)) THEN (SELECT count(*) AS count_1 FROM adversarial_sub_category, adversarial_category WHERE adversarial_sub_category.category_id = adversarial_category.id AND adversarial_category.resource_id = adversarial_resource.id) END <= %(param_2)s"
+        "sqlite": "CASE WHEN json_type(adversarial_resource.main_sub_categories_json) = 'array' THEN json_array_length(adversarial_resource.main_sub_categories_json) END <= ?",
+        "postgresql": "CASE WHEN jsonb_typeof(CAST(adversarial_resource.main_sub_categories_json AS JSONB)) = 'array' THEN jsonb_array_length(CAST(adversarial_resource.main_sub_categories_json AS JSONB)) END <= %(param_1)s"
       },
       "params": {
-        "param_1": 1,
-        "param_2": 1.5
+        "param_1": 1.5
       }
     },
     "w1-size-nonneg-chain": {
       "where": {
-        "sqlite": "CASE WHEN (EXISTS (SELECT ? AS anon_1 FROM adversarial_category WHERE adversarial_category.resource_id = adversarial_resource.id)) THEN (SELECT count(*) AS count_1 FROM adversarial_sub_category, adversarial_category WHERE adversarial_sub_category.category_id = adversarial_category.id AND adversarial_category.resource_id = adversarial_resource.id) END >= ?",
-        "postgresql": "CASE WHEN (EXISTS (SELECT %(param_1)s AS anon_1 FROM adversarial_category WHERE adversarial_category.resource_id = adversarial_resource.id)) THEN (SELECT count(*) AS count_1 FROM adversarial_sub_category, adversarial_category WHERE adversarial_sub_category.category_id = adversarial_category.id AND adversarial_category.resource_id = adversarial_resource.id) END >= %(param_2)s"
+        "sqlite": "CASE WHEN json_type(adversarial_resource.main_sub_categories_json) = 'array' THEN json_array_length(adversarial_resource.main_sub_categories_json) END >= ?",
+        "postgresql": "CASE WHEN jsonb_typeof(CAST(adversarial_resource.main_sub_categories_json AS JSONB)) = 'array' THEN jsonb_array_length(CAST(adversarial_resource.main_sub_categories_json AS JSONB)) END >= %(param_1)s"
       },
       "params": {
-        "param_1": 1,
-        "param_2": 0
+        "param_1": 0
       }
     },
     "w1-size-zero-chain": {
       "where": {
-        "sqlite": "CASE WHEN (EXISTS (SELECT ? AS anon_1 FROM adversarial_category WHERE adversarial_category.resource_id = adversarial_resource.id)) THEN (SELECT count(*) AS count_1 FROM adversarial_sub_category, adversarial_category WHERE adversarial_sub_category.category_id = adversarial_category.id AND adversarial_category.resource_id = adversarial_resource.id) END = ?",
-        "postgresql": "CASE WHEN (EXISTS (SELECT %(param_1)s AS anon_1 FROM adversarial_category WHERE adversarial_category.resource_id = adversarial_resource.id)) THEN (SELECT count(*) AS count_1 FROM adversarial_sub_category, adversarial_category WHERE adversarial_sub_category.category_id = adversarial_category.id AND adversarial_category.resource_id = adversarial_resource.id) END = %(param_2)s"
+        "sqlite": "CASE WHEN json_type(adversarial_resource.main_sub_categories_json) = 'array' THEN json_array_length(adversarial_resource.main_sub_categories_json) END = ?",
+        "postgresql": "CASE WHEN jsonb_typeof(CAST(adversarial_resource.main_sub_categories_json AS JSONB)) = 'array' THEN jsonb_array_length(CAST(adversarial_resource.main_sub_categories_json AS JSONB)) END = %(param_1)s"
       },
       "params": {
-        "param_1": 1,
-        "param_2": 0
+        "param_1": 0
       }
     },
     "w1-ternary-chain-cond": {
@@ -1970,6 +2553,24 @@
         "name_1": "public",
         "param_4": 1,
         "param_5": 1
+      }
+    },
+    "wildcard-contains": {
+      "where": {
+        "sqlite": "adversarial_resource.a_string LIKE ? ESCAPE '\\'",
+        "postgresql": "adversarial_resource.a_string LIKE %(a_string_1)s ESCAPE '\\\\'"
+      },
+      "params": {
+        "a_string_1": "%*?b%"
+      }
+    },
+    "wildcard-endswith": {
+      "where": {
+        "sqlite": "adversarial_resource.a_string LIKE ? ESCAPE '\\'",
+        "postgresql": "adversarial_resource.a_string LIKE %(a_string_1)s ESCAPE '\\\\'"
+      },
+      "params": {
+        "a_string_1": "%*?b"
       }
     }
   }

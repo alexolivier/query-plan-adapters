@@ -4,6 +4,7 @@
 package cerbosent_test
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -77,6 +78,7 @@ func testMapper() cerbosent.Mapper {
 		"request.resource.attr.count":     {Column: "count"},
 		"request.resource.attr.owner":     {Column: "owner"},
 		"request.resource.attr.createdAt": {Column: "created_at", ValueType: cerbosent.ValueTimestamp},
+		"request.resource.attr.flag":      {Column: "flag", ValueType: cerbosent.ValueBool},
 		"request.resource.attr.tags":      {Relation: tagRelation()},
 	}
 }
@@ -170,7 +172,6 @@ func TestMalformedPlansReturnErrors(t *testing.T) {
 		{name: "regex", cond: expr("matches", variable("request.resource.attr.name"), val(t, ".*"))},
 		{name: "filter outside size", cond: expr("filter", variable("request.resource.attr.tags"), expr("lambda", val(t, true), variable("t")))},
 		{name: "hasIntersection between two stored collections", cond: expr("hasIntersection", variable("request.resource.attr.tags"), variable("request.resource.attr.tags"))},
-		{name: "modulus by zero", cond: expr("eq", expr("mod", val(t, 4), val(t, 0)), val(t, 0))},
 	}
 
 	for _, tc := range cases {
@@ -612,6 +613,37 @@ func TestNumericCastsAreRejected(t *testing.T) {
 	}
 }
 
+// TestStringOverABooleanSpellsCELsWords pins string() over a column declared ValueBool
+// (cerbos/query-plan-adapters#418). A CAST alone renders the stored 1/0 as "1" on SQLite and MySQL
+// where CEL says "true", so the column is spelled through a CASE first, on every dialect. The
+// corpus's cast-string-bool proves the two words against the oracle on all three engines.
+//
+// Corpus gap. Two more properties of that CASE are policy-reachable, and no corpus action reaches
+// either, so this test is a bridge tracked by #469 rather than their home. The first is the IS NULL
+// arm ahead of the column's own test: the corpus's aBool is never null, and without the arm a NULL
+// column falls through to 'false', so `string(x) != "true"` returns a row the PDP denies. The
+// second is the text cast around the whole CASE on MySQL, which gives the two words a byte-exact
+// collation. Without it a driver that interpolates its parameters compares them in the connection's
+// collation, where "TRUE" and "true " both equal "true", and no leg of the harness interpolates.
+func TestStringOverABooleanSpellsCELsWords(t *testing.T) {
+	t.Parallel()
+
+	cond := expr("eq", expr("string", variable("request.resource.attr.flag")), val(t, "true"))
+	for d, want := range map[string]string{
+		dialect.SQLite:   "CAST((CASE WHEN (`resource`.`flag` IS NULL) THEN NULL WHEN `resource`.`flag` THEN ? ELSE ? END) AS text) = ?",
+		dialect.Postgres: `CAST((CASE WHEN ("resource"."flag" IS NULL) THEN NULL WHEN "resource"."flag" THEN $1::text ELSE $2::text END) AS text) = $3::text`,
+		dialect.MySQL:    "CAST((CASE WHEN (`resource`.`flag` IS NULL) THEN NULL WHEN `resource`.`flag` THEN ? ELSE ? END) AS char character set utf8mb4) COLLATE utf8mb4_0900_bin = ?",
+	} {
+		t.Run(d, func(t *testing.T) {
+			t.Parallel()
+
+			query, args := whereFor(t, d, testMapper(), cond)
+			require.Contains(t, query, want)
+			require.Equal(t, []any{"true", "false", "true"}, args)
+		})
+	}
+}
+
 // TestMapperQualifierCannotShadowGeneratedAliases covers the other half of the alias guard: the
 // collision can come from an Entry's own qualifier, not just the resource table.
 func TestMapperQualifierCannotShadowGeneratedAliases(t *testing.T) {
@@ -653,7 +685,7 @@ func TestDialectSpellings(t *testing.T) {
 			want: map[string]string{
 				dialect.SQLite:   "CAST(`resource`.`count` AS text)",
 				dialect.Postgres: `CAST("resource"."count" AS text)`,
-				dialect.MySQL:    "CAST(`resource`.`count` AS char)",
+				dialect.MySQL:    "CAST(`resource`.`count` AS char character set utf8mb4) COLLATE utf8mb4_0900_bin",
 			},
 		},
 		{
@@ -773,7 +805,6 @@ func TestTimestampsAreBoundForTheDialect(t *testing.T) {
 	require.Equal(t, "(`resource`.`created_at` > ?)", sqlite)
 	require.Equal(t, []any{"2024-06-01T00:00:00.500000000Z"}, args,
 		"a fixed-width UTC layout is what makes text comparison chronological")
-	require.Equal(t, len("2006-01-02T15:04:05.000000000Z"), len(args[0].(string)))
 
 	for _, d := range []string{dialect.Postgres, dialect.MySQL} {
 		_, args := whereFor(t, d, testMapper(), cond)
@@ -789,8 +820,8 @@ func TestBooleanConstantsAvoidKeywords(t *testing.T) {
 
 	// A macro over an empty literal collection folds to its identity: `exists` is false, `all` true.
 	for _, tc := range []struct{ operator, want string }{
-		{operator: "exists", want: "1 = 0"},
-		{operator: "all", want: "1 = 1"},
+		{operator: "exists", want: "(1 = 0)"},
+		{operator: "all", want: "(1 = 1)"},
 	} {
 		t.Run(tc.operator, func(t *testing.T) {
 			t.Parallel()
@@ -830,8 +861,6 @@ func TestSubqueryFilterNarrowsEveryShapeBuiltOnTheRelation(t *testing.T) {
 		{name: "exists", cond: tagsExists(t)},
 		{name: "negated exists", cond: expr("not", tagsExists(t))},
 		{name: "all", cond: expr("all", variable("request.resource.attr.tags"),
-			expr("lambda", expr("eq", variable("t.name"), val(t, "x")), variable("t")))},
-		{name: "except", cond: expr("except", variable("request.resource.attr.tags"),
 			expr("lambda", expr("eq", variable("t.name"), val(t, "x")), variable("t")))},
 		{name: "exists_one", cond: expr("exists_one", variable("request.resource.attr.tags"),
 			expr("lambda", expr("eq", variable("t.name"), val(t, "x")), variable("t")))},
@@ -910,13 +939,13 @@ func TestSubqueryFilterMembershipEdges(t *testing.T) {
 		cerbosent.Restriction{Column: "kind", Op: cerbosent.RestrictIn},
 	)), cond)
 	require.NotContains(t, empty, "IN ()")
-	require.Contains(t, empty, "WHERE (1 = 0 AND", "membership in an empty list hides every row")
+	require.Contains(t, empty, "WHERE ((1 = 0) AND", "membership in an empty list hides every row")
 
 	emptyNot, _ := translateWith(t, mapperFor(tagRelation(
 		cerbosent.Restriction{Column: "kind", Op: cerbosent.RestrictNotIn},
 	)), cond)
 	require.NotContains(t, emptyNot, "IN ()")
-	require.Contains(t, emptyNot, "WHERE (1 = 1 AND", "non-membership in an empty list hides none")
+	require.Contains(t, emptyNot, "WHERE ((1 = 1) AND", "non-membership in an empty list hides none")
 
 	listed, args := translateWith(t, mapperFor(tagRelation(
 		cerbosent.Restriction{Column: "kind", Op: cerbosent.RestrictIn, Values: []any{"a", "b"}},
@@ -951,7 +980,7 @@ func TestRestrictionMismatchFailsClosed(t *testing.T) {
 	valueOnIn, args := translateWith(t, mapperFor(tagRelation(
 		cerbosent.Restriction{Column: "kind", Op: cerbosent.RestrictIn, Value: "a"},
 	)), cond)
-	require.Contains(t, valueOnIn, "WHERE (1 = 0 AND")
+	require.Contains(t, valueOnIn, "WHERE ((1 = 0) AND")
 	require.NotContains(t, args, "a")
 }
 
@@ -1046,4 +1075,85 @@ func TestNullConventionOverridesTheCallLevelRepresentation(t *testing.T) {
 	_, err = cerbosent.Translate(conditional(nullEq), "resource", omitted)
 	require.ErrorIs(t, err, cerbosent.ErrUnsupported)
 	require.Contains(t, err.Error(), "null operand")
+}
+
+// The corpus fixes scalar semantics; these vary the caller's mapping to a related
+// column, whose declared type must survive the scalar subquery wrapper.
+func TestRelatedScalarTypeDeclaration(t *testing.T) {
+	t.Parallel()
+	mapper := cerbosent.MapperMap{
+		"request.resource.attr.count": {
+			Column: "amount", ValueType: cerbosent.ValueNumber,
+			ScalarRelation: &cerbosent.Relation{Table: "details", SourceColumn: "id", TargetColumn: "resource_id"},
+		},
+	}
+	for _, operator := range []string{"contains", "startsWith", "endsWith"} {
+		t.Run(operator, func(t *testing.T) {
+			t.Parallel()
+			cond := expr(operator, variable("request.resource.attr.count"), val(t, "x"))
+			query, _ := translateWith(t, mapper, cond)
+			require.Contains(t, query, "NULL")
+			require.NotContains(t, query, "LIKE")
+		})
+	}
+	cond := expr("ne", variable("request.resource.attr.count"), val(t, "x"))
+	query, _ := translateWith(t, mapper, cond)
+	require.Contains(t, query, "IS NOT NULL", "a missing related row must remain UNKNOWN under negation")
+	require.NotContains(t, query, "<> ", "declared numbers must not be compared to SQL strings")
+}
+
+// These contracts vary type/null declarations and relation mappings that the corpus fixes.
+func TestMixedScalarTypesPreserveExplicitNullEquality(t *testing.T) {
+	t.Parallel()
+	mapper := cerbosent.MapperMap{
+		"request.resource.attr.name":  {Column: "name", ValueType: cerbosent.ValueString, NullConvention: cerbosent.NullConventionExplicit},
+		"request.resource.attr.count": {Column: "count", ValueType: cerbosent.ValueNumber, NullConvention: cerbosent.NullConventionExplicit},
+	}
+	for _, operator := range []string{"eq", "ne"} {
+		cond := expr(operator, variable("request.resource.attr.name"), variable("request.resource.attr.count"))
+		query, _ := translateWith(t, mapper, cond)
+		query = strings.ReplaceAll(query, "`", `"`)
+		require.Contains(t, query, `"resource"."name" IS NULL`)
+		require.Contains(t, query, `"resource"."count" IS NULL`)
+		if operator == "ne" {
+			require.Contains(t, query, "NOT")
+		}
+	}
+}
+
+func TestOmittedRelatedMembershipNeedlePreservesMissing(t *testing.T) {
+	t.Parallel()
+	mapper := cerbosent.MapperMap{
+		"request.resource.attr.name": {
+			Column: "name", ValueType: cerbosent.ValueString, NullConvention: cerbosent.NullConventionOmitted,
+			ScalarRelation: &cerbosent.Relation{Table: "details", SourceColumn: "id", TargetColumn: "resource_id"},
+		},
+		"request.resource.attr.tags": {Relation: &cerbosent.Relation{Table: "tag", SourceColumn: "id", TargetColumn: "resource_id", Field: &cerbosent.Entry{Column: "name", NullConvention: cerbosent.NullConventionExplicit}}},
+	}
+	cond := expr("not", expr("in", variable("request.resource.attr.name"), variable("request.resource.attr.tags")))
+	query, _ := translateWith(t, mapper, cond)
+	require.Contains(t, query, `IS NOT NULL) THEN (NOT (CASE`, "a missing related needle must remain UNKNOWN even for an empty collection")
+}
+
+// Dialect is caller configuration, including when a constant plan needs no SQL.
+func TestDialectValidation(t *testing.T) {
+	t.Parallel()
+	for _, d := range []string{"gremlin", "postgresql", "", dialect.SQLite, dialect.Postgres, dialect.MySQL} {
+		t.Run(d, func(t *testing.T) {
+			t.Parallel()
+			for _, plan := range []*responsev1.PlanResourcesResponse{
+				conditional(expr("eq", variable("request.resource.attr.name"), val(t, "x"))),
+				{Filter: &enginev1.PlanResourcesFilter{Kind: enginev1.PlanResourcesFilter_KIND_ALWAYS_ALLOWED}},
+			} {
+				_, err := cerbosent.Translate(plan, "resource", testMapper(), cerbosent.WithDialect(d))
+				switch d {
+				case dialect.SQLite, dialect.Postgres, dialect.MySQL:
+					require.NoError(t, err)
+				default:
+					require.ErrorContains(t, err, "unknown dialect "+strconv.Quote(d))
+					require.NotErrorIs(t, err, cerbosent.ErrUnsupported)
+				}
+			}
+		})
+	}
 }

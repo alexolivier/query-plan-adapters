@@ -16,8 +16,9 @@
 #      shape 5 differing from both of the two filters it composes.
 #   3. Pin reuse: the demo domain has no PDP version of its own and every example reaches the one
 #      in conformance/ — at $CERBOS_HOST, never at an address of its own. That second half is
-#      not fussiness: 3592/3593 are the ports every adapter's `cerbos run` test sidecar binds,
-#      so a hardcoded default does not fail, it silently plans against the wrong policy suite.
+#      not fussiness: 3592/3593 are Cerbos's default ports, which any other local PDP may be
+#      holding, so a hardcoded default does not fail, it silently plans against the wrong policy
+#      suite.
 #   4. Every adapter has a runnable example/run.sh. The roster is `adapters` in
 #      conformance/actions.json — the one already there, never a second list — so registering an
 #      adapter is what demands an example of it, and adding one without an example fails here.
@@ -44,6 +45,22 @@ for f in "${SEEDS}" "${EXPECTED}" "${ACTIONS}"; do
   [[ -f "${f}" ]] || { echo "missing ${f}" >&2; exit 1; }
   jq -e . "${f}" >/dev/null || { echo "${f} is not valid JSON" >&2; exit 1; }
 done
+
+# Capture jq's status before populating the array: a failed substitution in a for-loop
+# or process substitution would silently skip every roster-based check.
+if ! adapter_roster="$(jq -er '
+  .adapters
+  | if type == "array" and length > 0
+       and all(.[]; type == "string" and length > 0 and (test("[\\r\\n]") | not))
+    then .[] else error("expected a non-empty adapters array of single-line names") end
+' "${ACTIONS}")"; then
+  echo "${ACTIONS} has no valid adapters roster" >&2
+  exit 1
+fi
+ADAPTERS=()
+while IFS= read -r adapter; do
+  ADAPTERS+=("${adapter}")
+done <<<"${adapter_roster}"
 
 # Shared jq preamble: the seed id list, and the id set the APPLICATION's own predicate selects on
 # its own. Both are derived from seeds.json so neither can drift from the rows the examples load.
@@ -339,7 +356,7 @@ fi
 if ! source_grep -rl '' "${REPO_ROOT}" | grep -q '\.kt$'; then
   fail "the source scan reaches no .kt file, so a Kotlin adapter's source is invisible to every check below"
 fi
-for adapter in $(jq -r '.adapters[]' "${ACTIONS}"); do
+for adapter in "${ADAPTERS[@]}"; do
   example_dir="${REPO_ROOT}/${adapter}/example"
   [[ -d "${example_dir}" ]] || continue
   while IFS= read -r ref; do
@@ -353,9 +370,9 @@ for adapter in $(jq -r '.adapters[]' "${ACTIONS}"); do
 
   # ...and must reach it at the address the runner sets, never one of its own. Both examples that
   # existed when this check was written had shipped `?? "localhost:3593"`, which is not a harmless
-  # default: 3592/3593 are the ports every adapter's `cerbos run` test sidecar binds, and it is
-  # why demo/docker-compose.yml publishes the demo PDP on 13592/13593 instead. An unset
-  # CERBOS_HOST therefore did not fail — the example planned against whichever sidecar held those
+  # default: 3592/3593 are Cerbos's default ports, which any other local PDP may be holding,
+  # and it is why demo/docker-compose.yml publishes the demo PDP on 13592/13593 instead. An unset
+  # CERBOS_HOST therefore did not fail — the example planned against whichever PDP held those
   # ports rather than the one loaded with `demo/policies/`, and the mismatch against expected.json
   # read as an adapter bug. The rule was already in demo/README.md's "What an example must do" and both
   # examples broke it anyway, which is what makes it a check rather than prose.
@@ -386,7 +403,7 @@ echo "==> [4/5] example coverage: every adapter has a runnable example/run.sh"
 # `-e` alone is not enough: run-example.sh executes the script directly, so a run.sh committed
 # without its mode bit is not a runnable example either. Testing existence alone would pass it
 # here and fail later in the example job, with a message about the runner rather than the mode bit.
-for adapter in $(jq -r '.adapters[]' "${ACTIONS}"); do
+for adapter in "${ADAPTERS[@]}"; do
   runner="${REPO_ROOT}/${adapter}/example/run.sh"
   if [[ ! -e "${runner}" ]]; then
     fail "${adapter} has no example/run.sh — every adapter in the actions.json roster needs an" \
@@ -553,7 +570,7 @@ END {
 }
 AWK
 
-for adapter in $(jq -r '.adapters[]' "${ACTIONS}"); do
+for adapter in "${ADAPTERS[@]}"; do
   example_dir="${REPO_ROOT}/${adapter}/example"
   [[ -d "${example_dir}" ]] || continue
 

@@ -123,17 +123,25 @@ func write(b *sql.Builder, e queryplan.Expr) error {
 		// Spelled as a tautology rather than the TRUE/FALSE keywords: MySQL accepts both, but a
 		// bare boolean literal is not portable to every dialect ent targets.
 		if t.V {
-			b.WriteString("1 = 1")
+			b.WriteString("(1 = 1)")
 		} else {
-			b.WriteString("1 = 0")
+			b.WriteString("(1 = 0)")
 		}
 		return nil
 
 	case queryplan.Cmp:
-		return writeBinary(b, cmpSymbol(t.Op), t.L, t.R)
+		op, err := symbol(cmpSymbols, "comparison", t.Op)
+		if err != nil {
+			return err
+		}
+		return writeBinary(b, op, t.L, t.R)
 
 	case queryplan.Arith:
-		return writeBinary(b, arithSymbol(t.Op), t.L, t.R)
+		op, err := symbol(arithSymbols, "arithmetic", t.Op)
+		if err != nil {
+			return err
+		}
+		return writeBinary(b, op, t.L, t.R)
 
 	case queryplan.Concat:
 		// The same dialect-correct spelling the escaping path already uses: CONCAT() on MySQL,
@@ -150,15 +158,7 @@ func write(b *sql.Builder, e queryplan.Expr) error {
 			sep = " AND "
 		}
 		return wrap(b, func(b *sql.Builder) error {
-			for i, x := range t.Xs {
-				if i > 0 {
-					b.WriteString(sep)
-				}
-				if err := write(b, x); err != nil {
-					return err
-				}
-			}
-			return nil
+			return writeSeparated(b, t.Xs, sep)
 		})
 
 	case queryplan.Not:
@@ -206,15 +206,7 @@ func write(b *sql.Builder, e queryplan.Expr) error {
 			}
 			b.WriteString(" IN ")
 			return wrap(b, func(b *sql.Builder) error {
-				for i, v := range t.Vs {
-					if i > 0 {
-						b.Comma()
-					}
-					if err := write(b, v); err != nil {
-						return err
-					}
-				}
-				return nil
+				return writeSeparated(b, t.Vs, ", ")
 			})
 		})
 
@@ -282,31 +274,24 @@ func writeNotDistinct(b *sql.Builder, t queryplan.NotDistinct) error {
 //
 // `IS TRUE` / `IS FALSE` are not available on every dialect ent supports, so the test is expanded
 // into comparisons that mean the same thing wherever booleans are stored as 0/1 or as a native
-// boolean: `x = TRUE`, `NOT (x = TRUE)`, and `x IS NULL`.
+// boolean: `x = TRUE`, `x = FALSE`, and `x IS NULL`.
 func writeTruthTest(b *sql.Builder, t queryplan.TruthTest) error {
 	switch t.Want {
 	case queryplan.TruthUnknown:
 		return write(b, queryplan.IsNull{X: t.X})
 
-	case queryplan.TruthTrue:
+	case queryplan.TruthTrue, queryplan.TruthFalse:
 		return wrap(b, func(b *sql.Builder) error {
 			if err := write(b, t.X); err != nil {
 				return err
 			}
 			b.WriteString(" = ")
-			b.Arg(true)
+			b.Arg(t.Want == queryplan.TruthTrue)
 			return nil
 		})
 
-	default: // TruthFalse
-		return wrap(b, func(b *sql.Builder) error {
-			if err := write(b, t.X); err != nil {
-				return err
-			}
-			b.WriteString(" = ")
-			b.Arg(false)
-			return nil
-		})
+	default:
+		return fmt.Errorf("cannot render truth value %d", t.Want)
 	}
 }
 
@@ -349,47 +334,33 @@ func writeCall(b *sql.Builder, c queryplan.Call) error {
 	// CEL's size() counts Unicode code points. SQLite's and PostgreSQL's length() do too, but
 	// MySQL's LENGTH() counts bytes — "héllo🚀" is 6 to CEL and 10 to MySQL — so it needs
 	// CHAR_LENGTH instead.
-	charLength := "length"
-	if b.Dialect() == dialect.MySQL {
-		charLength = "char_length"
+	name := functionNames[c.Name]
+	if c.Name == queryplan.FuncCharLength && b.Dialect() == dialect.MySQL {
+		name = "char_length"
 	}
-
-	name := map[queryplan.FuncName]string{
-		queryplan.FuncCharLength: charLength,
-		queryplan.FuncReplace:    "replace",
-		queryplan.FuncNullIf:     "nullif",
-	}[c.Name]
 	if name == "" {
 		return fmt.Errorf("cannot render function %q", c.Name)
 	}
 
 	b.WriteString(name)
 	return wrap(b, func(b *sql.Builder) error {
-		for i, arg := range c.Args {
-			if i > 0 {
-				b.Comma()
-			}
-			if err := write(b, arg); err != nil {
-				return err
-			}
-		}
-		return nil
+		return writeSeparated(b, c.Args, ", ")
 	})
 }
 
 // writeConcat joins strings, propagating NULL.
 func writeConcat(b *sql.Builder, args []queryplan.Expr) error {
+	separator := " || "
 	if b.Dialect() == dialect.MySQL {
 		b.WriteString("CONCAT")
-		return wrap(b, func(b *sql.Builder) error {
-			return writeSeparated(b, args, ", ")
-		})
+		separator = ", "
 	}
 	return wrap(b, func(b *sql.Builder) error {
-		return writeSeparated(b, args, " || ")
+		return writeSeparated(b, args, separator)
 	})
 }
 
+// writeSeparated writes each expression in turn, separated by separator.
 func writeSeparated(b *sql.Builder, args []queryplan.Expr, separator string) error {
 	for i, arg := range args {
 		if i > 0 {
@@ -409,13 +380,21 @@ func writeCast(b *sql.Builder, t queryplan.Cast) error {
 	}
 
 	b.WriteString("CAST")
-	return wrap(b, func(b *sql.Builder) error {
+	if err := wrap(b, func(b *sql.Builder) error {
 		if err := write(b, t.X); err != nil {
 			return err
 		}
 		b.WriteString(" AS ").WriteString(target)
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	if b.Dialect() == dialect.MySQL && t.To == queryplan.CastText {
+		// CHAR inherits the connection collation, even when the source column is case-sensitive.
+		// Keep character semantics (including size()) and compare without case folding or padding.
+		b.WriteString(" COLLATE utf8mb4_0900_bin")
+	}
+	return nil
 }
 
 func writeSubquery(b *sql.Builder, s queryplan.Subquery) error {
@@ -436,8 +415,10 @@ func writeSubquery(b *sql.Builder, s queryplan.Subquery) error {
 					return err
 				}
 				b.WriteString(" FROM ")
-			default:
+			case queryplan.SubqueryCount:
 				b.WriteString("SELECT COUNT(*) FROM ")
+			default:
+				return fmt.Errorf("cannot render subquery kind %d", s.Kind)
 			}
 
 			for i, item := range s.From {
@@ -475,7 +456,7 @@ func castType(d string, to queryplan.CastType) (string, error) {
 	switch to {
 	case queryplan.CastText:
 		if d == dialect.MySQL {
-			return "char", nil
+			return "char character set utf8mb4", nil
 		}
 		return "text", nil
 
@@ -494,34 +475,35 @@ func castType(d string, to queryplan.CastType) (string, error) {
 	}
 }
 
-func cmpSymbol(op queryplan.CmpOp) string {
-	switch op {
-	case queryplan.OpEq:
-		return "="
-	case queryplan.OpNe:
-		return "<>"
-	case queryplan.OpLt:
-		return "<"
-	case queryplan.OpLe:
-		return "<="
-	case queryplan.OpGt:
-		return ">"
-	default:
-		return ">="
-	}
+var cmpSymbols = map[queryplan.CmpOp]string{
+	queryplan.OpEq: "=",
+	queryplan.OpNe: "<>",
+	queryplan.OpLt: "<",
+	queryplan.OpLe: "<=",
+	queryplan.OpGt: ">",
+	queryplan.OpGe: ">=",
 }
 
-func arithSymbol(op queryplan.ArithOp) string {
-	switch op {
-	case queryplan.OpAdd:
-		return "+"
-	case queryplan.OpSub:
-		return "-"
-	case queryplan.OpMult:
-		return "*"
-	case queryplan.OpDiv:
-		return "/"
-	default:
-		return "%"
+var arithSymbols = map[queryplan.ArithOp]string{
+	queryplan.OpAdd:  "+",
+	queryplan.OpSub:  "-",
+	queryplan.OpMult: "*",
+	queryplan.OpDiv:  "/",
+	queryplan.OpMod:  "%",
+}
+
+// symbol spells an operator through its table, refusing one the table does not know rather than
+// guessing: a wrong operator is valid SQL that quietly returns a different row set.
+func symbol[Op ~string](symbols map[Op]string, kind string, op Op) (string, error) {
+	s, ok := symbols[op]
+	if !ok {
+		return "", fmt.Errorf("cannot render %s %q", kind, op)
 	}
+	return s, nil
+}
+
+var functionNames = map[queryplan.FuncName]string{
+	queryplan.FuncCharLength: "length",
+	queryplan.FuncReplace:    "replace",
+	queryplan.FuncNullIf:     "nullif",
 }

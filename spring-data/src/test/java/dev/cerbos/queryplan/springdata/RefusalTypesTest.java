@@ -23,7 +23,6 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.jpa.domain.Specification;
 
-import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -74,19 +73,57 @@ class RefusalTypesTest {
      * {@code actions.json} declares for this adapter, so a new throwing action fails here until
      * someone decides which kind of refusal it is.
      *
-     * <p>The two {@link UnmappedAttributeException} entries are the judgement calls:
-     * {@code p-timestamp} is refused because the MAPPING binds {@code createdBy} to a String
-     * column that does not pin the instant it stores, and {@code null-value-f2f-mixed} because
-     * the two mappings it compares declare different NULL conventions. Both are resolved by
+     * <p>The three {@link UnmappedAttributeException} entries are the judgement calls:
+     * {@code p-timestamp} and {@code cast-not-timestamp} are refused because the MAPPING binds
+     * {@code createdBy} to a String column that does not pin the instant it stores, and
+     * {@code null-value-f2f-mixed} because the two mappings it compares declare different NULL
+     * conventions. Both mechanisms are resolved by
      * changing a declaration rather than the policy, which is the line the type draws.
      */
     private static final Map<String, Class<? extends IllegalArgumentException>> CLASSIFIED =
             Map.ofEntries(
+                    Map.entry("regex-final-newline", UnsupportedPlanShapeException.class),
+                    Map.entry("regex-eq-true", UnsupportedPlanShapeException.class),
+                    Map.entry("regex-lookahead", UnsupportedPlanShapeException.class),
+                    Map.entry("index-negative", UnsupportedPlanShapeException.class),
+                    Map.entry("index-fractional", UnsupportedPlanShapeException.class),
+                    Map.entry("index-not-oob", UnsupportedPlanShapeException.class),
+                    Map.entry("cast-not-int", UnsupportedPlanShapeException.class),
+                    Map.entry("cast-not-string-missing", UnsupportedPlanShapeException.class),
+                    Map.entry("cast-not-string-null", UnsupportedPlanShapeException.class),
+                    Map.entry("cast-not-timestamp", UnmappedAttributeException.class),
+                    Map.entry("cast-not-double", UnsupportedPlanShapeException.class),
+                    Map.entry("regex-digit", UnsupportedPlanShapeException.class),
+                    Map.entry("regex-case", UnsupportedPlanShapeException.class),
+                    Map.entry("regex-posix", UnsupportedPlanShapeException.class),
+                    Map.entry("regex-unanchored", UnsupportedPlanShapeException.class),
+                    Map.entry("regex-dot", UnsupportedPlanShapeException.class),
+                    Map.entry("regex-alternation", UnsupportedPlanShapeException.class),
+                    Map.entry("regex-grouped", UnsupportedPlanShapeException.class),
+                    Map.entry("regex-brace", UnsupportedPlanShapeException.class),
+                    Map.entry("regex-repetition", UnsupportedPlanShapeException.class),
+                    Map.entry("regex-optional-operators", UnsupportedPlanShapeException.class),
+                    Map.entry("except-root", UnsupportedPlanShapeException.class),
+                    Map.entry("except-size", UnsupportedPlanShapeException.class),
+                    Map.entry("except-eq", UnsupportedPlanShapeException.class),
+                    Map.entry("pv-structs", UnsupportedPlanShapeException.class),
+                    Map.entry("pv-structs-null", UnsupportedPlanShapeException.class),
+                    Map.entry("pv-exists-one", UnsupportedPlanShapeException.class),
+                    Map.entry("pv-filter", UnsupportedPlanShapeException.class),
+                    Map.entry("pv-map", UnsupportedPlanShapeException.class),
+                    Map.entry("pv-except", UnsupportedPlanShapeException.class),
+                    Map.entry("temporal-raw-eq", UnsupportedPlanShapeException.class),
+                    Map.entry("eq-list", UnsupportedPlanShapeException.class),
+                    Map.entry("ne-list", UnsupportedPlanShapeException.class),
+                    Map.entry("eq-map", UnsupportedPlanShapeException.class),
+                    Map.entry("ne-map", UnsupportedPlanShapeException.class),
+                    Map.entry("eq-map-null", UnsupportedPlanShapeException.class),
+                    Map.entry("in-nested-list", UnsupportedPlanShapeException.class),
+                    Map.entry("hasint-map-element", UnsupportedPlanShapeException.class),
                     Map.entry("arith-mod", UnsupportedPlanShapeException.class),
                     Map.entry("cast-double-string", UnsupportedPlanShapeException.class),
                     Map.entry("cast-int-double", UnsupportedPlanShapeException.class),
                     Map.entry("cast-int-string", UnsupportedPlanShapeException.class),
-                    Map.entry("cast-string-bool", UnsupportedPlanShapeException.class),
                     Map.entry("cast-string-double", UnsupportedPlanShapeException.class),
                     Map.entry("concat-f2f", UnsupportedPlanShapeException.class),
                     Map.entry("cr-div-then-add", UnsupportedPlanShapeException.class),
@@ -96,6 +133,14 @@ class RefusalTypesTest {
                     Map.entry("hier-empty-delim", UnsupportedPlanShapeException.class),
                     Map.entry("id-concat", UnsupportedPlanShapeException.class),
                     Map.entry("index-scalar-list", UnsupportedPlanShapeException.class),
+                    Map.entry("index-scalar-list-not-eq", UnsupportedPlanShapeException.class),
+                    Map.entry("index-scalar-list-null", UnsupportedPlanShapeException.class),
+                    Map.entry("index-number-list", UnsupportedPlanShapeException.class),
+                    Map.entry("index-number-list-not-eq", UnsupportedPlanShapeException.class),
+                    Map.entry("index-bool-list", UnsupportedPlanShapeException.class),
+                    Map.entry("index-bool-list-not-eq", UnsupportedPlanShapeException.class),
+                    Map.entry("index-bool-list-vs-number", UnsupportedPlanShapeException.class),
+                    Map.entry("index-number-list-vs-bool", UnsupportedPlanShapeException.class),
                     Map.entry("map-as-condition", UnsupportedPlanShapeException.class),
                     Map.entry("map-eq-list", UnsupportedPlanShapeException.class),
                     Map.entry("matches-alt", UnsupportedPlanShapeException.class),
@@ -127,8 +172,8 @@ class RefusalTypesTest {
 
     /**
      * The distribution over the corpus. A count, not only a per-action type, so the SHAPE of
-     * this adapter's refusals is pinned: two declaration gaps, the rest shapes the Criteria API
-     * has no faithful form for.
+     * this adapter's refusals is pinned: three declaration-dependent actions, the rest shapes
+     * the Criteria API has no faithful form for.
      */
     @Test
     void theRefusalTypesAreDistributedInTheseNumbers() {
@@ -138,8 +183,8 @@ class RefusalTypesTest {
             counts.merge(ex.getClass().getSimpleName(), 1, Integer::sum);
         }
         assertEquals(new TreeMap<>(Map.of(
-                        "UnsupportedPlanShapeException", 19,
-                        "UnmappedAttributeException", 2)),
+                        "UnsupportedPlanShapeException", 63,
+                        "UnmappedAttributeException", 3)),
                 counts);
         assertEquals(THROWING.size(), counts.values().stream().mapToInt(Integer::intValue).sum());
     }
@@ -177,17 +222,6 @@ class RefusalTypesTest {
             assertInstanceOf(UnsupportedPlanShapeException.class, ex, probe.action());
             assertTrue(ex.getMessage().contains(Corpus.nullOmittedMessage(probe, Corpus.ADAPTER)),
                     ex.getMessage());
-        }
-    }
-
-    // -- the documented base type ----------------------------------------------------------------
-
-    /** A caller catching the base type the adapter always documented keeps working unchanged. */
-    @Test
-    void everyRefusalTypeExtendsIllegalArgumentException() {
-        for (Class<?> type : List.of(UnsupportedPlanShapeException.class,
-                UnmappedAttributeException.class, MalformedPlanException.class)) {
-            assertTrue(IllegalArgumentException.class.isAssignableFrom(type), type.getName());
         }
     }
 

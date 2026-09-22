@@ -32,14 +32,15 @@ module ConformanceCorpus
   # --- corpus coverage guards ---------------------------------------------------------------
 
   SEED_KEYS = %w[
-    id aBool aString aNumber aOptionalString tags subCategoryNames parentSeedId
+    id aBool aString aNumber aOptionalString aNumberList aBoolList tags subCategoryNames
+    parentSeedId
   ].freeze
   # Corpus prose that no harness reads: the one documented exclusion from SEED_KEYS.
   SEED_NOTE_KEY = "note"
   # The one array of nested objects that a seed carries. A key added inside an element
   # disappears from both sides of the differential as quietly as a key at the top level.
   TAG_KEYS = %w[id name].freeze
-  DERIVED_KEYS = %w[createdBy aDouble createdAt scope labels].freeze
+  DERIVED_KEYS = %w[createdBy aDouble createdAt scope labels updatedAt].freeze
 
   # The corpus principal is guarded the same way and for the same reason. It feeds the PLAN
   # under test AND the check() oracle, so an attribute dropped on the way in vanishes from both
@@ -48,7 +49,7 @@ module ConformanceCorpus
   # attributes, the same two-level shape SEED_KEYS and TAG_KEYS use for a row and its tags
   # (cerbos/query-plan-adapters#399).
   PRINCIPAL_KEYS = %w[id roles attr].freeze
-  PRINCIPAL_ATTR_KEYS = %w[allowedTags context fewTeams manyTeams].freeze
+  PRINCIPAL_ATTR_KEYS = %w[allowedTags context fewTeams manyTeams zero emptyTeams manyStructs nullableStructs missingStructs].freeze
 
   module_function
 
@@ -72,6 +73,21 @@ module ConformanceCorpus
     seed.fetch("tags").each_with_index do |tag, tag_index|
       assert_keys!("seeds.json seeds[#{index}].tags[#{tag_index}]", tag.keys, TAG_KEYS)
     end
+
+    # The two homogeneous scalar lists. Each element is stored in a typed column, so an element
+    # of another type would be coerced on the way into SQLite while check() still saw the
+    # original, and the two sides would then disagree about a value nobody wrote. A null
+    # element is a value in both lists and is stored as one.
+    {"aNumberList" => [Numeric], "aBoolList" => [TrueClass, FalseClass]}.each do |key, types|
+      list = seed.fetch(key)
+      raise "seeds.json seeds[#{index}].#{key} must be a list" unless list.is_a?(Array)
+
+      stray = list.reject { |element| element.nil? || types.any? { |type| element.is_a?(type) } }
+      next if stray.empty?
+
+      raise "seeds.json seeds[#{index}].#{key} carries #{stray.inspect}, which its typed " \
+            "element column cannot hold"
+    end
   end
 
   # PRINCIPAL holds the parsed JSON object and goes to the SDK without a change, so `keys`
@@ -83,6 +99,23 @@ module ConformanceCorpus
   # string, a string wrapped in a list — reaches the plan and the oracle at the same time, so
   # the differential agrees and the action proves nothing.
   PRINCIPAL.fetch("attr").each do |name, value|
+    if name == "zero"
+      raise "principal zero must be numeric" unless value.is_a?(Numeric)
+      next
+    end
+    if %w[manyStructs nullableStructs missingStructs].include?(name)
+      raise "principal #{name} must be a list" unless value.is_a?(Array)
+      value.each do |item|
+        raise "principal #{name} element must be an object" unless item.is_a?(Hash)
+        assert_keys!("principal #{name} element", item.keys, (name == "missingStructs") ? [] : ["name"])
+        if name == "manyStructs"
+          raise "principal #{name} name must be a string" unless item.fetch("name").is_a?(String)
+        elsif name == "nullableStructs"
+          raise "principal #{name} name must be null" unless item.fetch("name").nil?
+        end
+      end
+      next
+    end
     next if value.is_a?(String)
     next if value.is_a?(Array) && value.all? { |item| item.is_a?(String) }
 
@@ -250,6 +283,7 @@ module ConformanceCorpus
   def a_double(seed) = derived(seed).fetch("aDouble")
 
   def created_at(seed) = derived(seed).fetch("createdAt")
+  def updated_at(seed) = derived(seed).fetch("updatedAt")
 
   def scope(seed) = derived(seed).fetch("scope")
 

@@ -18,9 +18,9 @@ An adapter library that takes a [Cerbos](https://cerbos.dev) Query Plan ([PlanRe
 
 - One-to-one: `is`, `isNot`
 - One-to-many/Many-to-many: `some`, `none`, `every`
-- Collection operators: `exists`, `all`, `except` (`exists_one` requires counting matches,
-  which Prisma where-filters cannot express — it throws rather than silently degrading to
-  `exists`; `filter` only appears inside other expressions)
+- Collection macros: `exists` and `all`. `exists_one` requires counting matches,
+  which Prisma where-filters cannot express, so it throws. The two-list `except`
+  function is also rejected; `filter` is only supported inside other expressions.
 - Set operations: `hasIntersection`
 
 #### Arithmetic
@@ -70,11 +70,11 @@ throw — Prisma only supports references between fields of the same model.
 #### Known limitations (loud failures, never silently-wrong filters)
 
 - LIKE wildcards: Prisma emits `LIKE` without an `ESCAPE` clause, so `contains`/`startsWith`/
-  `endsWith` with a needle containing `%` or `_`, or with a column-valued needle, throws.
+  `endsWith` with a needle containing `%`, `_` or `\`, or with a column-valued needle, throws.
   (A constant *receiver* with a column needle — `"a-b".startsWith(R.attr.x)` — is translated
   exactly by enumerating candidate needles into an `in` filter.)
 - Hierarchy prefixes: `ancestorOf`, `descendentOf` and `overlaps` narrow a column with a
-  `startsWith`, so they throw when the constant hierarchy contains `%`, `_` or `[`. `[` is
+  `startsWith`, so they throw when the constant hierarchy contains `%`, `_`, `\` or `[`. `[` is
   rejected as well as the two LIKE wildcards because SQL Server opens a character class on
   `[` even when an `ESCAPE` clause is declared, so it cannot be matched literally at all.
 - Counting: `exists_one`, `size()` thresholds other than empty/non-empty, and string-length
@@ -193,21 +193,47 @@ undeclared side needs UNKNOWN — so the adapter throws rather than picking a di
 [ADR 0004](../docs/adr/0004-the-null-convention-is-a-property-of-the-attribute.md).
 
 
+Mapper `valueType` also accepts `"string"`, `"number"` and `"boolean"`. Declare the actual
+Prisma scalar type so the adapter can reject incompatible comparisons and string operations
+before handing a filter to the client. An undeclared type keeps the existing behavior; the
+adapter cannot infer your Prisma schema. Hierarchy segments preserve missing-value errors
+even when a constant prefix does not inspect them; `nullable: false` explicitly disables
+that guard for a column that cannot be NULL.
+
+The issue #414 changes are breaking for invalid shapes that previously returned a filter:
+non-scalar comparison/membership literals and bare comparisons between mapped DateTime
+columns now throw. Use `timestamp()` on both temporal operands to request instant comparison;
+bare CEL attributes compare RFC-3339 strings whose spelling the database discarded. Negated
+ternary comparisons and unsolvable string concatenation now retain CEL's error behavior.
+
 ### Conformance contract
 
-The adapter is differentially tested against Cerbos PDP 0.54.0 `checkResource` decisions using 22 hostile seed rows, both Prisma 6 and 7, and each of SQLite, PostgreSQL and MySQL. The Spring Data adapter defines the reference semantics for this compatibility snapshot.
+Conformance runs select the PDP engine mode with `ADAPTER_TEST_STRICT_EVALUATION=false`
+(the default) or `ADAPTER_TEST_STRICT_EVALUATION=true`; other values are rejected.
+For example, `ADAPTER_TEST_STRICT_EVALUATION=true npm run test:adversarial` runs the
+corpus with strict evaluation enabled for both planning and the `check()` oracle.
+CI runs both modes for each existing adversarial store and client-version combination.
+
+**Breaking compatibility change for Cerbos 0.55.** Ordered comparisons involving NaN
+now evaluate to false, so their negation can allow a row. The adapter follows that
+behavior; Cerbos 0.54 treated the unordered comparison as an error and denied the row
+even under negation. Use this adapter with Cerbos 0.55 when policies can produce
+NaN in a negated comparison. Missing attributes and null values retain their existing
+handling.
+
+The adapter is differentially tested against Cerbos PDP 0.55.0 `checkResource` decisions in both evaluation modes using 27 hostile seed rows, both Prisma 6 and 7, and each of SQLite, PostgreSQL and MySQL. The Spring Data adapter defines the reference semantics for this compatibility snapshot.
 
 | Classification | Coverage |
 | --- | --- |
-| Oracle-tested | 139 reference actions |
-| Fail-closed | 53 reference actions plus the 11 reference-unsupported shapes (64 actions total) |
+| Oracle-tested | 172 reference actions |
+| Fail-closed | 116 reference actions plus the 11 reference-unsupported shapes (127 actions total) |
 | Representation-dependent | `null-eq-missing` — rejected under `nullAttributeRepresentation: "omitted"`; translated as `IS NULL` under the default, which over-grants if the caller omits attributes for NULL columns |
 | Attribute NULL convention | The equality family (`eq`, `ne`, `in`) over an attribute the caller sends as an explicit null renders definitely, so a NULL row is included where CEL's null *value* says it should be. Declare it per attribute — `nullAttributeRepresentation: "explicit"` on the mapper entry — or the historical rendering applies and `!=` against a constant under-grants those rows (cerbos/query-plan-adapters#308) |
 | Known planner divergence | `has()` on a missing attribute is folded by the Cerbos planner to `ALWAYS_ALLOWED`, while `checkResource` denies the missing-attribute rows. Until the planner is fixed, use `R.attr.x != null` for database-backed attributes instead of `has(R.attr.x)` |
 
 **Behaviour change.** A hierarchy with an **empty** delimiter — `hierarchy(R.attr.scope, "")` — now throws. Cerbos splits the path on an empty delimiter into one segment per character, so `descendentOf` is a strict string-prefix test; the adapter lowered it as `startsWith(prefix + delimiter)`, which with an empty delimiter also matched the path **itself** (never its own descendant): the corpus's `hier-empty-delim` returned `a2` (`dept.eng`) against the constant `dept.eng`, a row the PDP denies. A shape that returned a filter now raises, which is a consumer-visible break, but the filter over-granted.
 
-The fail-closed set consists of literal `LIKE` cases Prisma cannot escape safely, cross-model field references, arbitrary relation counts and string lengths, `exists_one`, unsolved column arithmetic, sub-millisecond `now()` thresholds, the reference probes for regex, ordered indexing, and `timestamp()` over a string field, `mod`, a positional read of a scalar list, and list equality over a `map()` projection. Supported timestamp plans require a mapper entry with `valueType: "dateTime"` and a strict, millisecond-exact RFC 3339 literal in CEL's supported instant range. These shapes throw instead of producing a broader authorization filter. Every fail-closed shape's error message is pinned in the shared corpus (`conformance/actions.json`) and asserted by this adapter's conformance run, so a classification proves the throw names its declared mechanism rather than merely that something threw.
+The fail-closed set consists of literal `LIKE` cases Prisma cannot escape safely, cross-model field references, arbitrary relation counts and string lengths, `exists_one`, unsolved column arithmetic, sub-millisecond `now()` thresholds, the reference probes for regex, ordered indexing, and `timestamp()` over a string field, `mod`, a positional read of a scalar list (of strings, numbers or booleans alike), and list equality over a `map()` projection. Supported timestamp plans require a mapper entry with `valueType: "dateTime"` and a strict, millisecond-exact RFC 3339 literal in CEL's supported instant range. These shapes throw instead of producing a broader authorization filter. Every fail-closed shape's error message is pinned in the shared corpus (`conformance/actions.json`) and asserted by this adapter's conformance run, so a classification proves the throw names its declared mechanism rather than merely that something threw.
 
 The `where` input each of these actions produces is pinned separately, in the translator unit test (`npm test`) — every corpus action, classified there exactly once as an emitted filter, an unconditional plan kind, or a throw. That is what makes a change to the emitted SQL show up as a diff even when it selects the same rows from the corpus seeds.
 
@@ -215,7 +241,7 @@ The `where` input each of these actions produces is pinned separately, in the tr
 
 The classification above holds where the corpus is **executed**, not where the emitted filter merely looks plausible. Until [#320](https://github.com/cerbos/query-plan-adapters/issues/320) it was executed on SQLite only, and until [#340](https://github.com/cerbos/query-plan-adapters/issues/340) MySQL was unexecuted too. The Prisma 6/7 matrix is an *engine* matrix, not a provider one — it says nothing about how a provider coerces a value, reads a `LIKE` pattern, or collates a string.
 
-The store and the Prisma major are independent dimensions, so there are six runs and CI does all six:
+The store and the Prisma major are independent dimensions. CI runs all six combinations below in both evaluation modes:
 
 ```bash
 npm run test:adversarial:v7            # SQLite,     Prisma 7
@@ -231,6 +257,12 @@ The MySQL legs run under `utf8mb4_0900_as_cs`, applied to the tables after `pris
 SQL Server and CockroachDB are still **not** executed. Where a fail-closed reason names one of them, it is reasoned from that provider's documented `LIKE` and escaping behaviour rather than observed.
 
 > **Breaking change in this release.** `endsWith`/`contains`/`startsWith` with a needle containing a **backslash**, and hierarchy prefixes containing one, now throw instead of returning a filter. A backslash is the default `LIKE` escape character on PostgreSQL and MySQL and has no meaning at all on SQLite, so one needle meant two different things: `contains("a\\b")` matched `"ab"` on PostgreSQL — a row the PDP denies — and `endsWith("\\")` failed the query outright with `SQLSTATE 22025`. There is no needle spelling that is correct on every provider without an `ESCAPE` clause Prisma does not emit, so the shape is refused. If you match on backslashes, compare the whole value with `==` or move the predicate out of the policy.
+
+Projection relations now resolve the scalar lambda variable to the mapped column before
+building its predicate. Negated equality in `tagNames.exists(name, !(name == "public"))`
+includes null list elements, as CEL does; previously it produced an invalid filter or dropped
+those elements. Function mappers may call `queryPlanToPrisma` recursively without overwriting
+the outer call's model, null convention, or collection scope.
 
 ### Mapping hazards
 
@@ -280,7 +312,7 @@ const result = queryPlanToPrisma({
 
 ## System Requirements
 
-- Node.js >= 22.0.
+- Node.js >= 22.0.0
 - Prisma CLI & Client >= 6.0 (v7 supported)
 - A database supported by Prisma (SQLite/PostgreSQL/MySQL/etc.) so the Prisma client can communicate with stored data
 
@@ -635,7 +667,7 @@ This is the **translator unit test**: for every action in the shared conformance
 
 Every wire fixture must be classified there exactly once, so adding a corpus action fails this suite until someone records the filter it produces. See [ADR 0006](../docs/adr/0006-translator-unit-tests-take-their-plans-from-wire-fixtures.md).
 
-Whether those filters return the rows the PDP allows is a separate question, answered by the adversarial suite — see [Conformance contract](#conformance-contract) above, which lists the six runs and what each one covers. That suite does need a Cerbos sidecar, Docker for the PostgreSQL and MySQL legs, and it resets `prisma/dev-adversarial.db` with `prisma db push --force-reset`, so run it only against disposable development databases.
+Whether those filters return the rows the PDP allows is a separate question, answered by the adversarial suite — see [Conformance contract](#conformance-contract) above, which lists the six store/client combinations run in both evaluation modes. That suite does need a Cerbos sidecar, Docker for the PostgreSQL and MySQL legs, and it resets `prisma/dev-adversarial.db` with `prisma db push --force-reset`, so run it only against disposable development databases.
 
 ## Types
 
@@ -680,7 +712,7 @@ The mapper configuration is also fully typed:
 ```ts
 type MapperConfig = {
   field?: string;
-  valueType?: "dateTime";
+  valueType?: "dateTime" | "string" | "number" | "boolean";
   nullable?: boolean;
   relation?: {
     name: string;

@@ -22,46 +22,15 @@ import {
 } from "./corpus";
 
 /**
- * Translator unit test: for every action in the shared `../conformance/` corpus, the filter this
- * adapter emits. Offline — no Cerbos sidecar, no MongoDB.
- *
- * The per-adapter suite this replaced braided four assertions into every test. Three of them are
- * somebody else's job now, and this file makes only the fourth:
- *
- * | assertion | who owns it |
- * | --- | --- |
- * | the plan the PDP produces for a policy | `conformance/wire-fixtures/`, replanned and diffed by the `Conformance Corpus` workflow |
- * | which shapes this adapter must refuse, and with what message | `conformance/actions.json` — read below, not restated |
- * | the documents a filter returns | `adversarial.test.ts`, against a real MongoDB with `check()` as the oracle |
- * | **the filter this adapter emits for a plan** | **here** |
- *
- * **The plans are read, not written.** A hand-built plan is a *belief* about what the planner
- * emits, and this repository keeps golden fixtures because that belief has been wrong before: a
- * planner change used to fail fixture regeneration and silently leave every adapter's hand-written
- * plans describing a wire contract that no longer existed. Sourcing from fixtures inverts that —
- * the drift check now protects the plans this file asserts against. See
- * [ADR 0006](../../docs/adr/0006-translator-unit-tests-take-their-plans-from-wire-fixtures.md).
- *
- * **What a pinned filter buys over the harness.** The harness proves the filter returns the right
- * documents *against the 22 it seeds*. Two different filters can agree on all of them and disagree
- * on the document a consumer has, so a rewrite that quietly changes the emitted query passes there
- * and shows up here as a diff a reviewer reads. It is also the only place a
- * `nullAttributeRepresentation` boundary, a timestamp literal, or a caller-supplied `valueParser`
- * can be pinned at all.
- *
- * **Adding a corpus action fails this file.** Every wire fixture must be classified here exactly
- * once — expected filter, expected plan kind, or expected throw — and the guard at the bottom is
- * what makes a new action land as a failure rather than as silence.
+ * Offline contract for planner wire fixtures: emitted filters, plan kinds, pinned refusals,
+ * and caller options that the shared corpus cannot vary. The adversarial suite separately
+ * executes filters against a store and compares them with the PDP oracle.
+ * Every fixture must appear exactly once in the completeness guard below (ADR 0006).
  */
 
 const actionsFile = parseActionsFile(readJson("actions.json"));
 
-/**
- * The shapes `actions.json` says this adapter must refuse, each with the message it must refuse
- * them with. Identical to the classification `adversarial.test.ts` asserts against a live PDP;
- * asserting it here as well is what lets the completeness guard below be total, and it costs a
- * millisecond rather than a container.
- */
+// Refusal messages come from the same classification ledger as the live harness.
 const { throwingActions: THROWING_ACTIONS } = classifyActionsForAdapter(
   actionsFile,
   "mongoose",
@@ -84,7 +53,7 @@ function translate(
 }
 
 /**
- * The plan kind for the two corpus actions the planner resolves without a condition.
+ * Plan kinds for actions the planner resolves without a condition.
  *
  * `p-has` is `knownDivergences` for every adapter — the planner folds `has(unknown attr)` to
  * ALWAYS_ALLOWED, so the harness cannot compare it against the oracle. Translation is still
@@ -96,6 +65,11 @@ const EXPECTED_KINDS: Record<
 > = {
   "in-empty": PlanKind.ALWAYS_DENIED,
   "p-has": PlanKind.ALWAYS_ALLOWED,
+  "pv-empty-all": PlanKind.ALWAYS_ALLOWED,
+  "pv-empty-exists": PlanKind.ALWAYS_DENIED,
+  "pv-empty-not-all": PlanKind.ALWAYS_DENIED,
+  "pv-empty-not-exists": PlanKind.ALWAYS_ALLOWED,
+  "pv-structs-missing": PlanKind.ALWAYS_DENIED,
 };
 
 /**
@@ -270,6 +244,380 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
       ],
     },
   },
+  "cast-not-string-null": {
+    $and: [
+      {
+        $expr: {
+          $ne: [
+            {
+              $cond: {
+                if: {
+                  $in: [
+                    {
+                      $type: "$aOptionalString",
+                    },
+                    ["string", "bool", "int", "long", "double", "decimal"],
+                  ],
+                },
+                then: {
+                  $convert: {
+                    input: "$aOptionalString",
+                    to: "string",
+                    onError: null,
+                    onNull: null,
+                  },
+                },
+                else: null,
+              },
+            },
+            null,
+          ],
+        },
+      },
+      {
+        $nor: [
+          {
+            $and: [
+              {
+                $expr: {
+                  $ne: [
+                    {
+                      $cond: {
+                        if: {
+                          $in: [
+                            {
+                              $type: "$aOptionalString",
+                            },
+                            [
+                              "string",
+                              "bool",
+                              "int",
+                              "long",
+                              "double",
+                              "decimal",
+                            ],
+                          ],
+                        },
+                        then: {
+                          $convert: {
+                            input: "$aOptionalString",
+                            to: "string",
+                            onError: null,
+                            onNull: null,
+                          },
+                        },
+                        else: null,
+                      },
+                    },
+                    null,
+                  ],
+                },
+              },
+              {
+                $expr: {
+                  $eq: [
+                    {
+                      $cond: {
+                        if: {
+                          $in: [
+                            {
+                              $type: "$aOptionalString",
+                            },
+                            [
+                              "string",
+                              "bool",
+                              "int",
+                              "long",
+                              "double",
+                              "decimal",
+                            ],
+                          ],
+                        },
+                        then: {
+                          $convert: {
+                            input: "$aOptionalString",
+                            to: "string",
+                            onError: null,
+                            onNull: null,
+                          },
+                        },
+                        else: null,
+                      },
+                    },
+                    "set",
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  "cast-not-timestamp": {
+    $and: [
+      {
+        $expr: {
+          $ne: [
+            {
+              $let: {
+                vars: {
+                  converted: {
+                    $cond: {
+                      if: {
+                        $eq: [
+                          {
+                            $type: "$createdBy",
+                          },
+                          "date",
+                        ],
+                      },
+                      then: "$createdBy",
+                      else: {
+                        $cond: {
+                          if: {
+                            $cond: {
+                              if: {
+                                $eq: [
+                                  {
+                                    $type: "$createdBy",
+                                  },
+                                  "string",
+                                ],
+                              },
+                              then: {
+                                $regexMatch: {
+                                  input: "$createdBy",
+                                  regex:
+                                    "^((?!0000)\\d{4})-(\\d{2})-(\\d{2})[Tt](?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d{1,3})?(?:[Zz]|[+-](?:[01]\\d|2[0-3]):[0-5]\\d)\\z",
+                                },
+                              },
+                              else: false,
+                            },
+                          },
+                          then: {
+                            $convert: {
+                              input: "$createdBy",
+                              to: "date",
+                              onError: null,
+                              onNull: null,
+                            },
+                          },
+                          else: null,
+                        },
+                      },
+                    },
+                  },
+                },
+                in: {
+                  $cond: {
+                    if: {
+                      $and: [
+                        {
+                          $ne: ["$$converted", null],
+                        },
+                        {
+                          $gte: [
+                            "$$converted",
+                            new Date("0001-01-01T00:00:00.000Z"),
+                          ],
+                        },
+                        {
+                          $lte: [
+                            "$$converted",
+                            new Date("9999-12-31T23:59:59.999Z"),
+                          ],
+                        },
+                      ],
+                    },
+                    then: "$$converted",
+                    else: null,
+                  },
+                },
+              },
+            },
+            null,
+          ],
+        },
+      },
+      {
+        $nor: [
+          {
+            $and: [
+              {
+                $expr: {
+                  $ne: [
+                    {
+                      $let: {
+                        vars: {
+                          converted: {
+                            $cond: {
+                              if: {
+                                $eq: [
+                                  {
+                                    $type: "$createdBy",
+                                  },
+                                  "date",
+                                ],
+                              },
+                              then: "$createdBy",
+                              else: {
+                                $cond: {
+                                  if: {
+                                    $cond: {
+                                      if: {
+                                        $eq: [
+                                          {
+                                            $type: "$createdBy",
+                                          },
+                                          "string",
+                                        ],
+                                      },
+                                      then: {
+                                        $regexMatch: {
+                                          input: "$createdBy",
+                                          regex:
+                                            "^((?!0000)\\d{4})-(\\d{2})-(\\d{2})[Tt](?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d{1,3})?(?:[Zz]|[+-](?:[01]\\d|2[0-3]):[0-5]\\d)\\z",
+                                        },
+                                      },
+                                      else: false,
+                                    },
+                                  },
+                                  then: {
+                                    $convert: {
+                                      input: "$createdBy",
+                                      to: "date",
+                                      onError: null,
+                                      onNull: null,
+                                    },
+                                  },
+                                  else: null,
+                                },
+                              },
+                            },
+                          },
+                        },
+                        in: {
+                          $cond: {
+                            if: {
+                              $and: [
+                                {
+                                  $ne: ["$$converted", null],
+                                },
+                                {
+                                  $gte: [
+                                    "$$converted",
+                                    new Date("0001-01-01T00:00:00.000Z"),
+                                  ],
+                                },
+                                {
+                                  $lte: [
+                                    "$$converted",
+                                    new Date("9999-12-31T23:59:59.999Z"),
+                                  ],
+                                },
+                              ],
+                            },
+                            then: "$$converted",
+                            else: null,
+                          },
+                        },
+                      },
+                    },
+                    null,
+                  ],
+                },
+              },
+              {
+                $expr: {
+                  $lt: [
+                    {
+                      $let: {
+                        vars: {
+                          converted: {
+                            $cond: {
+                              if: {
+                                $eq: [
+                                  {
+                                    $type: "$createdBy",
+                                  },
+                                  "date",
+                                ],
+                              },
+                              then: "$createdBy",
+                              else: {
+                                $cond: {
+                                  if: {
+                                    $cond: {
+                                      if: {
+                                        $eq: [
+                                          {
+                                            $type: "$createdBy",
+                                          },
+                                          "string",
+                                        ],
+                                      },
+                                      then: {
+                                        $regexMatch: {
+                                          input: "$createdBy",
+                                          regex:
+                                            "^((?!0000)\\d{4})-(\\d{2})-(\\d{2})[Tt](?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d{1,3})?(?:[Zz]|[+-](?:[01]\\d|2[0-3]):[0-5]\\d)\\z",
+                                        },
+                                      },
+                                      else: false,
+                                    },
+                                  },
+                                  then: {
+                                    $convert: {
+                                      input: "$createdBy",
+                                      to: "date",
+                                      onError: null,
+                                      onNull: null,
+                                    },
+                                  },
+                                  else: null,
+                                },
+                              },
+                            },
+                          },
+                        },
+                        in: {
+                          $cond: {
+                            if: {
+                              $and: [
+                                {
+                                  $ne: ["$$converted", null],
+                                },
+                                {
+                                  $gte: [
+                                    "$$converted",
+                                    new Date("0001-01-01T00:00:00.000Z"),
+                                  ],
+                                },
+                                {
+                                  $lte: [
+                                    "$$converted",
+                                    new Date("9999-12-31T23:59:59.999Z"),
+                                  ],
+                                },
+                              ],
+                            },
+                            then: "$$converted",
+                            else: null,
+                          },
+                        },
+                      },
+                    },
+                    new Date("2025-01-01T00:00:00.000Z"),
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
   "cast-string-bool": {
     $and: [
       {
@@ -403,35 +751,183 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
   // column, so it becomes `$indexOfCP` with the constant as the haystack. The SQL adapters have to
   // enumerate every substring of the constant here; an aggregation expression can say it directly.
   "cr-contains": {
-    $expr: {
-      $gte: [
-        {
-          $indexOfCP: ["s100Xdone-tail\\one-end", "$aString"],
-        },
-        0,
-      ],
-    },
-  },
-  "cr-endswith": {
-    $expr: {
-      $cond: {
-        if: {
-          $gte: [
+    $and: [
+      {
+        $expr: {
+          $ne: [
             {
-              $strLenCP: "prefix-xaXby",
+              $cond: [
+                {
+                  $and: [
+                    {
+                      $eq: [
+                        {
+                          $type: "s100Xdone-tail\\one-end",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $eq: [
+                        {
+                          $type: "$aString",
+                        },
+                        "string",
+                      ],
+                    },
+                  ],
+                },
+                {
+                  $gte: [
+                    {
+                      $indexOfCP: ["s100Xdone-tail\\one-end", "$aString"],
+                    },
+                    0,
+                  ],
+                },
+                null,
+              ],
             },
-            {
-              $strLenCP: "$aString",
-            },
+            null,
           ],
         },
-        then: {
-          $eq: [
+      },
+      {
+        $expr: {
+          $cond: [
             {
-              $substrCP: [
-                "prefix-xaXby",
+              $and: [
                 {
-                  $subtract: [
+                  $eq: [
+                    {
+                      $type: "s100Xdone-tail\\one-end",
+                    },
+                    "string",
+                  ],
+                },
+                {
+                  $eq: [
+                    {
+                      $type: "$aString",
+                    },
+                    "string",
+                  ],
+                },
+              ],
+            },
+            {
+              $gte: [
+                {
+                  $indexOfCP: ["s100Xdone-tail\\one-end", "$aString"],
+                },
+                0,
+              ],
+            },
+            null,
+          ],
+        },
+      },
+    ],
+  },
+  "cr-endswith": {
+    $and: [
+      {
+        $expr: {
+          $ne: [
+            {
+              $cond: [
+                {
+                  $and: [
+                    {
+                      $eq: [
+                        {
+                          $type: "prefix-xaXby",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $eq: [
+                        {
+                          $type: "$aString",
+                        },
+                        "string",
+                      ],
+                    },
+                  ],
+                },
+                {
+                  $cond: {
+                    if: {
+                      $gte: [
+                        {
+                          $strLenCP: "prefix-xaXby",
+                        },
+                        {
+                          $strLenCP: "$aString",
+                        },
+                      ],
+                    },
+                    then: {
+                      $eq: [
+                        {
+                          $substrCP: [
+                            "prefix-xaXby",
+                            {
+                              $subtract: [
+                                {
+                                  $strLenCP: "prefix-xaXby",
+                                },
+                                {
+                                  $strLenCP: "$aString",
+                                },
+                              ],
+                            },
+                            {
+                              $strLenCP: "$aString",
+                            },
+                          ],
+                        },
+                        "$aString",
+                      ],
+                    },
+                    else: false,
+                  },
+                },
+                null,
+              ],
+            },
+            null,
+          ],
+        },
+      },
+      {
+        $expr: {
+          $cond: [
+            {
+              $and: [
+                {
+                  $eq: [
+                    {
+                      $type: "prefix-xaXby",
+                    },
+                    "string",
+                  ],
+                },
+                {
+                  $eq: [
+                    {
+                      $type: "$aString",
+                    },
+                    "string",
+                  ],
+                },
+              ],
+            },
+            {
+              $cond: {
+                if: {
+                  $gte: [
                     {
                       $strLenCP: "prefix-xaXby",
                     },
@@ -440,57 +936,265 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
                     },
                   ],
                 },
+                then: {
+                  $eq: [
+                    {
+                      $substrCP: [
+                        "prefix-xaXby",
+                        {
+                          $subtract: [
+                            {
+                              $strLenCP: "prefix-xaXby",
+                            },
+                            {
+                              $strLenCP: "$aString",
+                            },
+                          ],
+                        },
+                        {
+                          $strLenCP: "$aString",
+                        },
+                      ],
+                    },
+                    "$aString",
+                  ],
+                },
+                else: false,
+              },
+            },
+            null,
+          ],
+        },
+      },
+    ],
+  },
+  "cr-size-frac-ge": {
+    $and: [
+      {
+        $expr: {
+          $ne: [
+            {
+              $cond: [
                 {
-                  $strLenCP: "$aString",
+                  $isArray: "$tags",
+                },
+                {
+                  $size: "$tags",
+                },
+                {
+                  $cond: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$tags",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $strLenCP: "$tags",
+                    },
+                    null,
+                  ],
                 },
               ],
             },
-            "$aString",
+            null,
           ],
         },
-        else: false,
       },
-    },
-  },
-  "cr-size-frac-ge": {
-    $expr: {
-      $gte: [
-        {
-          $cond: [
+      {
+        $expr: {
+          $gte: [
             {
-              $isArray: "$tags",
+              $cond: [
+                {
+                  $isArray: "$tags",
+                },
+                {
+                  $size: "$tags",
+                },
+                {
+                  $cond: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$tags",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $strLenCP: "$tags",
+                    },
+                    null,
+                  ],
+                },
+              ],
             },
-            {
-              $size: "$tags",
-            },
-            {
-              $strLenCP: "$tags",
-            },
+            1.5,
           ],
         },
-        1.5,
-      ],
-    },
+      },
+    ],
   },
   "cr-startswith": {
-    $expr: {
-      $eq: [
-        {
-          $indexOfCP: ["xaXby-tail", "$aString"],
+    $and: [
+      {
+        $expr: {
+          $ne: [
+            {
+              $cond: [
+                {
+                  $and: [
+                    {
+                      $eq: [
+                        {
+                          $type: "xaXby-tail",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $eq: [
+                        {
+                          $type: "$aString",
+                        },
+                        "string",
+                      ],
+                    },
+                  ],
+                },
+                {
+                  $eq: [
+                    {
+                      $indexOfCP: ["xaXby-tail", "$aString"],
+                    },
+                    0,
+                  ],
+                },
+                null,
+              ],
+            },
+            null,
+          ],
         },
-        0,
-      ],
-    },
+      },
+      {
+        $expr: {
+          $cond: [
+            {
+              $and: [
+                {
+                  $eq: [
+                    {
+                      $type: "xaXby-tail",
+                    },
+                    "string",
+                  ],
+                },
+                {
+                  $eq: [
+                    {
+                      $type: "$aString",
+                    },
+                    "string",
+                  ],
+                },
+              ],
+            },
+            {
+              $eq: [
+                {
+                  $indexOfCP: ["xaXby-tail", "$aString"],
+                },
+                0,
+              ],
+            },
+            null,
+          ],
+        },
+      },
+    ],
   },
   "cr-startswith-concat": {
-    $expr: {
-      $eq: [
-        {
-          $indexOfCP: ["xaXby-tail", "$aString"],
+    $and: [
+      {
+        $expr: {
+          $ne: [
+            {
+              $cond: [
+                {
+                  $and: [
+                    {
+                      $eq: [
+                        {
+                          $type: "xaXby-tail",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $eq: [
+                        {
+                          $type: "$aString",
+                        },
+                        "string",
+                      ],
+                    },
+                  ],
+                },
+                {
+                  $eq: [
+                    {
+                      $indexOfCP: ["xaXby-tail", "$aString"],
+                    },
+                    0,
+                  ],
+                },
+                null,
+              ],
+            },
+            null,
+          ],
         },
-        0,
-      ],
-    },
+      },
+      {
+        $expr: {
+          $cond: [
+            {
+              $and: [
+                {
+                  $eq: [
+                    {
+                      $type: "xaXby-tail",
+                    },
+                    "string",
+                  ],
+                },
+                {
+                  $eq: [
+                    {
+                      $type: "$aString",
+                    },
+                    "string",
+                  ],
+                },
+              ],
+            },
+            {
+              $eq: [
+                {
+                  $indexOfCP: ["xaXby-tail", "$aString"],
+                },
+                0,
+              ],
+            },
+            null,
+          ],
+        },
+      },
+    ],
   },
   // The regex form of the same question. The needle is escaped, not interpreted, and not folded.
   "cs-contains": {
@@ -518,10 +1222,16 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
   // A double literal beyond int64 on a double field: the wire carries -1e19 as a plain number
   // and it is bound as one, with no narrowing through a 64-bit integer on the way.
   "double-huge-gt": {
-    $and: [{ aDouble: { $ne: null } }, { aDouble: { $gt: -10000000000000000000 } }],
+    $and: [
+      { aDouble: { $ne: null } },
+      { aDouble: { $gt: -10000000000000000000 } },
+    ],
   },
   "double-huge-lt": {
-    $and: [{ aDouble: { $ne: null } }, { aDouble: { $lt: -10000000000000000000 } }],
+    $and: [
+      { aDouble: { $ne: null } },
+      { aDouble: { $lt: -10000000000000000000 } },
+    ],
   },
   "double-negation": {
     $nor: [
@@ -567,49 +1277,122 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
   "f2f-contains": {
     $and: [
       {
-        aOptionalString: {
-          $ne: null,
+        $expr: {
+          $ne: [
+            {
+              $cond: [
+                {
+                  $and: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$aString",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $eq: [
+                        {
+                          $type: "$aOptionalString",
+                        },
+                        "string",
+                      ],
+                    },
+                  ],
+                },
+                {
+                  $gte: [
+                    {
+                      $indexOfCP: ["$aString", "$aOptionalString"],
+                    },
+                    0,
+                  ],
+                },
+                null,
+              ],
+            },
+            null,
+          ],
         },
       },
       {
-        $expr: {
-          $gte: [
-            {
-              $indexOfCP: ["$aString", "$aOptionalString"],
+        $and: [
+          {
+            aOptionalString: {
+              $ne: null,
             },
-            0,
-          ],
-        },
+          },
+          {
+            $expr: {
+              $cond: [
+                {
+                  $and: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$aString",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $eq: [
+                        {
+                          $type: "$aOptionalString",
+                        },
+                        "string",
+                      ],
+                    },
+                  ],
+                },
+                {
+                  $gte: [
+                    {
+                      $indexOfCP: ["$aString", "$aOptionalString"],
+                    },
+                    0,
+                  ],
+                },
+                null,
+              ],
+            },
+          },
+        ],
       },
     ],
   },
   "f2f-endswith": {
     $and: [
       {
-        aOptionalString: {
-          $ne: null,
-        },
-      },
-      {
         $expr: {
-          $cond: {
-            if: {
-              $gte: [
+          $ne: [
+            {
+              $cond: [
                 {
-                  $strLenCP: "$aString",
-                },
-                {
-                  $strLenCP: "$aOptionalString",
-                },
-              ],
-            },
-            then: {
-              $eq: [
-                {
-                  $substrCP: [
-                    "$aString",
+                  $and: [
                     {
-                      $subtract: [
+                      $eq: [
+                        {
+                          $type: "$aString",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $eq: [
+                        {
+                          $type: "$aOptionalString",
+                        },
+                        "string",
+                      ],
+                    },
+                  ],
+                },
+                {
+                  $cond: {
+                    if: {
+                      $gte: [
                         {
                           $strLenCP: "$aString",
                         },
@@ -618,36 +1401,200 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
                         },
                       ],
                     },
+                    then: {
+                      $eq: [
+                        {
+                          $substrCP: [
+                            "$aString",
+                            {
+                              $subtract: [
+                                {
+                                  $strLenCP: "$aString",
+                                },
+                                {
+                                  $strLenCP: "$aOptionalString",
+                                },
+                              ],
+                            },
+                            {
+                              $strLenCP: "$aOptionalString",
+                            },
+                          ],
+                        },
+                        "$aOptionalString",
+                      ],
+                    },
+                    else: false,
+                  },
+                },
+                null,
+              ],
+            },
+            null,
+          ],
+        },
+      },
+      {
+        $and: [
+          {
+            aOptionalString: {
+              $ne: null,
+            },
+          },
+          {
+            $expr: {
+              $cond: [
+                {
+                  $and: [
                     {
-                      $strLenCP: "$aOptionalString",
+                      $eq: [
+                        {
+                          $type: "$aString",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $eq: [
+                        {
+                          $type: "$aOptionalString",
+                        },
+                        "string",
+                      ],
                     },
                   ],
                 },
-                "$aOptionalString",
+                {
+                  $cond: {
+                    if: {
+                      $gte: [
+                        {
+                          $strLenCP: "$aString",
+                        },
+                        {
+                          $strLenCP: "$aOptionalString",
+                        },
+                      ],
+                    },
+                    then: {
+                      $eq: [
+                        {
+                          $substrCP: [
+                            "$aString",
+                            {
+                              $subtract: [
+                                {
+                                  $strLenCP: "$aString",
+                                },
+                                {
+                                  $strLenCP: "$aOptionalString",
+                                },
+                              ],
+                            },
+                            {
+                              $strLenCP: "$aOptionalString",
+                            },
+                          ],
+                        },
+                        "$aOptionalString",
+                      ],
+                    },
+                    else: false,
+                  },
+                },
+                null,
               ],
             },
-            else: false,
           },
-        },
+        ],
       },
     ],
   },
   "f2f-startswith": {
     $and: [
       {
-        aOptionalString: {
-          $ne: null,
+        $expr: {
+          $ne: [
+            {
+              $cond: [
+                {
+                  $and: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$aString",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $eq: [
+                        {
+                          $type: "$aOptionalString",
+                        },
+                        "string",
+                      ],
+                    },
+                  ],
+                },
+                {
+                  $eq: [
+                    {
+                      $indexOfCP: ["$aString", "$aOptionalString"],
+                    },
+                    0,
+                  ],
+                },
+                null,
+              ],
+            },
+            null,
+          ],
         },
       },
       {
-        $expr: {
-          $eq: [
-            {
-              $indexOfCP: ["$aString", "$aOptionalString"],
+        $and: [
+          {
+            aOptionalString: {
+              $ne: null,
             },
-            0,
-          ],
-        },
+          },
+          {
+            $expr: {
+              $cond: [
+                {
+                  $and: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$aString",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $eq: [
+                        {
+                          $type: "$aOptionalString",
+                        },
+                        "string",
+                      ],
+                    },
+                  ],
+                },
+                {
+                  $eq: [
+                    {
+                      $indexOfCP: ["$aString", "$aOptionalString"],
+                    },
+                    0,
+                  ],
+                },
+                null,
+              ],
+            },
+          },
+        ],
       },
     ],
   },
@@ -668,6 +1615,114 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
   "gt-bare": {
     aNumber: {
       $gt: 1,
+    },
+  },
+  "hasint-map-null": {
+    $and: [
+      {
+        tags: {
+          $not: {
+            $elemMatch: {
+              name: {
+                $eq: null,
+              },
+            },
+          },
+        },
+      },
+      {
+        tags: {
+          $elemMatch: {
+            $and: [
+              {
+                name: {
+                  $exists: true,
+                },
+              },
+              {
+                name: {
+                  $in: ["public", null],
+                },
+              },
+            ],
+          },
+        },
+      },
+    ],
+  },
+  "hasint-map-null-vf": {
+    $and: [
+      {
+        tags: {
+          $not: {
+            $elemMatch: {
+              name: {
+                $eq: null,
+              },
+            },
+          },
+        },
+      },
+      {
+        tags: {
+          $elemMatch: {
+            $and: [
+              {
+                name: {
+                  $exists: true,
+                },
+              },
+              {
+                name: {
+                  $in: ["public", null],
+                },
+              },
+            ],
+          },
+        },
+      },
+    ],
+  },
+  "hasint-map-vf": {
+    $and: [
+      {
+        tags: {
+          $not: {
+            $elemMatch: {
+              name: {
+                $eq: null,
+              },
+            },
+          },
+        },
+      },
+      {
+        tags: {
+          $elemMatch: {
+            name: {
+              $in: ["public", "other"],
+            },
+          },
+        },
+      },
+    ],
+  },
+  "hasint-null-vf": {
+    tags: {
+      $elemMatch: {
+        $and: [
+          {
+            name: {
+              $exists: true,
+            },
+          },
+          {
+            name: {
+              $in: ["public", null],
+            },
+          },
+        ],
+      },
     },
   },
   "hier-ancestor-cf": {
@@ -1010,15 +2065,346 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
       },
     ],
   },
+  "in-numbers": {
+    aNumber: {
+      $in: [2, 3, 5],
+    },
+  },
   "in-single": {
     aString: {
       $eq: "one",
     },
   },
+  // Number and boolean list elements, read through the same guarded `$arrayElemAt` as
+  // `index-scalar-list`. `$eq` in an aggregation expression compares BSON type before value, so
+  // the cross-type probes' `true` and `1` never meet, and a null element compares as a null value
+  // (a4, a6): false, and true under the `$nor`. The literal reaches the server uncast — Mongoose's
+  // `$expr` caster casts against a path, and `$arrayElemAt`'s operand is an array, not a path —
+  // which the adversarial suite proves against a typed `[Boolean]` / `[Number]` schema.
+  "index-bool-list": {
+    $and: [
+      {
+        $expr: {
+          $cond: {
+            if: {
+              $isArray: "$aBoolList",
+            },
+            then: {
+              $gt: [
+                {
+                  $size: "$aBoolList",
+                },
+                0,
+              ],
+            },
+            else: false,
+          },
+        },
+      },
+      {
+        $expr: {
+          $eq: [
+            {
+              $arrayElemAt: ["$aBoolList", 0],
+            },
+            true,
+          ],
+        },
+      },
+    ],
+  },
+  "index-bool-list-not-eq": {
+    $and: [
+      {
+        $expr: {
+          $cond: {
+            if: {
+              $isArray: "$aBoolList",
+            },
+            then: {
+              $gt: [
+                {
+                  $size: "$aBoolList",
+                },
+                0,
+              ],
+            },
+            else: false,
+          },
+        },
+      },
+      {
+        $nor: [
+          {
+            $and: [
+              {
+                $expr: {
+                  $cond: {
+                    if: {
+                      $isArray: "$aBoolList",
+                    },
+                    then: {
+                      $gt: [
+                        {
+                          $size: "$aBoolList",
+                        },
+                        0,
+                      ],
+                    },
+                    else: false,
+                  },
+                },
+              },
+              {
+                $expr: {
+                  $eq: [
+                    {
+                      $arrayElemAt: ["$aBoolList", 0],
+                    },
+                    true,
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  "index-bool-list-vs-number": {
+    $or: [
+      {
+        $and: [
+          {
+            $expr: {
+              $cond: {
+                if: {
+                  $isArray: "$aBoolList",
+                },
+                then: {
+                  $gt: [
+                    {
+                      $size: "$aBoolList",
+                    },
+                    0,
+                  ],
+                },
+                else: false,
+              },
+            },
+          },
+          {
+            $expr: {
+              $eq: [
+                {
+                  $arrayElemAt: ["$aBoolList", 0],
+                },
+                1,
+              ],
+            },
+          },
+        ],
+      },
+      {
+        aNumber: {
+          $eq: 5,
+        },
+      },
+    ],
+  },
   // Positional read of a scalar list. Mongoose is the one SQL-shaped adapter that can express it
   // ($arrayElemAt), and the bounds guard is why: `$arrayElemAt` past the end yields MISSING, which
   // compares equal to nothing but also raises nothing, so the emptiness check in front of it is
   // what turns an out-of-range index into a denial rather than a silent false.
+  "index-not-oob": {
+    $and: [
+      {
+        $expr: {
+          $cond: {
+            if: {
+              $isArray: "$tags.name",
+            },
+            then: {
+              $gt: [
+                {
+                  $size: "$tags.name",
+                },
+                1,
+              ],
+            },
+            else: false,
+          },
+        },
+      },
+      {
+        $nor: [
+          {
+            $and: [
+              {
+                $expr: {
+                  $cond: {
+                    if: {
+                      $isArray: "$tags.name",
+                    },
+                    then: {
+                      $gt: [
+                        {
+                          $size: "$tags.name",
+                        },
+                        1,
+                      ],
+                    },
+                    else: false,
+                  },
+                },
+              },
+              {
+                $expr: {
+                  $eq: [
+                    {
+                      $arrayElemAt: ["$tags.name", 1],
+                    },
+                    "public",
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  "index-number-list": {
+    $and: [
+      {
+        $expr: {
+          $cond: {
+            if: {
+              $isArray: "$aNumberList",
+            },
+            then: {
+              $gt: [
+                {
+                  $size: "$aNumberList",
+                },
+                0,
+              ],
+            },
+            else: false,
+          },
+        },
+      },
+      {
+        $expr: {
+          $eq: [
+            {
+              $arrayElemAt: ["$aNumberList", 0],
+            },
+            2,
+          ],
+        },
+      },
+    ],
+  },
+  "index-number-list-not-eq": {
+    $and: [
+      {
+        $expr: {
+          $cond: {
+            if: {
+              $isArray: "$aNumberList",
+            },
+            then: {
+              $gt: [
+                {
+                  $size: "$aNumberList",
+                },
+                0,
+              ],
+            },
+            else: false,
+          },
+        },
+      },
+      {
+        $nor: [
+          {
+            $and: [
+              {
+                $expr: {
+                  $cond: {
+                    if: {
+                      $isArray: "$aNumberList",
+                    },
+                    then: {
+                      $gt: [
+                        {
+                          $size: "$aNumberList",
+                        },
+                        0,
+                      ],
+                    },
+                    else: false,
+                  },
+                },
+              },
+              {
+                $expr: {
+                  $eq: [
+                    {
+                      $arrayElemAt: ["$aNumberList", 0],
+                    },
+                    2,
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  "index-number-list-vs-bool": {
+    $or: [
+      {
+        $and: [
+          {
+            $expr: {
+              $cond: {
+                if: {
+                  $isArray: "$aNumberList",
+                },
+                then: {
+                  $gt: [
+                    {
+                      $size: "$aNumberList",
+                    },
+                    0,
+                  ],
+                },
+                else: false,
+              },
+            },
+          },
+          {
+            $expr: {
+              $eq: [
+                {
+                  $arrayElemAt: ["$aNumberList", 0],
+                },
+                true,
+              ],
+            },
+          },
+        ],
+      },
+      {
+        aNumber: {
+          $eq: 5,
+        },
+      },
+    ],
+  },
   "index-scalar-list": {
     $and: [
       {
@@ -1050,6 +2436,105 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
         },
       },
     ],
+  },
+  "index-scalar-list-not-eq": {
+    $and: [
+      {
+        $expr: {
+          $cond: {
+            if: {
+              $isArray: "$tags.name",
+            },
+            then: {
+              $gt: [
+                {
+                  $size: "$tags.name",
+                },
+                0,
+              ],
+            },
+            else: false,
+          },
+        },
+      },
+      {
+        $nor: [
+          {
+            $and: [
+              {
+                $expr: {
+                  $cond: {
+                    if: {
+                      $isArray: "$tags.name",
+                    },
+                    then: {
+                      $gt: [
+                        {
+                          $size: "$tags.name",
+                        },
+                        0,
+                      ],
+                    },
+                    else: false,
+                  },
+                },
+              },
+              {
+                $expr: {
+                  $eq: [
+                    {
+                      $arrayElemAt: ["$tags.name", 0],
+                    },
+                    "public",
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  "index-scalar-list-null": {
+    $and: [
+      {
+        $expr: {
+          $cond: {
+            if: {
+              $isArray: "$tags.name",
+            },
+            then: {
+              $gt: [
+                {
+                  $size: "$tags.name",
+                },
+                0,
+              ],
+            },
+            else: false,
+          },
+        },
+      },
+      {
+        $expr: {
+          $eq: [
+            {
+              $arrayElemAt: ["$tags.name", 0],
+            },
+            null,
+          ],
+        },
+      },
+    ],
+  },
+  "lambda-in-literal": {
+    tags: {
+      $elemMatch: {
+        name: {
+          $in: ["public", "other"],
+        },
+      },
+    },
   },
   "lambda-in-principal": {
     tags: {
@@ -1227,11 +2712,30 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
       },
     ],
   },
-  "not-empty": {
-    $nor: [
+  "not-concat-unsolvable-ne": {
+    $and: [
+      {
+        aOptionalString: {
+          $ne: null,
+        },
+      },
       {
         $expr: {
-          $eq: [
+          $ne: [
+            {
+              $concat: ["$aOptionalString", "!"],
+            },
+            "nope",
+          ],
+        },
+      },
+    ],
+  },
+  "not-empty": {
+    $and: [
+      {
+        $expr: {
+          $ne: [
             {
               $cond: [
                 {
@@ -1241,13 +2745,100 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
                   $size: "$tags",
                 },
                 {
-                  $strLenCP: "$tags",
+                  $cond: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$tags",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $strLenCP: "$tags",
+                    },
+                    null,
+                  ],
                 },
               ],
             },
-            0,
+            null,
           ],
         },
+      },
+      {
+        $nor: [
+          {
+            $and: [
+              {
+                $expr: {
+                  $ne: [
+                    {
+                      $cond: [
+                        {
+                          $isArray: "$tags",
+                        },
+                        {
+                          $size: "$tags",
+                        },
+                        {
+                          $cond: [
+                            {
+                              $eq: [
+                                {
+                                  $type: "$tags",
+                                },
+                                "string",
+                              ],
+                            },
+                            {
+                              $strLenCP: "$tags",
+                            },
+                            null,
+                          ],
+                        },
+                      ],
+                    },
+                    null,
+                  ],
+                },
+              },
+              {
+                $expr: {
+                  $eq: [
+                    {
+                      $cond: [
+                        {
+                          $isArray: "$tags",
+                        },
+                        {
+                          $size: "$tags",
+                        },
+                        {
+                          $cond: [
+                            {
+                              $eq: [
+                                {
+                                  $type: "$tags",
+                                },
+                                "string",
+                              ],
+                            },
+                            {
+                              $strLenCP: "$tags",
+                            },
+                            null,
+                          ],
+                        },
+                      ],
+                    },
+                    0,
+                  ],
+                },
+              },
+            ],
+          },
+        ],
       },
     ],
   },
@@ -1257,6 +2848,28 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
         aNumber: {
           $gt: 1,
         },
+      },
+    ],
+  },
+  "not-hasint-empty-chain": {
+    $and: [
+      {
+        "categories.0": {
+          $exists: true,
+        },
+      },
+      {
+        $nor: [
+          {
+            "categories.subCategories": {
+              $elemMatch: {
+                name: {
+                  $in: [],
+                },
+              },
+            },
+          },
+        ],
       },
     ],
   },
@@ -1759,6 +3372,28 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
       },
     ],
   },
+  "projection-exists-eq": {
+    tags: {
+      $elemMatch: {
+        name: {
+          $eq: "public"
+        }
+      }
+    }
+  },
+  "projection-exists-not-eq": {
+    tags: {
+      $elemMatch: {
+        $nor: [
+          {
+            name: {
+              $eq: "public"
+            }
+          }
+        ]
+      }
+    }
+  },
   "pv-all": {
     $and: [
       {
@@ -2178,6 +3813,290 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
       },
     ],
   },
+  "pv-in": {
+    $and: [
+      {
+        aOptionalString: {
+          $ne: null,
+        },
+      },
+      {
+        aOptionalString: {
+          $in: [
+            "set",
+            "same",
+            "",
+            "%_o",
+            "X",
+            "Y",
+            "MIRROR",
+            "filler-1",
+            "filler-2",
+            "filler-3",
+            "filler-4",
+          ],
+        },
+      },
+    ],
+  },
+  "pv-in-unrolled": {
+    $and: [
+      {
+        aOptionalString: {
+          $ne: null,
+        },
+      },
+      {
+        aOptionalString: {
+          $in: ["set", "", "%_o"],
+        },
+      },
+    ],
+  },
+  "pv-shadow": {
+    $or: [
+      {
+        tags: {
+          $elemMatch: {
+            $and: [
+              {
+                name: {
+                  $ne: null,
+                },
+              },
+              {
+                name: {
+                  $eq: "public",
+                },
+              },
+            ],
+          },
+        },
+      },
+      {
+        tags: {
+          $elemMatch: {
+            $and: [
+              {
+                name: {
+                  $ne: null,
+                },
+              },
+              {
+                name: {
+                  $eq: "public",
+                },
+              },
+            ],
+          },
+        },
+      },
+      {
+        tags: {
+          $elemMatch: {
+            $and: [
+              {
+                name: {
+                  $ne: null,
+                },
+              },
+              {
+                name: {
+                  $eq: "public",
+                },
+              },
+            ],
+          },
+        },
+      },
+      {
+        tags: {
+          $elemMatch: {
+            $and: [
+              {
+                name: {
+                  $ne: null,
+                },
+              },
+              {
+                name: {
+                  $eq: "public",
+                },
+              },
+            ],
+          },
+        },
+      },
+      {
+        tags: {
+          $elemMatch: {
+            $and: [
+              {
+                name: {
+                  $ne: null,
+                },
+              },
+              {
+                name: {
+                  $eq: "public",
+                },
+              },
+            ],
+          },
+        },
+      },
+      {
+        tags: {
+          $elemMatch: {
+            $and: [
+              {
+                name: {
+                  $ne: null,
+                },
+              },
+              {
+                name: {
+                  $eq: "public",
+                },
+              },
+            ],
+          },
+        },
+      },
+      {
+        tags: {
+          $elemMatch: {
+            $and: [
+              {
+                name: {
+                  $ne: null,
+                },
+              },
+              {
+                name: {
+                  $eq: "public",
+                },
+              },
+            ],
+          },
+        },
+      },
+      {
+        tags: {
+          $elemMatch: {
+            $and: [
+              {
+                name: {
+                  $ne: null,
+                },
+              },
+              {
+                name: {
+                  $eq: "public",
+                },
+              },
+            ],
+          },
+        },
+      },
+      {
+        tags: {
+          $elemMatch: {
+            $and: [
+              {
+                name: {
+                  $ne: null,
+                },
+              },
+              {
+                name: {
+                  $eq: "public",
+                },
+              },
+            ],
+          },
+        },
+      },
+      {
+        tags: {
+          $elemMatch: {
+            $and: [
+              {
+                name: {
+                  $ne: null,
+                },
+              },
+              {
+                name: {
+                  $eq: "public",
+                },
+              },
+            ],
+          },
+        },
+      },
+      {
+        tags: {
+          $elemMatch: {
+            $and: [
+              {
+                name: {
+                  $ne: null,
+                },
+              },
+              {
+                name: {
+                  $eq: "public",
+                },
+              },
+            ],
+          },
+        },
+      },
+    ],
+  },
+  "regex-dot": {
+    aString: {
+      $regex: "^a.*b\\z",
+    },
+  },
+  "regex-eq-true": {
+    $and: [
+      {
+        $expr: {
+          $eq: [
+            {
+              $type: "$aString",
+            },
+            "string",
+          ],
+        },
+      },
+      {
+        $expr: {
+          $eq: [
+            {
+              $regexMatch: {
+                input: "$aString",
+                regex: "^h",
+              },
+            },
+            true,
+          ],
+        },
+      },
+    ],
+  },
+  "regex-final-newline": {
+    aString: {
+      $regex: "^ab\\z",
+    },
+  },
+  "regex-unanchored": {
+    aString: {
+      $regex: "ne",
+    },
+  },
   "rel-bool-hop": {
     "parent.aBool": {
       $eq: true,
@@ -2296,6 +4215,114 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
       },
     ],
   },
+  "rel-not-contains-hop": {
+    $and: [
+      {
+        $expr: {
+          $ne: [
+            {
+              $cond: [
+                {
+                  $and: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$parent.aString"
+                        },
+                        "string"
+                      ]
+                    },
+                    {
+                      $eq: [
+                        {
+                          $type: "done"
+                        },
+                        "string"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  $gte: [
+                    {
+                      $indexOfCP: [
+                        "$parent.aString",
+                        "done"
+                      ]
+                    },
+                    0
+                  ]
+                },
+                null
+              ]
+            },
+            null
+          ]
+        }
+      },
+      {
+        parent: {
+          $ne: null
+        }
+      },
+      {
+        $nor: [
+          {
+            "parent.aString": {
+              $regex: "done"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "rel-not-eq-hop": {
+    $and: [
+      {
+        parent: {
+          $ne: null
+        }
+      },
+      {
+        $nor: [
+          {
+            "parent.aString": {
+              $eq: "One"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "rel-not-hierarchy-hop": {
+    $and: [
+      {
+        parent: {
+          $ne: null
+        }
+      },
+      {
+        $nor: [
+          {
+            $or: [
+              {
+                "parent.aString": {
+                  $in: [
+                    "one"
+                  ]
+                }
+              },
+              {
+                "parent.aString": {
+                  $regex: "^one\\."
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
   "rel-range-hop": {
     $and: [
       {
@@ -2321,6 +4348,15 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
       $eq: true,
     },
   },
+  "root-not-bool": {
+    $nor: [
+      {
+        aBool: {
+          $eq: true,
+        },
+      },
+    ],
+  },
   "root-or": {
     $or: [
       {
@@ -2335,107 +4371,427 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
       },
     ],
   },
-  "size-huge-gt": {
-    $expr: {
-      $gt: [
-        {
-          $cond: [
+  "size-ge-one": {
+    $and: [
+      {
+        $expr: {
+          $ne: [
             {
-              $isArray: "$aString",
+              $cond: [
+                {
+                  $isArray: "$tags",
+                },
+                {
+                  $size: "$tags",
+                },
+                {
+                  $cond: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$tags",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $strLenCP: "$tags",
+                    },
+                    null,
+                  ],
+                },
+              ],
             },
-            {
-              $size: "$aString",
-            },
-            {
-              $strLenCP: "$aString",
-            },
+            null,
           ],
         },
-        4294967296,
-      ],
-    },
+      },
+      {
+        $expr: {
+          $gte: [
+            {
+              $cond: [
+                {
+                  $isArray: "$tags",
+                },
+                {
+                  $size: "$tags",
+                },
+                {
+                  $cond: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$tags",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $strLenCP: "$tags",
+                    },
+                    null,
+                  ],
+                },
+              ],
+            },
+            1,
+          ],
+        },
+      },
+    ],
+  },
+  "size-huge-gt": {
+    $and: [
+      {
+        $expr: {
+          $ne: [
+            {
+              $cond: [
+                {
+                  $isArray: "$aString",
+                },
+                {
+                  $size: "$aString",
+                },
+                {
+                  $cond: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$aString",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $strLenCP: "$aString",
+                    },
+                    null,
+                  ],
+                },
+              ],
+            },
+            null,
+          ],
+        },
+      },
+      {
+        $expr: {
+          $gt: [
+            {
+              $cond: [
+                {
+                  $isArray: "$aString",
+                },
+                {
+                  $size: "$aString",
+                },
+                {
+                  $cond: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$aString",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $strLenCP: "$aString",
+                    },
+                    null,
+                  ],
+                },
+              ],
+            },
+            4294967296,
+          ],
+        },
+      },
+    ],
   },
   "size-huge-lt": {
-    $expr: {
-      $lt: [
-        {
-          $cond: [
+    $and: [
+      {
+        $expr: {
+          $ne: [
             {
-              $isArray: "$aString",
+              $cond: [
+                {
+                  $isArray: "$aString",
+                },
+                {
+                  $size: "$aString",
+                },
+                {
+                  $cond: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$aString",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $strLenCP: "$aString",
+                    },
+                    null,
+                  ],
+                },
+              ],
             },
-            {
-              $size: "$aString",
-            },
-            {
-              $strLenCP: "$aString",
-            },
+            null,
           ],
         },
-        4294967296,
-      ],
-    },
+      },
+      {
+        $expr: {
+          $lt: [
+            {
+              $cond: [
+                {
+                  $isArray: "$aString",
+                },
+                {
+                  $size: "$aString",
+                },
+                {
+                  $cond: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$aString",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $strLenCP: "$aString",
+                    },
+                    null,
+                  ],
+                },
+              ],
+            },
+            4294967296,
+          ],
+        },
+      },
+    ],
   },
   "size-threshold": {
-    $expr: {
-      $gt: [
-        {
-          $cond: [
+    $and: [
+      {
+        $expr: {
+          $ne: [
             {
-              $isArray: "$tags",
+              $cond: [
+                {
+                  $isArray: "$tags",
+                },
+                {
+                  $size: "$tags",
+                },
+                {
+                  $cond: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$tags",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $strLenCP: "$tags",
+                    },
+                    null,
+                  ],
+                },
+              ],
             },
-            {
-              $size: "$tags",
-            },
-            {
-              $strLenCP: "$tags",
-            },
+            null,
           ],
         },
-        1,
-      ],
-    },
+      },
+      {
+        $expr: {
+          $gt: [
+            {
+              $cond: [
+                {
+                  $isArray: "$tags",
+                },
+                {
+                  $size: "$tags",
+                },
+                {
+                  $cond: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$tags",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $strLenCP: "$tags",
+                    },
+                    null,
+                  ],
+                },
+              ],
+            },
+            1,
+          ],
+        },
+      },
+    ],
   },
   "string-size": {
-    $expr: {
-      $gt: [
-        {
-          $cond: [
+    $and: [
+      {
+        $expr: {
+          $ne: [
             {
-              $isArray: "$aString",
+              $cond: [
+                {
+                  $isArray: "$aString",
+                },
+                {
+                  $size: "$aString",
+                },
+                {
+                  $cond: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$aString",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $strLenCP: "$aString",
+                    },
+                    null,
+                  ],
+                },
+              ],
             },
-            {
-              $size: "$aString",
-            },
-            {
-              $strLenCP: "$aString",
-            },
+            null,
           ],
         },
-        4,
-      ],
-    },
+      },
+      {
+        $expr: {
+          $gt: [
+            {
+              $cond: [
+                {
+                  $isArray: "$aString",
+                },
+                {
+                  $size: "$aString",
+                },
+                {
+                  $cond: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$aString",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $strLenCP: "$aString",
+                    },
+                    null,
+                  ],
+                },
+              ],
+            },
+            4,
+          ],
+        },
+      },
+    ],
   },
   // size(string) as an emptiness check: the same $strLenCP branch as string-size, so a string
   // field is never mistaken for an array whose emptiness a `$size` fast path would answer.
   "string-size-gt0": {
-    $expr: {
-      $gt: [
-        {
-          $cond: [
+    $and: [
+      {
+        $expr: {
+          $ne: [
             {
-              $isArray: "$aString",
+              $cond: [
+                {
+                  $isArray: "$aString",
+                },
+                {
+                  $size: "$aString",
+                },
+                {
+                  $cond: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$aString",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $strLenCP: "$aString",
+                    },
+                    null,
+                  ],
+                },
+              ],
             },
-            {
-              $size: "$aString",
-            },
-            {
-              $strLenCP: "$aString",
-            },
+            null,
           ],
         },
-        0,
-      ],
-    },
+      },
+      {
+        $expr: {
+          $gt: [
+            {
+              $cond: [
+                {
+                  $isArray: "$aString",
+                },
+                {
+                  $size: "$aString",
+                },
+                {
+                  $cond: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$aString",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $strLenCP: "$aString",
+                    },
+                    null,
+                  ],
+                },
+              ],
+            },
+            0,
+          ],
+        },
+      },
+    ],
   },
   "ternary-bare": {
     $expr: {
@@ -2465,25 +4821,94 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
     },
   },
   "ternary-expr-cond": {
-    $expr: {
-      $gte: [
-        {
-          $cond: {
-            if: {
-              $eq: [
+    $and: [
+      {
+        $expr: {
+          $ne: [
+            {
+              $cond: [
                 {
-                  $indexOfCP: ["$aString", "100"],
+                  $and: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$aString",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $eq: [
+                        {
+                          $type: "100",
+                        },
+                        "string",
+                      ],
+                    },
+                  ],
                 },
-                0,
+                {
+                  $eq: [
+                    {
+                      $indexOfCP: ["$aString", "100"],
+                    },
+                    0,
+                  ],
+                },
+                null,
               ],
             },
-            then: "$aNumber",
-            else: -1,
-          },
+            null,
+          ],
         },
-        0,
-      ],
-    },
+      },
+      {
+        $expr: {
+          $gte: [
+            {
+              $cond: {
+                if: {
+                  $cond: [
+                    {
+                      $and: [
+                        {
+                          $eq: [
+                            {
+                              $type: "$aString",
+                            },
+                            "string",
+                          ],
+                        },
+                        {
+                          $eq: [
+                            {
+                              $type: "100",
+                            },
+                            "string",
+                          ],
+                        },
+                      ],
+                    },
+                    {
+                      $eq: [
+                        {
+                          $indexOfCP: ["$aString", "100"],
+                        },
+                        0,
+                      ],
+                    },
+                    null,
+                  ],
+                },
+                then: "$aNumber",
+                else: -1,
+              },
+            },
+            0,
+          ],
+        },
+      },
+    ],
   },
   "ternary-negated": {
     $nor: [
@@ -3124,6 +5549,755 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
       },
     ],
   },
+  "type-columns": {
+    $expr: {
+      $eq: ["$aString", "$aNumber"],
+    },
+  },
+  "type-needle-contains": {
+    $and: [
+      {
+        $expr: {
+          $ne: [
+            {
+              $cond: [
+                {
+                  $and: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$aString",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $eq: [
+                        {
+                          $type: "$aNumber",
+                        },
+                        "string",
+                      ],
+                    },
+                  ],
+                },
+                {
+                  $gte: [
+                    {
+                      $indexOfCP: ["$aString", "$aNumber"],
+                    },
+                    0,
+                  ],
+                },
+                null,
+              ],
+            },
+            null,
+          ],
+        },
+      },
+      {
+        $expr: {
+          $cond: [
+            {
+              $and: [
+                {
+                  $eq: [
+                    {
+                      $type: "$aString",
+                    },
+                    "string",
+                  ],
+                },
+                {
+                  $eq: [
+                    {
+                      $type: "$aNumber",
+                    },
+                    "string",
+                  ],
+                },
+              ],
+            },
+            {
+              $gte: [
+                {
+                  $indexOfCP: ["$aString", "$aNumber"],
+                },
+                0,
+              ],
+            },
+            null,
+          ],
+        },
+      },
+    ],
+  },
+  "type-needle-endswith": {
+    $and: [
+      {
+        $expr: {
+          $ne: [
+            {
+              $cond: [
+                {
+                  $and: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$aString",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $eq: [
+                        {
+                          $type: "$aNumber",
+                        },
+                        "string",
+                      ],
+                    },
+                  ],
+                },
+                {
+                  $cond: {
+                    if: {
+                      $gte: [
+                        {
+                          $strLenCP: "$aString",
+                        },
+                        {
+                          $strLenCP: "$aNumber",
+                        },
+                      ],
+                    },
+                    then: {
+                      $eq: [
+                        {
+                          $substrCP: [
+                            "$aString",
+                            {
+                              $subtract: [
+                                {
+                                  $strLenCP: "$aString",
+                                },
+                                {
+                                  $strLenCP: "$aNumber",
+                                },
+                              ],
+                            },
+                            {
+                              $strLenCP: "$aNumber",
+                            },
+                          ],
+                        },
+                        "$aNumber",
+                      ],
+                    },
+                    else: false,
+                  },
+                },
+                null,
+              ],
+            },
+            null,
+          ],
+        },
+      },
+      {
+        $expr: {
+          $cond: [
+            {
+              $and: [
+                {
+                  $eq: [
+                    {
+                      $type: "$aString",
+                    },
+                    "string",
+                  ],
+                },
+                {
+                  $eq: [
+                    {
+                      $type: "$aNumber",
+                    },
+                    "string",
+                  ],
+                },
+              ],
+            },
+            {
+              $cond: {
+                if: {
+                  $gte: [
+                    {
+                      $strLenCP: "$aString",
+                    },
+                    {
+                      $strLenCP: "$aNumber",
+                    },
+                  ],
+                },
+                then: {
+                  $eq: [
+                    {
+                      $substrCP: [
+                        "$aString",
+                        {
+                          $subtract: [
+                            {
+                              $strLenCP: "$aString",
+                            },
+                            {
+                              $strLenCP: "$aNumber",
+                            },
+                          ],
+                        },
+                        {
+                          $strLenCP: "$aNumber",
+                        },
+                      ],
+                    },
+                    "$aNumber",
+                  ],
+                },
+                else: false,
+              },
+            },
+            null,
+          ],
+        },
+      },
+    ],
+  },
+  "type-needle-startswith": {
+    $and: [
+      {
+        $expr: {
+          $ne: [
+            {
+              $cond: [
+                {
+                  $and: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$aString",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $eq: [
+                        {
+                          $type: "$aNumber",
+                        },
+                        "string",
+                      ],
+                    },
+                  ],
+                },
+                {
+                  $eq: [
+                    {
+                      $indexOfCP: ["$aString", "$aNumber"],
+                    },
+                    0,
+                  ],
+                },
+                null,
+              ],
+            },
+            null,
+          ],
+        },
+      },
+      {
+        $expr: {
+          $cond: [
+            {
+              $and: [
+                {
+                  $eq: [
+                    {
+                      $type: "$aString",
+                    },
+                    "string",
+                  ],
+                },
+                {
+                  $eq: [
+                    {
+                      $type: "$aNumber",
+                    },
+                    "string",
+                  ],
+                },
+              ],
+            },
+            {
+              $eq: [
+                {
+                  $indexOfCP: ["$aString", "$aNumber"],
+                },
+                0,
+              ],
+            },
+            null,
+          ],
+        },
+      },
+    ],
+  },
+  "type-number-contains": {
+    $and: [
+      {
+        $expr: {
+          $ne: [
+            {
+              $cond: [
+                {
+                  $and: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$aNumber",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $eq: [
+                        {
+                          $type: "2",
+                        },
+                        "string",
+                      ],
+                    },
+                  ],
+                },
+                {
+                  $gte: [
+                    {
+                      $indexOfCP: ["$aNumber", "2"],
+                    },
+                    0,
+                  ],
+                },
+                null,
+              ],
+            },
+            null,
+          ],
+        },
+      },
+      {
+        $expr: {
+          $cond: [
+            {
+              $and: [
+                {
+                  $eq: [
+                    {
+                      $type: "$aNumber",
+                    },
+                    "string",
+                  ],
+                },
+                {
+                  $eq: [
+                    {
+                      $type: "2",
+                    },
+                    "string",
+                  ],
+                },
+              ],
+            },
+            {
+              $gte: [
+                {
+                  $indexOfCP: ["$aNumber", "2"],
+                },
+                0,
+              ],
+            },
+            null,
+          ],
+        },
+      },
+    ],
+  },
+  "type-number-endswith": {
+    $and: [
+      {
+        $expr: {
+          $ne: [
+            {
+              $cond: [
+                {
+                  $and: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$aNumber",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $eq: [
+                        {
+                          $type: "2",
+                        },
+                        "string",
+                      ],
+                    },
+                  ],
+                },
+                {
+                  $cond: {
+                    if: {
+                      $gte: [
+                        {
+                          $strLenCP: "$aNumber",
+                        },
+                        {
+                          $strLenCP: "2",
+                        },
+                      ],
+                    },
+                    then: {
+                      $eq: [
+                        {
+                          $substrCP: [
+                            "$aNumber",
+                            {
+                              $subtract: [
+                                {
+                                  $strLenCP: "$aNumber",
+                                },
+                                {
+                                  $strLenCP: "2",
+                                },
+                              ],
+                            },
+                            {
+                              $strLenCP: "2",
+                            },
+                          ],
+                        },
+                        "2",
+                      ],
+                    },
+                    else: false,
+                  },
+                },
+                null,
+              ],
+            },
+            null,
+          ],
+        },
+      },
+      {
+        $expr: {
+          $cond: [
+            {
+              $and: [
+                {
+                  $eq: [
+                    {
+                      $type: "$aNumber",
+                    },
+                    "string",
+                  ],
+                },
+                {
+                  $eq: [
+                    {
+                      $type: "2",
+                    },
+                    "string",
+                  ],
+                },
+              ],
+            },
+            {
+              $cond: {
+                if: {
+                  $gte: [
+                    {
+                      $strLenCP: "$aNumber",
+                    },
+                    {
+                      $strLenCP: "2",
+                    },
+                  ],
+                },
+                then: {
+                  $eq: [
+                    {
+                      $substrCP: [
+                        "$aNumber",
+                        {
+                          $subtract: [
+                            {
+                              $strLenCP: "$aNumber",
+                            },
+                            {
+                              $strLenCP: "2",
+                            },
+                          ],
+                        },
+                        {
+                          $strLenCP: "2",
+                        },
+                      ],
+                    },
+                    "2",
+                  ],
+                },
+                else: false,
+              },
+            },
+            null,
+          ],
+        },
+      },
+    ],
+  },
+  "type-number-startswith": {
+    $and: [
+      {
+        $expr: {
+          $ne: [
+            {
+              $cond: [
+                {
+                  $and: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$aNumber",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $eq: [
+                        {
+                          $type: "2",
+                        },
+                        "string",
+                      ],
+                    },
+                  ],
+                },
+                {
+                  $eq: [
+                    {
+                      $indexOfCP: ["$aNumber", "2"],
+                    },
+                    0,
+                  ],
+                },
+                null,
+              ],
+            },
+            null,
+          ],
+        },
+      },
+      {
+        $expr: {
+          $cond: [
+            {
+              $and: [
+                {
+                  $eq: [
+                    {
+                      $type: "$aNumber",
+                    },
+                    "string",
+                  ],
+                },
+                {
+                  $eq: [
+                    {
+                      $type: "2",
+                    },
+                    "string",
+                  ],
+                },
+              ],
+            },
+            {
+              $eq: [
+                {
+                  $indexOfCP: ["$aNumber", "2"],
+                },
+                0,
+              ],
+            },
+            null,
+          ],
+        },
+      },
+    ],
+  },
+  "type-number-string": {
+    $expr: {
+      $eq: [false, true],
+    },
+  },
+  "type-size-bool": {
+    $and: [
+      {
+        $expr: {
+          $ne: [
+            {
+              $cond: [
+                {
+                  $isArray: "$aBool",
+                },
+                {
+                  $size: "$aBool",
+                },
+                {
+                  $cond: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$aBool",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $strLenCP: "$aBool",
+                    },
+                    null,
+                  ],
+                },
+              ],
+            },
+            null,
+          ],
+        },
+      },
+      {
+        $expr: {
+          $gt: [
+            {
+              $cond: [
+                {
+                  $isArray: "$aBool",
+                },
+                {
+                  $size: "$aBool",
+                },
+                {
+                  $cond: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$aBool",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $strLenCP: "$aBool",
+                    },
+                    null,
+                  ],
+                },
+              ],
+            },
+            0,
+          ],
+        },
+      },
+    ],
+  },
+  "type-size-number": {
+    $and: [
+      {
+        $expr: {
+          $ne: [
+            {
+              $cond: [
+                {
+                  $isArray: "$aNumber",
+                },
+                {
+                  $size: "$aNumber",
+                },
+                {
+                  $cond: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$aNumber",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $strLenCP: "$aNumber",
+                    },
+                    null,
+                  ],
+                },
+              ],
+            },
+            null,
+          ],
+        },
+      },
+      {
+        $expr: {
+          $gt: [
+            {
+              $cond: [
+                {
+                  $isArray: "$aNumber",
+                },
+                {
+                  $size: "$aNumber",
+                },
+                {
+                  $cond: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$aNumber",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $strLenCP: "$aNumber",
+                    },
+                    null,
+                  ],
+                },
+              ],
+            },
+            0,
+          ],
+        },
+      },
+    ],
+  },
+  "type-string-number": {
+    $expr: {
+      $eq: [false, true],
+    },
+  },
   "unicode-eq": {
     aString: {
       $eq: "héllo🚀",
@@ -3176,24 +6350,74 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
     ],
   },
   "vf-size": {
-    $expr: {
-      $lt: [
-        0,
-        {
-          $cond: [
+    $and: [
+      {
+        $expr: {
+          $ne: [
             {
-              $isArray: "$tags",
+              $cond: [
+                {
+                  $isArray: "$tags",
+                },
+                {
+                  $size: "$tags",
+                },
+                {
+                  $cond: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$tags",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $strLenCP: "$tags",
+                    },
+                    null,
+                  ],
+                },
+              ],
             },
+            null,
+          ],
+        },
+      },
+      {
+        $expr: {
+          $lt: [
+            0,
             {
-              $size: "$tags",
-            },
-            {
-              $strLenCP: "$tags",
+              $cond: [
+                {
+                  $isArray: "$tags",
+                },
+                {
+                  $size: "$tags",
+                },
+                {
+                  $cond: [
+                    {
+                      $eq: [
+                        {
+                          $type: "$tags",
+                        },
+                        "string",
+                      ],
+                    },
+                    {
+                      $strLenCP: "$tags",
+                    },
+                    null,
+                  ],
+                },
+              ],
             },
           ],
         },
-      ],
-    },
+      },
+    ],
   },
   "w1-all-chain": {
     "categories.subCategories": {
@@ -3276,6 +6500,54 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
   "w1-not-size-chain": {
     $and: [
       {
+        $expr: {
+          $ne: [
+            {
+              $cond: [
+                {
+                  $gt: [
+                    {
+                      $size: {
+                        $ifNull: ["$categories", []],
+                      },
+                    },
+                    0,
+                  ],
+                },
+                {
+                  $cond: [
+                    {
+                      $isArray: "$categories.subCategories",
+                    },
+                    {
+                      $size: "$categories.subCategories",
+                    },
+                    {
+                      $cond: [
+                        {
+                          $eq: [
+                            {
+                              $type: "$categories.subCategories",
+                            },
+                            "string",
+                          ],
+                        },
+                        {
+                          $strLenCP: "$categories.subCategories",
+                        },
+                        null,
+                      ],
+                    },
+                  ],
+                },
+                null,
+              ],
+            },
+            null,
+          ],
+        },
+      },
+      {
         "categories.0": {
           $exists: true,
         },
@@ -3284,6 +6556,54 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
         $nor: [
           {
             $and: [
+              {
+                $expr: {
+                  $ne: [
+                    {
+                      $cond: [
+                        {
+                          $gt: [
+                            {
+                              $size: {
+                                $ifNull: ["$categories", []],
+                              },
+                            },
+                            0,
+                          ],
+                        },
+                        {
+                          $cond: [
+                            {
+                              $isArray: "$categories.subCategories",
+                            },
+                            {
+                              $size: "$categories.subCategories",
+                            },
+                            {
+                              $cond: [
+                                {
+                                  $eq: [
+                                    {
+                                      $type: "$categories.subCategories",
+                                    },
+                                    "string",
+                                  ],
+                                },
+                                {
+                                  $strLenCP: "$categories.subCategories",
+                                },
+                                null,
+                              ],
+                            },
+                          ],
+                        },
+                        null,
+                      ],
+                    },
+                    null,
+                  ],
+                },
+              },
               {
                 "categories.0": {
                   $exists: true,
@@ -3313,7 +6633,20 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
                               $size: "$categories.subCategories",
                             },
                             {
-                              $strLenCP: "$categories.subCategories",
+                              $cond: [
+                                {
+                                  $eq: [
+                                    {
+                                      $type: "$categories.subCategories",
+                                    },
+                                    "string",
+                                  ],
+                                },
+                                {
+                                  $strLenCP: "$categories.subCategories",
+                                },
+                                null,
+                              ],
                             },
                           ],
                         },
@@ -3332,6 +6665,54 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
   },
   "w1-size-chain": {
     $and: [
+      {
+        $expr: {
+          $ne: [
+            {
+              $cond: [
+                {
+                  $gt: [
+                    {
+                      $size: {
+                        $ifNull: ["$categories", []],
+                      },
+                    },
+                    0,
+                  ],
+                },
+                {
+                  $cond: [
+                    {
+                      $isArray: "$categories.subCategories",
+                    },
+                    {
+                      $size: "$categories.subCategories",
+                    },
+                    {
+                      $cond: [
+                        {
+                          $eq: [
+                            {
+                              $type: "$categories.subCategories",
+                            },
+                            "string",
+                          ],
+                        },
+                        {
+                          $strLenCP: "$categories.subCategories",
+                        },
+                        null,
+                      ],
+                    },
+                  ],
+                },
+                null,
+              ],
+            },
+            null,
+          ],
+        },
+      },
       {
         "categories.0": {
           $exists: true,
@@ -3361,7 +6742,20 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
                       $size: "$categories.subCategories",
                     },
                     {
-                      $strLenCP: "$categories.subCategories",
+                      $cond: [
+                        {
+                          $eq: [
+                            {
+                              $type: "$categories.subCategories",
+                            },
+                            "string",
+                          ],
+                        },
+                        {
+                          $strLenCP: "$categories.subCategories",
+                        },
+                        null,
+                      ],
                     },
                   ],
                 },
@@ -3376,6 +6770,54 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
   },
   "w1-size-frac-chain": {
     $and: [
+      {
+        $expr: {
+          $ne: [
+            {
+              $cond: [
+                {
+                  $gt: [
+                    {
+                      $size: {
+                        $ifNull: ["$categories", []],
+                      },
+                    },
+                    0,
+                  ],
+                },
+                {
+                  $cond: [
+                    {
+                      $isArray: "$categories.subCategories",
+                    },
+                    {
+                      $size: "$categories.subCategories",
+                    },
+                    {
+                      $cond: [
+                        {
+                          $eq: [
+                            {
+                              $type: "$categories.subCategories",
+                            },
+                            "string",
+                          ],
+                        },
+                        {
+                          $strLenCP: "$categories.subCategories",
+                        },
+                        null,
+                      ],
+                    },
+                  ],
+                },
+                null,
+              ],
+            },
+            null,
+          ],
+        },
+      },
       {
         "categories.0": {
           $exists: true,
@@ -3405,7 +6847,20 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
                       $size: "$categories.subCategories",
                     },
                     {
-                      $strLenCP: "$categories.subCategories",
+                      $cond: [
+                        {
+                          $eq: [
+                            {
+                              $type: "$categories.subCategories",
+                            },
+                            "string",
+                          ],
+                        },
+                        {
+                          $strLenCP: "$categories.subCategories",
+                        },
+                        null,
+                      ],
                     },
                   ],
                 },
@@ -3420,6 +6875,54 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
   },
   "w1-size-frac-le-chain": {
     $and: [
+      {
+        $expr: {
+          $ne: [
+            {
+              $cond: [
+                {
+                  $gt: [
+                    {
+                      $size: {
+                        $ifNull: ["$categories", []],
+                      },
+                    },
+                    0,
+                  ],
+                },
+                {
+                  $cond: [
+                    {
+                      $isArray: "$categories.subCategories",
+                    },
+                    {
+                      $size: "$categories.subCategories",
+                    },
+                    {
+                      $cond: [
+                        {
+                          $eq: [
+                            {
+                              $type: "$categories.subCategories",
+                            },
+                            "string",
+                          ],
+                        },
+                        {
+                          $strLenCP: "$categories.subCategories",
+                        },
+                        null,
+                      ],
+                    },
+                  ],
+                },
+                null,
+              ],
+            },
+            null,
+          ],
+        },
+      },
       {
         "categories.0": {
           $exists: true,
@@ -3449,7 +6952,20 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
                       $size: "$categories.subCategories",
                     },
                     {
-                      $strLenCP: "$categories.subCategories",
+                      $cond: [
+                        {
+                          $eq: [
+                            {
+                              $type: "$categories.subCategories",
+                            },
+                            "string",
+                          ],
+                        },
+                        {
+                          $strLenCP: "$categories.subCategories",
+                        },
+                        null,
+                      ],
                     },
                   ],
                 },
@@ -3468,6 +6984,54 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
   // the `$cond` that yields null without it are what exclude them (#309/#316).
   "w1-size-nonneg-chain": {
     $and: [
+      {
+        $expr: {
+          $ne: [
+            {
+              $cond: [
+                {
+                  $gt: [
+                    {
+                      $size: {
+                        $ifNull: ["$categories", []],
+                      },
+                    },
+                    0,
+                  ],
+                },
+                {
+                  $cond: [
+                    {
+                      $isArray: "$categories.subCategories",
+                    },
+                    {
+                      $size: "$categories.subCategories",
+                    },
+                    {
+                      $cond: [
+                        {
+                          $eq: [
+                            {
+                              $type: "$categories.subCategories",
+                            },
+                            "string",
+                          ],
+                        },
+                        {
+                          $strLenCP: "$categories.subCategories",
+                        },
+                        null,
+                      ],
+                    },
+                  ],
+                },
+                null,
+              ],
+            },
+            null,
+          ],
+        },
+      },
       {
         "categories.0": {
           $exists: true,
@@ -3497,7 +7061,20 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
                       $size: "$categories.subCategories",
                     },
                     {
-                      $strLenCP: "$categories.subCategories",
+                      $cond: [
+                        {
+                          $eq: [
+                            {
+                              $type: "$categories.subCategories",
+                            },
+                            "string",
+                          ],
+                        },
+                        {
+                          $strLenCP: "$categories.subCategories",
+                        },
+                        null,
+                      ],
                     },
                   ],
                 },
@@ -3512,6 +7089,54 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
   },
   "w1-size-zero-chain": {
     $and: [
+      {
+        $expr: {
+          $ne: [
+            {
+              $cond: [
+                {
+                  $gt: [
+                    {
+                      $size: {
+                        $ifNull: ["$categories", []],
+                      },
+                    },
+                    0,
+                  ],
+                },
+                {
+                  $cond: [
+                    {
+                      $isArray: "$categories.subCategories",
+                    },
+                    {
+                      $size: "$categories.subCategories",
+                    },
+                    {
+                      $cond: [
+                        {
+                          $eq: [
+                            {
+                              $type: "$categories.subCategories",
+                            },
+                            "string",
+                          ],
+                        },
+                        {
+                          $strLenCP: "$categories.subCategories",
+                        },
+                        null,
+                      ],
+                    },
+                  ],
+                },
+                null,
+              ],
+            },
+            null,
+          ],
+        },
+      },
       {
         "categories.0": {
           $exists: true,
@@ -3541,7 +7166,20 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
                       $size: "$categories.subCategories",
                     },
                     {
-                      $strLenCP: "$categories.subCategories",
+                      $cond: [
+                        {
+                          $eq: [
+                            {
+                              $type: "$categories.subCategories",
+                            },
+                            "string",
+                          ],
+                        },
+                        {
+                          $strLenCP: "$categories.subCategories",
+                        },
+                        null,
+                      ],
                     },
                   ],
                 },
@@ -3553,6 +7191,16 @@ const EXPECTED_FILTERS: Record<string, MongooseFilter> = {
         },
       },
     ],
+  },
+  "wildcard-contains": {
+    aString: {
+      $regex: "\\*\\?b",
+    },
+  },
+  "wildcard-endswith": {
+    aString: {
+      $regex: "\\*\\?b\\z",
+    },
   },
 };
 
@@ -3607,7 +7255,7 @@ describe("corpus shapes", () => {
       filters: filters.length,
       kinds: kinds.length,
       throwing: throwing.length,
-    }).toEqual({ filters: 151, kinds: 2, throwing: 52 });
+    }).toEqual({ filters: 197, kinds: 7, throwing: 97 });
   });
 
   // The mapping-hazard contract in README.md rests on one structural fact: this adapter builds no
@@ -3652,6 +7300,31 @@ describe("nullAttributeRepresentation", () => {
     ).toThrow("missing-attribute error");
   });
 
+  test.each(["explicit", "omitted"] as const)(
+    "%s: a reentrant function mapper cannot replace the caller's null representation",
+    (nullAttributeRepresentation) => {
+      const nestedRepresentation = nullAttributeRepresentation === "explicit"
+        ? "omitted"
+        : "explicit";
+      let nestedCalls = 0;
+      const mapper: Mapper = (key) => {
+        translate("cs-eq", { nullAttributeRepresentation: nestedRepresentation });
+        nestedCalls += 1;
+        return typeof MAPPER === "function" ? MAPPER(key) : MAPPER[key] ?? { field: key };
+      };
+      const outer = () => translate("null-eq-missing", {
+        mapper,
+        nullAttributeRepresentation,
+      });
+      if (nullAttributeRepresentation === "explicit") {
+        expect(outer()).toStrictEqual(translate("null-eq-missing"));
+      } else {
+        expect(outer).toThrow("missing-attribute error");
+      }
+      expect(nestedCalls).toBeGreaterThan(0);
+    },
+  );
+
   // The rejection keys off the null OPERAND, not off a list of operators, so a value list carrying
   // one is refused as well. `adversarial.test.ts` proves that over every corpus action against a
   // live PDP; this is the same claim on one fixture, offline.
@@ -3684,15 +7357,9 @@ describe("timestamp literals", () => {
       mapper: MAPPER,
     });
 
-  test("a nanosecond instant — what the PDP actually folds — is refused", () => {
-    // This, and nothing else, is why `ts-window` and `ts-vf` are `adapterUnsupported`. A tidy
-    // millisecond substitution in the loader would translate cleanly and quietly contradict
-    // actions.json.
-    expect(() => translate("ts-window")).toThrow(
-      "timestamp value must be a millisecond-exact RFC 3339 instant in the CEL range",
-    );
-  });
-
+  // The nanosecond instant the PDP actually folds is refused — that, and nothing else, is why
+  // `ts-window` and `ts-vf` are `adapterUnsupported`, and the refusal table above asserts it with
+  // the message actions.json pins. This is its counterpart: only the precision differs.
   test("the same plan at millisecond precision translates", () => {
     const result = at("2026-08-11T09:13:39.123Z");
     expect(result.kind).toBe(PlanKind.CONDITIONAL);

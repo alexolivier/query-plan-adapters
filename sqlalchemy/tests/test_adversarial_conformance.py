@@ -5,12 +5,18 @@ REAL Cerbos PDP (a dedicated testcontainer pinned to ``conformance/CERBOS_VERSIO
 loaded with ``conformance/policies/adversarial.yaml``), translated through this
 adapter's public ``get_query`` API, and executed against seeded SQLite rows — then
 the filtered id set is compared against an oracle computed by calling the check API
-for each seed row with attributes mirroring that row exactly.
+for each seed row with attributes mirroring that row exactly. The actions that read a
+collection declared in ``collection_columns`` run a second time on a pinned
+PostgreSQL, once per storage shape, because that is where those renderings exist.
 
 No hand-computed expectations: if the adapter's filter semantics diverge from
 Cerbos's own evaluation for any row, the mismatch surfaces mechanically. See
 ``conformance/README.md`` for the oracle recipe (NULL-as-missing-attribute, the
 degeneracy guard).
+
+The oracle comparison runs on four legs (#321), each varying ONE caller-side
+dimension away from the baseline — the plan's transport, the model style handed to
+``get_query``, and how the returned ``Select`` is executed. See ``LEGS``.
 
 The SQLAlchemy-specific translation configuration — the schema, the attribute map,
 and the operator overrides that express relation traversals as correlated subqueries
@@ -22,7 +28,7 @@ here is what only this suite consumes: the seeds, the derived fields, the oracle
 the coverage guards over all three.
 """
 
-import json
+import asyncio
 import math
 import os
 import re
@@ -30,15 +36,21 @@ from datetime import datetime
 from typing import Any, Dict, List, Set, Union
 
 import pytest
+from cerbos.engine.v1 import engine_pb2
+from cerbos.response.v1 import response_pb2
 from cerbos.sdk.client import CerbosClient
 from cerbos.sdk.container import CerbosContainer
+from cerbos.sdk.grpc.client import CerbosClient as GrpcCerbosClient
 from cerbos.sdk.model import PlanResourcesFilterKind, Principal, Resource, ResourceDesc
 from cerbos_image import CERBOS_IMAGE, CONFORMANCE_DIR
 from corpus import (
     ADAPTER,
     ATTR_MAP,
     ATTRIBUTE_NULL_REPRESENTATION,
+    COLLECTION_COLUMNS,
+    INSTALLED_SQLALCHEMY_MAJOR,
     OPERATOR_OVERRIDES,
+    PG_ARRAY_COLLECTION_COLUMNS,
     AdvBase,
     AdvCategory,
     AdvInner,
@@ -51,12 +63,16 @@ from corpus import (
     null_representation_throws,
     parse_actions_file,
     read_corpus_json,
-    require_message,
+    reads_declared_collection,
 )
+from google.protobuf.json_format import ParseDict
+from google.protobuf.struct_pb2 import Value
 
-from cerbos_sqlalchemy import get_query
-from sqlalchemy import create_engine, event, insert, select
+from cerbos_sqlalchemy import CollectionColumn, get_query
+from sqlalchemy import create_engine, event, insert, select, text
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.orm import DeclarativeMeta
+from sqlalchemy.orm.attributes import InstrumentedAttribute
 
 SEEDS_FILE = read_corpus_json("seeds.json")
 DERIVED_FILE = read_corpus_json("derived-fields.json")
@@ -79,6 +95,8 @@ SEED_KEYS = {
     "aString",
     "aNumber",
     "aOptionalString",
+    "aNumberList",
+    "aBoolList",
     "tags",
     "subCategoryNames",
     "parentSeedId",
@@ -89,7 +107,7 @@ SEED_NOTE_KEY = "note"
 # dropped from both sides of the differential just as silently as a top-level
 # one, so it is guarded the same way.
 TAG_KEYS = {"id", "name"}
-DERIVED_KEYS = {"createdBy", "aDouble", "createdAt", "scope", "labels"}
+DERIVED_KEYS = {"createdBy", "aDouble", "createdAt", "scope", "labels", "updatedAt"}
 
 # The corpus principal is guarded the same way and for the same reason. It feeds
 # the PLAN under test AND the check() oracle, so an attribute dropped on the way
@@ -106,7 +124,17 @@ DERIVED_KEYS = {"createdBy", "aDouble", "createdAt", "scope", "labels"}
 # attribute is a reason to expect the assertion to stay quiet, not a reason to
 # omit it.
 PRINCIPAL_KEYS = {"id", "roles", "attr"}
-PRINCIPAL_ATTR_KEYS = {"allowedTags", "context", "fewTeams", "manyTeams"}
+PRINCIPAL_ATTR_KEYS = {
+    "allowedTags",
+    "context",
+    "fewTeams",
+    "manyTeams",
+    "zero",
+    "emptyTeams",
+    "manyStructs",
+    "nullableStructs",
+    "missingStructs",
+}
 
 
 def _assert_keys(
@@ -130,20 +158,31 @@ def _assert_keys(
 
 
 def _assert_principal_attr_shape(label: str, value: Any) -> None:
-    """One principal attribute, checked against the two JSON shapes the corpus carries.
-
-    A key-set guard says nothing about a change inside a value and three of the
-    four attributes are lists, so the element type is asserted for the same
-    reason the seed guard descends into ``tags[]``.
-    """
+    """Validate new scalar and struct-list attributes without weakening old guards."""
+    key = label.rsplit(".", 1)[-1]
+    if key == "zero" and type(value) in (int, float):
+        return
+    if key in {"manyStructs", "nullableStructs", "missingStructs"}:
+        assert isinstance(value, list), label
+        for item in value:
+            assert isinstance(item, dict), label
+            if key == "missingStructs":
+                _assert_keys(label, set(item), set())
+            else:
+                _assert_keys(label, set(item), {"name"})
+                assert (
+                    isinstance(item["name"], str)
+                    if key == "manyStructs"
+                    else item["name"] is None
+                ), label
+        return
     if isinstance(value, str):
         return
     if isinstance(value, list) and all(isinstance(item, str) for item in value):
         return
     raise AssertionError(
-        f"{label} is neither a string nor a list of strings, the only two shapes "
-        "this harness consumes: a reshaped principal attribute feeds the plan and "
-        "the check() oracle at once"
+        f"{label} is neither a string nor a list of strings: a reshaped principal "
+        "attribute feeds the plan and the check() oracle at once"
     )
 
 
@@ -188,6 +227,12 @@ SQLALCHEMY_SUPPORTED_EXPECTED = _CLASSIFICATION.supported_expected
 THROWING_ACTIONS = _CLASSIFICATION.throwing_actions
 THROWING_ACTION_NAMES = {action for action, _ in THROWING_ACTIONS}
 
+# The oracle actions whose plan reads a collection declared in `collection_columns` (#227),
+# which the PostgreSQL leg re-runs under both storage shapes.
+DECLARED_COLLECTION_ACTIONS = sorted(
+    action for action in ORACLE_ACTIONS if reads_declared_collection(action)
+)
+
 # Actions whose `== null` probe targets an attribute the oracle OMITS for NULL
 # columns. They carry no oracle comparison: under the omitted representation
 # check() denies every row, so the adapter must reject the shape rather than
@@ -206,21 +251,123 @@ NULL_OMITTED_MESSAGE = NULL_REPRESENTATION_OMITTED[0][2]
 MANIFEST_ACTIONS = MANIFEST.manifest_actions()
 SQLALCHEMY_SKIPPED_DIVERGENCES = MANIFEST.skipped_divergences(ADAPTER)
 
+# -- the legs (#321) ---------------------------------------------------------
+#
+# `get_query` is handed things the CALLER chose, and the corpus can vary none of them:
+# which SDK client produced the plan, which declarative style the models use, and how
+# the returned `Select` is executed. Each leg varies exactly one of those away from the
+# baseline, and every leg runs every oracle action — the cost is a plan and a query per
+# action, because the oracle is memoized (see `_oracle_allowed_ids`).
+#
+# - `grpc`: the plan arrives as a protobuf `PlanResourcesResponse`, which `get_query`
+#   walks through `MessageToDict` rather than the HTTP model's `to_dict()`. It is not a
+#   relabelling: a protobuf double keeps the sign of a zero, where the HTTP JSON body
+#   renders `-0.0` as `-0` and `json.loads` hands back the INTEGER 0. That is why
+#   `GRPC_ONLY_ORACLE_ACTIONS` below exist.
+# - `declarative-base`: the SQLAlchemy 2.0 `DeclarativeBase` arm of `GenericTable`, whose
+#   metaclass sits outside `DeclarativeMeta`. The models are mapped onto the SAME tables,
+#   so they read the same seeded rows and the same correlated subqueries correlate
+#   against them. Skipped on 1.4, which has no `DeclarativeBase`.
+# - `async`: the returned `Select` executed through an `AsyncSession` over aiosqlite,
+#   against a file-backed copy of the same seeds.
+LEGS = ("http", "grpc", "declarative-base", "async")
+_IS_SQLA_14 = INSTALLED_SQLALCHEMY_MAJOR == "1.4"
+
+# The adapterUnsupported entries whose refusal is an artefact of the HTTP transport, not
+# of SQL: a CONSTANT zero denominator whose sign the JSON decoding drops. Over gRPC the
+# sign survives, the adapter translates the shape, and this leg compares it against the
+# oracle — so the classification stays in `adapterUnsupported` (HTTP is the one mapping
+# the manifest classifies) while the gRPC leg proves the other transport is supported.
+# `test_the_grpc_leg_promotes_exactly_the_http_zero_sign_refusals` pins why each is here.
+GRPC_ONLY_ORACLE_ACTIONS = ("cr-div-neg-zero", "nan-ord-inf")
+HTTP_ZERO_SIGN_MESSAGE = (
+    "division by a constant zero whose sign is indeterminate: the HTTP transport"
+)
+
+
+def _require_declarative_base() -> None:
+    """Skip on 1.4, but fail loudly if 2.0 could not build the models.
+
+    Keyed on the installed version, not on the import result: keyed on the import, a
+    rename upstream would turn the whole leg into silent skips.
+    """
+    if _IS_SQLA_14:
+        pytest.skip("DeclarativeBase requires SQLAlchemy >= 2.0")
+    assert MODERN_MODELS, (
+        "SQLAlchemy >= 2.0 is installed but the DeclarativeBase models failed to "
+        "build — the declarative-base leg would otherwise skip silently"
+    )
+
+
+# Legacy model -> its DeclarativeBase twin, mapped onto the same `Table`.
+MODERN_MODELS: Dict[Any, Any] = {}
+try:
+    from sqlalchemy.orm import DeclarativeBase
+except ImportError:  # SQLAlchemy 1.4
+    pass
+else:
+
+    class _ModernAdvBase(DeclarativeBase):
+        pass
+
+    for _legacy in (
+        AdvResource,
+        AdvTag,
+        AdvCategory,
+        AdvSubCategory,
+        AdvLabel,
+        AdvParent,
+        AdvInner,
+    ):
+        MODERN_MODELS[_legacy] = type(
+            f"Modern{_legacy.__name__}",
+            (_ModernAdvBase,),
+            {"__table__": _legacy.__table__},
+        )
+
+
+def _modern_attribute(value: Any) -> Any:
+    """The twin's attribute for a legacy model's mapped column; anything else unchanged.
+
+    Only direct column attributes are swapped. Relation markers and the correlated
+    scalar subqueries are Core over the shared tables, which a caller migrating to
+    `DeclarativeBase` writes exactly the same way.
+    """
+    if isinstance(value, InstrumentedAttribute) and value.class_ in MODERN_MODELS:
+        return getattr(MODERN_MODELS[value.class_], value.key)
+    return value
+
+
+def _modern_mapping():
+    """``(table, attr_map, collection_columns)`` spelled against the 2.0 twins."""
+    attr_map = {name: _modern_attribute(value) for name, value in ATTR_MAP.items()}
+    collection_columns = {
+        name: CollectionColumn(_modern_attribute(declared.column), declared.storage)
+        for name, declared in COLLECTION_COLUMNS.items()
+    }
+    return MODERN_MODELS[AdvResource], attr_map, collection_columns
+
+
 # -- the degeneracy guard (conformance/README.md, "The degeneracy guard") ----
 #
-# A representative sample of the actions this adapter ORACLE-COMPARES, one per
-# hostile group it can express. The two lists are asserted to be complements of
-# ORACLE_ACTIONS, so neither can drift into the other unnoticed.
-#
-# w1-size-zero-chain, w1-not-size-chain, w1-size-frac-chain and the two
-# string-cast actions are deliberately absent: their oracles are empty by
-# CONSTRUCTION (no seed holds a to-one parent with zero children, nor one with
-# two or more; every seed's aString raises in int()/double()), so they cannot
-# satisfy this guard.
+# Representative compared actions must have non-empty, non-total oracles. The
+# assertions below keep compared and liveness-only entries in their proper lists.
+# Parent-count probes and string-cast thresholds are excluded because their
+# oracles are empty for the current seeds (including h4's numeric string "0").
 DEGENERACY_GUARD_ACTIONS = (
+    # #396: failed string conversions remain unknown under negation.
+    "cast-not-string-missing",
+    "cast-not-string-null",
+    "projection-exists-eq",
+    "projection-exists-not-eq",
+    "rel-not-eq-hop",
+    "rel-not-contains-hop",
+    "rel-not-hierarchy-hop",
     "vf-le",
     "like-percent",
     "all-on-empty",
+    "pv-in",
+    "pv-in-unrolled",
     "pv-exists",
     "pv-all",
     "null-eq",
@@ -267,10 +414,10 @@ DEGENERACY_GUARD_ACTIONS = (
     "id-f2f-ne",
     "id-concat",
     "id-concat-vf",
-    # string() over a NUMERIC column, the half this adapter lowers. Its boolean
-    # sibling is refused instead, so this entry proves the supported half still
-    # compares rather than joining the probes below.
+    # string() over a NUMERIC column, which lowers to a CAST, and over a BOOLEAN
+    # one, which lowers to a CASE because CAST renders 1/0 on SQLite (#418).
     "cast-string-double",
+    "cast-string-bool",
     # CEL's `+` between two COLUMNS (#391). SQLAlchemy renders it through the
     # columns' own String type, so it emits `||` (or CONCAT on MySQL) without
     # needing the plan to say which overload it is.
@@ -303,12 +450,38 @@ DEGENERACY_GUARD_ACTIONS = (
     "string-size-gt0",
     "in-map-keys",
     "double-huge-gt",
+    # A positional read of a scalar list through its declared JSON storage (#227): the
+    # element itself, the negation that must keep an absent element UNKNOWN, the null
+    # element that is a value rather than an index error, and the second position that
+    # most rows do not have at all.
+    "index-scalar-list",
+    "index-scalar-list-not-eq",
+    "index-scalar-list-null",
+    "index-not-oob",
+    # The same read over lists of numbers and booleans, where the element's JSON type
+    # decides: a true element is not 1 and a 1 is not true, though SQLite stores both
+    # as 1 (conformance/README.md, "Number and boolean list elements").
+    "index-number-list",
+    "index-number-list-not-eq",
+    "index-bool-list",
+    "index-bool-list-not-eq",
+    "index-bool-list-vs-number",
+    "index-number-list-vs-bool",
 )
 
 # Shapes this adapter refuses to translate: they have no oracle comparison to
 # guard, and stay here as PDP/policy liveness probes for a group the list above
 # cannot cover. See cerbos/query-plan-adapters#324.
 DEGENERACY_LIVENESS_PROBES = (
+    # #396: every refused boundary shape retains a discriminating oracle.
+    "regex-final-newline",
+    "regex-eq-true",
+    "regex-lookahead",
+    "index-negative",
+    "index-fractional",
+    "cast-not-int",
+    "cast-not-timestamp",
+    "cast-not-double",
     # An empty hierarchy delimiter is refused before the prefix LIKE is built,
     # and a regex with a top-level alternation is a matches(), never
     # translated here.
@@ -320,17 +493,14 @@ DEGENERACY_LIVENESS_PROBES = (
     # int() over a numeric column: truncation-versus-rounding, unsupported for
     # every adapter but convex, which promotes it in adapterSupportedExpected.
     "cast-int-double",
-    # string() over a BOOLEAN column, where CAST is dialect-dependent (#376).
-    "cast-string-bool",
     # `list` has no operator-table entry, so the constructed hierarchy path is
     # refused before the hierarchy operators around it are reached.
     "hier-list-id",
     # #387, one probe per group this adapter cannot compare: modulo (reached
-    # through the int() cast that gives `%` an integer operand), the positional
-    # read of a scalar list, and list equality over a map() projection, whose
-    # deferred intermediate no enclosing override consumes.
+    # through the int() cast that gives `%` an integer operand), and list
+    # equality over a map() projection, whose deferred intermediate no enclosing
+    # override consumes.
     "arith-mod",
-    "index-scalar-list",
     "map-eq-list",
 )
 
@@ -341,6 +511,87 @@ DEGENERACY_LIVENESS_PROBES = (
 # value feeds the stored row and the check() oracle, so a transcription error
 # would be self-consistent and invisible to the differential; one
 # machine-readable definition is what makes that impossible.
+
+
+# #414: pin the observed compared/refused split and the intentional identities.
+DEGENERACY_GUARD_ACTIONS += (
+    "wildcard-contains",
+    "wildcard-endswith",
+    "size-ge-one",
+    "in-numbers",
+    "pv-shadow",
+    "pv-not-exists",
+    "pv-not-all",
+    "root-not-bool",
+    "lambda-in-literal",
+    "lambda-in-literal-neg",
+    "lambda-ternary",
+    "in-var-var-omitted",
+    "in-var-var-omitted-neg",
+    "not-concat-unsolvable",
+    "not-concat-unsolvable-ne",
+    "not-hasint-empty-chain",
+    "not-nan-ord-le",
+    "not-ternary-parent",
+    "not-nan-order-string",
+    "hasint-null-vf",
+    "hasint-map-vf",
+    "hasint-map-null",
+    "hasint-map-null-vf",
+)
+DEGENERACY_LIVENESS_PROBES += (
+    "regex-digit",
+    "regex-case",
+    "regex-posix",
+    "regex-unanchored",
+    "regex-dot",
+    "regex-alternation",
+    "regex-grouped",
+    "regex-brace",
+    "regex-repetition",
+    "regex-optional-operators",
+    "pv-except",
+    "except-size",
+    "except-eq",
+    "pv-structs",
+    "pv-exists-one",
+    "pv-filter",
+    "pv-map",
+    "hier-overlaps-list-prefix",
+    "div-by-division",
+    "temporal-raw-eq",
+    "eq-list",
+    "ne-list",
+)
+EMPTY_ORACLE_ACTIONS = (
+    "except-root",
+    "pv-empty-exists",
+    "pv-empty-not-all",
+    "pv-structs-null",
+    "pv-structs-missing",
+    "type-string-number",
+    "type-number-string",
+    "type-columns",
+    "type-size-bool",
+    "type-size-number",
+    "type-hierarchy-number",
+    "type-number-contains",
+    "type-needle-contains",
+    "type-number-startswith",
+    "type-needle-startswith",
+    "type-number-endswith",
+    "type-needle-endswith",
+    "eq-map",
+    "eq-map-null",
+    "in-nested-list",
+    "in-list-element",
+    "hasint-map-element",
+)
+TOTAL_ORACLE_ACTIONS = (
+    "pv-empty-not-exists",
+    "pv-empty-all",
+    "ne-map",
+)
 
 
 def _derived_for(seed: Dict[str, Any]) -> Dict[str, Any]:
@@ -362,8 +613,8 @@ def _double_for(seed: Dict[str, Any]):
     return _derived_for(seed)["aDouble"]
 
 
-def _timestamp_for(seed: Dict[str, Any]):
-    value = _derived_for(seed)["createdAt"]
+def _timestamp_for(seed: Dict[str, Any], field: str = "createdAt"):
+    value = _derived_for(seed)[field]
     return datetime.fromisoformat(value.replace("Z", "+00:00")) if value else None
 
 
@@ -427,6 +678,12 @@ def adv_engine():
         # case-insensitive by default.
         dbapi_conn.execute("PRAGMA case_sensitive_like = ON")
 
+    _seed(engine)
+    yield engine
+
+
+def _seed(engine) -> None:
+    """Create the corpus schema on ``engine`` and store every seed row in it."""
     AdvBase.metadata.create_all(engine)
 
     resource_rows = []
@@ -448,6 +705,26 @@ def adv_engine():
                 "created_by": _iso_for(seed),
                 "scope": _scope_for(seed),
                 "created_at": _timestamp_for(seed),
+                "updated_at": _timestamp_for(seed, "updatedAt"),
+                # The ordered copies `collection_columns` declares (#227): exactly the lists
+                # _check_resource() sends, so the oracle and the column read the same
+                # collection. A seed with no category sends no `mainCategory`, and stores NULL.
+                "tags_json": [_tag_attr(tag) for tag in seed["tags"]],
+                "tag_names_json": [tag["name"] for tag in seed["tags"]],
+                "main_sub_categories_json": [
+                    {"name": name} for name in seed["subCategoryNames"]
+                ]
+                or None,
+                # The PostgreSQL arrays hold scalars, so `tags` keeps its ids: size() counts
+                # elements, and the element is never read.
+                "tags_array": [tag["id"] for tag in seed["tags"]],
+                "tag_names_array": [tag["name"] for tag in seed["tags"]],
+                "main_sub_categories_array": list(seed["subCategoryNames"]) or None,
+                # The scalar lists, stored as the corpus spells them, null elements included.
+                "a_number_list_json": seed["aNumberList"],
+                "a_bool_list_json": seed["aBoolList"],
+                "a_number_list_array": seed["aNumberList"],
+                "a_bool_list_array": seed["aBoolList"],
             }
         )
         # The to-one chain, one owned row per level. A seed with no parent gets no
@@ -518,8 +795,6 @@ def adv_engine():
         if label_rows:
             conn.execute(insert(AdvLabel.__table__), label_rows)
 
-    yield engine
-
 
 @pytest.fixture
 def adv_conn(adv_engine):
@@ -527,26 +802,162 @@ def adv_conn(adv_engine):
         yield conn
 
 
+# The PostgreSQL server the declared-storage leg runs on, pinned by tag AND digest in the file
+# Renovate bumps (conformance/README.md, "Pinning service images").
+with open(
+    os.path.join(os.path.dirname(__file__), "..", "POSTGRES_IMAGE"), encoding="utf-8"
+) as _f:
+    POSTGRES_IMAGE = _f.read().strip()
+
+# The array columns the PostgreSQL leg rebases, so that none of them starts at index 1, with
+# the array type each one is cast back to.
+_PG_ARRAY_COLUMNS = {
+    "tags_array": "TEXT[]",
+    "tag_names_array": "TEXT[]",
+    "main_sub_categories_array": "TEXT[]",
+    "a_number_list_array": "INTEGER[]",
+    "a_bool_list_array": "BOOLEAN[]",
+}
+
+
 @pytest.fixture(scope="module")
-def adv_cerbos_client():
+def pg_engine():
+    """The same seed rows on a real PostgreSQL, for the declared collection storage.
+
+    SQLite executes every corpus action above; this runs only the actions that read a declared
+    collection, because PostgreSQL is where the JSONB and native-array renderings exist at all
+    and nothing else in this repository executes SQLAlchemy's PostgreSQL SQL (#227). A
+    rendering no store executes is a rendering the adapter does not cover.
+    """
+    from testcontainers.postgres import PostgresContainer
+
+    with PostgresContainer(POSTGRES_IMAGE) as container:
+        engine = create_engine(container.get_connection_url())
+        _seed(engine)
+        # PostgreSQL arrays are 1-based unless told otherwise, and an adapter that read
+        # `array[i + 1]` would pass against every one of them. Rebasing each non-empty array
+        # to start at 0 makes that adapter read the wrong element; `to_jsonb` reads positions.
+        with engine.begin() as conn:
+            for column, array_type in _PG_ARRAY_COLUMNS.items():
+                conn.execute(
+                    text(
+                        f"UPDATE adversarial_resource SET {column} = CAST("
+                        f"'[0:' || (cardinality({column}) - 1) || ']=' "
+                        f"|| CAST({column} AS TEXT) AS {array_type}) "
+                        f"WHERE cardinality({column}) > 0"
+                    )
+                )
+        yield engine
+        engine.dispose()
+
+
+@pytest.fixture
+def pg_conn(pg_engine):
+    with pg_engine.connect() as conn:
+        yield conn
+
+
+@pytest.fixture(scope="module")
+def adv_cerbos_container():
+    strict = os.environ.get("ADAPTER_TEST_STRICT_EVALUATION", "false")
+    if strict not in ("false", "true"):
+        raise ValueError("ADAPTER_TEST_STRICT_EVALUATION must be false or true")
     container = CerbosContainer(image=CERBOS_IMAGE)
     container.with_volume_mapping(
         os.path.join(CONFORMANCE_DIR, "policies"), "/policies"
     )
     container.with_env("CERBOS_NO_TELEMETRY", "1")
-    container.with_command("server")
+    container.with_command(f"server --set=engine.strictEvaluation={strict}")
     container.start()
     container.wait_until_ready()
     try:
-        with CerbosClient(container.http_host(), tls_verify=False) as client:
-            yield client
+        yield container
     finally:
         container.stop()
+
+
+# The HTTP client plans the baseline legs and answers every check() — the oracle is the
+# PDP's decision, and which transport asked for it does not change it.
+@pytest.fixture(scope="module")
+def adv_cerbos_client(adv_cerbos_container):
+    with CerbosClient(adv_cerbos_container.http_host(), tls_verify=False) as client:
+        yield client
+
+
+# The same PDP over gRPC, which only the `grpc` leg plans through.
+@pytest.fixture(scope="module")
+def adv_grpc_client(adv_cerbos_container):
+    with GrpcCerbosClient(adv_cerbos_container.grpc_host(), tls_verify=False) as client:
+        yield client
+
+
+# The same seeds in a file the async driver can open: an in-memory SQLite database is
+# private to the connection that created it, so the async engine could not see rows a
+# sync engine seeded. Seeded synchronously, read asynchronously — what is under test is
+# executing the returned `Select`, not seeding.
+@pytest.fixture(scope="module")
+def adv_async_url(tmp_path_factory):
+    path = tmp_path_factory.mktemp("adversarial-async") / "seeds.sqlite"
+    engine = create_engine(f"sqlite:///{path}")
+    _seed(engine)
+    engine.dispose()
+    return f"sqlite+aiosqlite:///{path}"
+
+
+def _async_filtered_ids(url: str, query) -> Set[str]:
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+
+    async def run() -> Set[str]:
+        engine = create_async_engine(url)
+
+        @event.listens_for(engine.sync_engine, "connect")
+        def _configure(dbapi_conn, _):
+            # The same pragma the sync engine sets, through a cursor because the async
+            # driver's adapted connection has no `execute` of its own.
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA case_sensitive_like = ON")
+            cursor.close()
+
+        try:
+            async with AsyncSession(engine) as session:
+                result = await session.execute(query)
+                return {row.id for row in result.scalars()}
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(run())
 
 
 def _principal() -> Principal:
     p = SEEDS_FILE["principal"]
     return Principal(id=p["id"], roles=set(p["roles"]), attr=p["attr"])
+
+
+def _grpc_principal() -> engine_pb2.Principal:
+    # The same corpus principal, verbatim: the gRPC client takes
+    # `map<string, google.protobuf.Value>`, so each attribute is parsed rather than
+    # projected — the key guards above hold for this spelling too.
+    p = SEEDS_FILE["principal"]
+    return engine_pb2.Principal(
+        id=p["id"],
+        roles=p["roles"],
+        attr={key: ParseDict(value, Value()) for key, value in p["attr"].items()},
+    )
+
+
+def _plan(client, action: str):
+    """Plan ``action`` through whichever SDK client is given, in that client's own types."""
+    if isinstance(client, GrpcCerbosClient):
+        plan = client.plan_resources(
+            action,
+            _grpc_principal(),
+            engine_pb2.PlanResourcesInput.Resource(kind=RESOURCE_KIND),
+        )
+        # Anti-vacuity for the leg: `get_query` must see the protobuf response, or the
+        # `MessageToDict` arm is not what ran.
+        assert isinstance(plan, response_pb2.PlanResourcesResponse)
+        return plan
+    return client.plan_resources(action, _principal(), ResourceDesc(RESOURCE_KIND))
 
 
 def _tag_attr(tag: Dict[str, Any]) -> Dict[str, Any]:
@@ -580,6 +991,9 @@ def _check_resource(seed: Dict[str, Any]) -> Resource:
         # field-to-field probe has two explicit nulls to compare.
         "coOwner": _scope_for(seed),
         "tagNames": [tag["name"] for tag in seed["tags"]],
+        # Verbatim, null elements included: a null element is a VALUE in CEL.
+        "aNumberList": seed["aNumberList"],
+        "aBoolList": seed["aBoolList"],
         "categories": [
             {
                 "name": "business",
@@ -601,8 +1015,9 @@ def _check_resource(seed: Dict[str, Any]) -> Resource:
         attr["aDouble"] = a_double
     if (scope := _scope_for(seed)) is not None:
         attr["scope"] = scope
-    if (created_at := _timestamp_for(seed)) is not None:
-        attr["createdAt"] = created_at.isoformat().replace("+00:00", "Z")
+    for field in ("createdAt", "updatedAt"):
+        if (raw := _derived_for(seed)[field]) is not None:
+            attr[field] = raw
     # mainCategory mirrors the row's category graph as ONE nested object (the
     # seeder creates at most one category per seed); rows without a category get
     # NO attribute — a CEL missing-attr error (deny), matching the adapter's
@@ -627,12 +1042,20 @@ def _check_resource(seed: Dict[str, Any]) -> Resource:
 # -- oracle: ask the PDP itself, row by row --
 
 
+# One PDP per module and one principal, so an action's decisions cannot change between
+# calls: memoizing them is what lets every leg compare every action for the price of a
+# plan and a query rather than a check() per seed row.
+_ORACLE_CACHE: Dict[str, Set[str]] = {}
+
+
 def _oracle_allowed_ids(client: CerbosClient, action: str) -> Set[str]:
-    return {
-        seed["id"]
-        for seed in SEEDS
-        if client.is_allowed(action, _principal(), _check_resource(seed))
-    }
+    if action not in _ORACLE_CACHE:
+        _ORACLE_CACHE[action] = {
+            seed["id"]
+            for seed in SEEDS
+            if client.is_allowed(action, _principal(), _check_resource(seed))
+        }
+    return set(_ORACLE_CACHE[action])
 
 
 def _plan_carries_null_literal(node) -> bool:
@@ -660,15 +1083,19 @@ def _adapter_filtered_ids(
     action: str,
     null_attribute_representation: str = "explicit",
     attribute_null_representation=ATTRIBUTE_NULL_REPRESENTATION,
+    collection_columns=COLLECTION_COLUMNS,
+    table=AdvResource,
+    attr_map=ATTR_MAP,
 ) -> Set[str]:
-    plan = client.plan_resources(action, _principal(), ResourceDesc(RESOURCE_KIND))
+    plan = _plan(client, action)
     query = get_query(
         plan,
-        AdvResource,
-        ATTR_MAP,
+        table,
+        attr_map,
         operator_override_fns=OPERATOR_OVERRIDES,
         null_attribute_representation=null_attribute_representation,
         attribute_null_representation=attribute_null_representation,
+        collection_columns=collection_columns,
     )
     return {row.id for row in conn.execute(query).fetchall()}
 
@@ -678,14 +1105,6 @@ def _adapter_filtered_ids(
 # one) — a silent-wrongness bug class, so escalate it to an error.
 @pytest.mark.filterwarnings("error::sqlalchemy.exc.SAWarning")
 class TestAdversarialConformance:
-    def test_throwing_action_with_no_pinned_message_fails_classification(self):
-        # Adding a throwing action without pinning its message must fail this
-        # harness rather than silently degrade the throw suite to a bare "it
-        # raised" (cerbos/query-plan-adapters#326).
-        for absent in (None, "", 42):
-            with pytest.raises(AssertionError, match="pins no throw message"):
-                require_message("synthetic-entry", absent)
-
     def test_manifest_assigns_every_action_exactly_one_outcome(self):
         oracle = set(ORACLE_ACTIONS)
         throwing = THROWING_ACTION_NAMES
@@ -704,32 +1123,183 @@ class TestAdversarialConformance:
 
         # Deliberate tripwires: a corpus edit must bump these in the same
         # change, so a new hostile action cannot join (or vanish) silently.
-        assert len(MANIFEST_ACTIONS) == 205
-        assert len(SEEDS) == 22
+        assert len(MANIFEST_ACTIONS) == 301
+        assert len(SEEDS) == 27
         # Each of these carries a pinned message, so a shape gained or lost has
         # to be re-triaged here rather than joining the throw suite unnoticed.
-        assert len(THROWING_ACTIONS) == 21
+        assert len(THROWING_ACTIONS) == 57
         assert misclassified == []
         assert SQLALCHEMY_SUPPORTED_EXPECTED <= {
             entry["action"] for entry in MANIFEST.expected_unsupported
         }
 
-    @pytest.mark.parametrize("action", ORACLE_ACTIONS)
-    def test_matches_check_oracle(self, action, adv_cerbos_client, adv_conn):
+    @pytest.mark.parametrize(
+        "leg,action",
+        [(leg, action) for leg in LEGS for action in ORACLE_ACTIONS]
+        + [("grpc", action) for action in GRPC_ONLY_ORACLE_ACTIONS],
+    )
+    def test_matches_check_oracle(self, leg, action, request, adv_cerbos_client):
         oracle = _oracle_allowed_ids(adv_cerbos_client, action)
-        filtered = _adapter_filtered_ids(adv_cerbos_client, adv_conn, action)
+        if leg == "async":
+            plan = _plan(adv_cerbos_client, action)
+            query = get_query(
+                plan,
+                AdvResource,
+                ATTR_MAP,
+                operator_override_fns=OPERATOR_OVERRIDES,
+                null_attribute_representation="explicit",
+                attribute_null_representation=ATTRIBUTE_NULL_REPRESENTATION,
+                collection_columns=COLLECTION_COLUMNS,
+            )
+            filtered = _async_filtered_ids(
+                request.getfixturevalue("adv_async_url"), query
+            )
+        else:
+            client = (
+                request.getfixturevalue("adv_grpc_client")
+                if leg == "grpc"
+                else adv_cerbos_client
+            )
+            conn = request.getfixturevalue("adv_conn")
+            if leg == "declarative-base":
+                _require_declarative_base()
+                table, attr_map, collection_columns = _modern_mapping()
+                filtered = _adapter_filtered_ids(
+                    client,
+                    conn,
+                    action,
+                    table=table,
+                    attr_map=attr_map,
+                    collection_columns=collection_columns,
+                )
+            else:
+                filtered = _adapter_filtered_ids(client, conn, action)
         assert sorted(filtered) == sorted(oracle)
 
-    @pytest.mark.parametrize("action,message", THROWING_ACTIONS)
-    def test_fails_loudly(self, action, message, adv_cerbos_client):
+    def test_the_grpc_leg_promotes_exactly_the_http_zero_sign_refusals(self):
+        # Each promotion is an adapterUnsupported entry for THIS adapter, refused over
+        # HTTP with the signed-zero message — so it is the transport, not SQL, that
+        # refuses it — and it is the whole set: any other entry carrying that message
+        # would be a shape the gRPC leg should be comparing and is not.
+        refused_for_sign = sorted(
+            action
+            for action, message in THROWING_ACTIONS
+            if message.startswith(HTTP_ZERO_SIGN_MESSAGE)
+        )
+        assert refused_for_sign == sorted(GRPC_ONLY_ORACLE_ACTIONS)
+        adapter_unsupported = {
+            entry["action"] for entry in MANIFEST.adapter_unsupported[ADAPTER]
+        }
+        assert set(GRPC_ONLY_ORACLE_ACTIONS) <= adapter_unsupported
+
+    def test_the_declarative_base_leg_uses_the_2_0_models(self):
+        _require_declarative_base()
+        table, attr_map, collection_columns = _modern_mapping()
+        # The arm under test: a 2.0 model's metaclass is NOT a DeclarativeMeta.
+        assert not isinstance(table, DeclarativeMeta)
+        assert isinstance(AdvResource, DeclarativeMeta)
+        assert table.__table__ is AdvResource.__table__
+        # No direct column attribute of a legacy model survives the remap, and every
+        # remapped one belongs to a twin — a leg that quietly kept the legacy
+        # attributes would be the baseline run twice.
+        remapped = [
+            value
+            for value in list(attr_map.values())
+            + [declared.column for declared in collection_columns.values()]
+            if isinstance(value, InstrumentedAttribute)
+        ]
+        assert remapped
+        assert {value.class_ for value in remapped} <= set(MODERN_MODELS.values())
+
+    # #227. The declared collection storage, executed on the one store where both of its
+    # storage shapes exist. The same oracle, the same seeds, and every action that reads a
+    # declared collection -- derived from the fixtures, so a new one joins without an edit.
+    @pytest.mark.parametrize(
+        "storage,action",
+        [
+            (storage, action)
+            for storage in ("json", "pgArray")
+            for action in DECLARED_COLLECTION_ACTIONS
+        ],
+    )
+    def test_declared_collection_storage_matches_check_oracle_on_postgresql(
+        self, storage, action, adv_cerbos_client, pg_conn
+    ):
+        oracle = _oracle_allowed_ids(adv_cerbos_client, action)
+        filtered = _adapter_filtered_ids(
+            adv_cerbos_client,
+            pg_conn,
+            action,
+            collection_columns=(
+                COLLECTION_COLUMNS if storage == "json" else PG_ARRAY_COLLECTION_COLUMNS
+            ),
+        )
+        assert sorted(filtered) == sorted(oracle)
+
+    def test_the_postgresql_leg_reads_what_it_claims(self, pg_conn):
+        # Tripwire over the derived list: an action leaving it is a declared read nobody
+        # executes on PostgreSQL any more, and one joining it should be looked at.
+        assert DECLARED_COLLECTION_ACTIONS == [
+            "cr-size-frac-ge",
+            "index-bool-list",
+            "index-bool-list-not-eq",
+            "index-bool-list-vs-number",
+            "index-not-oob",
+            "index-number-list",
+            "index-number-list-not-eq",
+            "index-number-list-vs-bool",
+            "index-scalar-list",
+            "index-scalar-list-not-eq",
+            "index-scalar-list-null",
+            "not-empty",
+            "size-ge-one",
+            "size-threshold",
+            "vf-size",
+            "w1-not-size-chain",
+            "w1-size-chain",
+            "w1-size-frac-chain",
+            "w1-size-frac-le-chain",
+            "w1-size-nonneg-chain",
+            "w1-size-zero-chain",
+        ]
+        # Both storage shapes declare the same attributes, so neither leg skips one.
+        assert set(PG_ARRAY_COLLECTION_COLUMNS) == set(COLLECTION_COLUMNS)
+        # Anti-vacuity for the rebase: an array that still started at 1 would let an adapter
+        # reading `array[i + 1]` through.
+        for column in _PG_ARRAY_COLUMNS:
+            lower_bounds = {
+                row[0]
+                for row in pg_conn.execute(
+                    text(
+                        f"SELECT array_lower({column}, 1) FROM adversarial_resource "
+                        f"WHERE cardinality({column}) > 0"
+                    )
+                )
+            }
+            assert lower_bounds == {0}, column
+
+    # Both transports: a refusal is a translation decision, and the two decodings reach
+    # the translator through different code (`to_dict()` versus `MessageToDict`). The
+    # signed-zero refusals are the exception, compared on the gRPC leg instead.
+    @pytest.mark.parametrize(
+        "transport,action,message",
+        [
+            (transport, action, message)
+            for transport in ("http", "grpc")
+            for action, message in THROWING_ACTIONS
+            if not (transport == "grpc" and action in GRPC_ONLY_ORACLE_ACTIONS)
+        ],
+    )
+    def test_fails_loudly(self, transport, action, message, request):
+        client = request.getfixturevalue(
+            "adv_grpc_client" if transport == "grpc" else "adv_cerbos_client"
+        )
         # The plan is fetched OUTSIDE the assertion so a PDP failure fails the
         # test instead of passing it, and nothing executes — the invariant is
         # that the shape throws during translation, BEFORE a filter exists, so
         # the database rejecting a wrongly emitted query afterwards cannot
         # masquerade as the adapter refusing to translate.
-        plan = adv_cerbos_client.plan_resources(
-            action, _principal(), ResourceDesc(RESOURCE_KIND)
-        )
+        plan = _plan(client, action)
         # The adapter's translation-time refusals: ValueError (unsupported
         # operator/cast/timestamp shapes), KeyError (attribute missing from the
         # map), TypeError (attribute needs an operator override to be
@@ -750,6 +1320,7 @@ class TestAdversarialConformance:
                 # refusal depends on them (null-value-f2f-mixed) would otherwise
                 # translate cleanly and read as a missing throw.
                 attribute_null_representation=ATTRIBUTE_NULL_REPRESENTATION,
+                collection_columns=COLLECTION_COLUMNS,
             )
 
     # #387. `filter-as-conjunct` puts a filter() one level below the root, where
@@ -881,7 +1452,8 @@ class TestAdversarialConformance:
     # denominator, and over the HTTP transport that arrives as the integer 0 with the
     # sign bit already gone, so the adapter now rejects the shape rather than guess
     # which infinity CEL produced. It is declared in adapterUnsupported[sqlalchemy]
-    # and asserted as a throw by test_fails_loudly (cerbos/query-plan-adapters#312).
+    # and asserted as a throw by test_fails_loudly (cerbos/query-plan-adapters#312);
+    # over gRPC it translates, and the grpc leg compares it against the oracle (#321).
     @pytest.mark.parametrize(
         "action",
         (
@@ -901,6 +1473,7 @@ class TestAdversarialConformance:
             AdvResource,
             ATTR_MAP,
             operator_override_fns=OPERATOR_OVERRIDES,
+            collection_columns=COLLECTION_COLUMNS,
         )
         compiled = query.compile(dialect=postgresql.dialect())
 
@@ -993,3 +1566,10 @@ class TestAdversarialConformance:
         for action in DEGENERACY_LIVENESS_PROBES:
             assert action not in ORACLE_ACTIONS, f"{action} is now oracle-compared"
             assert_non_degenerate(action)
+
+        for action in EMPTY_ORACLE_ACTIONS:
+            assert _oracle_allowed_ids(adv_cerbos_client, action) == set()
+        for action in TOTAL_ORACLE_ACTIONS:
+            assert sorted(_oracle_allowed_ids(adv_cerbos_client, action)) == sorted(
+                seed["id"] for seed in SEEDS
+            )

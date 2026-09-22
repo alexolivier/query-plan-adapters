@@ -53,6 +53,7 @@ const (
 	ValueTimestamp = queryplan.ValueTimestamp
 	ValueBool      = queryplan.ValueBool
 	ValueString    = queryplan.ValueString
+	ValueNumber    = queryplan.ValueNumber
 )
 
 // Restriction comparisons, for Relation.SubqueryFilter and Hop.SubqueryFilter.
@@ -111,9 +112,12 @@ const (
 
 // Result is a translated plan.
 type Result struct {
+	// Where is the filter to apply, set only for KindConditional: a PostgreSQL boolean expression
+	// whose placeholders are numbered from $1, or from $n+1 under WithPlaceholderOffset(n).
 	Where string
-	Args  []any
-	Kind  PlanKind
+	// Args binds Where's placeholders, in order.
+	Args []any
+	Kind PlanKind
 }
 
 // ErrUnsupported wraps every shape this adapter refuses to translate, so callers can distinguish

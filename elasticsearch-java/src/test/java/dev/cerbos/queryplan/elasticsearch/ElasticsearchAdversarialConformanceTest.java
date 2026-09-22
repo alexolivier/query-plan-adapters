@@ -11,7 +11,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.cerbos.queryplan.elasticsearch.ElasticsearchQueryPlanAdapter.Result;
 import dev.cerbos.sdk.CerbosBlockingClient;
-import dev.cerbos.sdk.CerbosClientBuilder;
 import dev.cerbos.sdk.PlanResourcesResult;
 import dev.cerbos.sdk.builders.AttributeValue;
 import dev.cerbos.sdk.builders.Principal;
@@ -39,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -73,9 +73,20 @@ class ElasticsearchAdversarialConformanceTest {
     /**
      * One hostile row. {@code note} is corpus documentation this harness never reads; it is named
      * so that strict decoding accepts it, and it is the one seed key {@link #SEED_KEYS} omits.
+     *
+     * <p>{@code aNumberList} and {@code aBoolList} are the corpus's homogeneous scalar lists
+     * (conformance/README.md, "Number and boolean list elements"). Their elements are boxed so a
+     * null ELEMENT survives decoding: CEL compares it as a value ({@code null == 2} is false), so
+     * {@code [null, 2]} is not the list {@code [2]}. They are consumed in two places —
+     * {@link #checkResource} sends them to {@code check()} verbatim, null elements included, and
+     * {@link #seedIndex} stores them as flat arrays the way {@code tagNames} is stored. Nothing
+     * searches them: every action reading them is a positional read, which this adapter refuses
+     * before any query exists, so the indexed copy is there to keep {@link Corpus#FIELD_MAP} naming
+     * only fields the index really holds.
      */
     private record Seed(String id, boolean aBool, String aString, int aNumber,
-                        String aOptionalString, List<Tag> tags, List<String> subCategoryNames,
+                        String aOptionalString, List<Double> aNumberList, List<Boolean> aBoolList,
+                        List<Tag> tags, List<String> subCategoryNames,
                         String parentSeedId, String note) {}
 
     /**
@@ -98,7 +109,7 @@ class ElasticsearchAdversarialConformanceTest {
                              String relationNote, List<Seed> seeds) {}
 
     /** One seed's derived fields, exactly as conformance/derived-fields.json carries them. */
-    private record DerivedEntry(String createdBy, Double aDouble, String createdAt, String scope,
+    private record DerivedEntry(String createdBy, Double aDouble, String createdAt, String updatedAt, String scope,
                                 List<String> labels) {}
 
     private record DerivedFile(@JsonProperty("$schema") String schema, String description,
@@ -141,8 +152,8 @@ class ElasticsearchAdversarialConformanceTest {
     // here reads, and a key this harness reads that the corpus no longer carries.
 
     private static final List<String> SEED_KEYS = List.of(
-            "id", "aBool", "aString", "aNumber", "aOptionalString", "tags", "subCategoryNames",
-            "parentSeedId");
+            "id", "aBool", "aString", "aNumber", "aOptionalString", "aNumberList", "aBoolList",
+            "tags", "subCategoryNames", "parentSeedId");
 
     /** Corpus prose, never read by a harness: the one documented exclusion from SEED_KEYS. */
     private static final String SEED_NOTE_KEY = "note";
@@ -155,7 +166,7 @@ class ElasticsearchAdversarialConformanceTest {
     private static final List<String> TAG_KEYS = List.of("id", "name");
 
     private static final List<String> DERIVED_KEYS =
-            List.of("createdBy", "aDouble", "createdAt", "scope", "labels");
+            List.of("createdBy", "aDouble", "createdAt", "updatedAt", "scope", "labels");
 
     // The corpus principal is guarded the same way and for the same reason. It feeds the PLAN under
     // test AND the check() oracle, so an attribute dropped on the way in vanishes from both sides
@@ -174,7 +185,8 @@ class ElasticsearchAdversarialConformanceTest {
     private static final List<String> PRINCIPAL_KEYS = List.of("id", "roles", "attr");
 
     private static final List<String> PRINCIPAL_ATTR_KEYS =
-            List.of("allowedTags", "context", "fewTeams", "manyTeams");
+            List.of("allowedTags", "context", "fewTeams", "manyTeams", "zero", "emptyTeams",
+                    "manyStructs", "nullableStructs", "missingStructs");
 
     /** The corpus key for this adapter — its directory name, as every other harness uses. */
     private static final String ADAPTER = "elasticsearch-java";
@@ -233,7 +245,8 @@ class ElasticsearchAdversarialConformanceTest {
 
         cerbos = new GenericContainer<>(CerbosTestImage.IMAGE)
                 .withExposedPorts(3593)
-                .withCommand("server", "--set=storage.disk.directory=/policies")
+                .withCommand("server", "--set=storage.disk.directory=/policies",
+                        "--set=engine.strictEvaluation=" + CerbosTestImage.strictEvaluation())
                 .withEnv("CERBOS_NO_TELEMETRY", "1")
                 .waitingFor(Wait.forLogMessage(".*Starting gRPC server.*", 1));
         // The WHOLE policy directory, not the one file the corpus carries today. A second policy
@@ -253,8 +266,7 @@ class ElasticsearchAdversarialConformanceTest {
         }
         cerbos.start();
         CerbosTestImage.assertPinned(cerbos);
-        client = new CerbosClientBuilder(cerbos.getHost() + ":" + cerbos.getMappedPort(3593))
-                .withPlaintext().buildBlockingClient();
+        client = CerbosTestImage.client(cerbos);
 
         elasticsearch = new ElasticsearchContainer(ElasticsearchTestImage.IMAGE)
                 .withEnv("xpack.security.enabled", "false");
@@ -304,7 +316,7 @@ class ElasticsearchAdversarialConformanceTest {
                 "adapterUnsupported.elasticsearch-java contains non-conformance actions");
         assertTrue(expected.containsAll(supportedExpected),
                 "adapterSupportedExpected.elasticsearch-java contains non-expected actions");
-        assertEquals(105, unsupported.size(),
+        assertEquals(170, unsupported.size(),
                 "Elasticsearch unsupported coverage changed without updating the ledger assertion");
         assertEquals(2, supportedExpected.size(),
                 "Elasticsearch supported-expected coverage changed without updating the ledger assertion");
@@ -348,10 +360,10 @@ class ElasticsearchAdversarialConformanceTest {
         manifest.addAll(expected);
         manifest.addAll(nullRepresentationOmittedActions);
         manifest.addAll(divergences);
-        assertEquals(89, oracleActions.size());
-        assertEquals(114, throwingActions.size());
+        assertEquals(120, oracleActions.size());
+        assertEquals(179, throwingActions.size());
         assertEquals(1, nullRepresentationOmittedActions.size());
-        assertEquals(205, classified.size());
+        assertEquals(301, classified.size());
         assertEquals(manifest, classified, "every manifest action must be classified locally");
     }
 
@@ -393,7 +405,16 @@ class ElasticsearchAdversarialConformanceTest {
         properties.put("owner", Map.of("type", "keyword"));
         properties.put("coOwner", Map.of("type", "keyword"));
         properties.put("tagNames", Map.of("type", "keyword"));
-        properties.put("createdBy", Map.of("type", "date", "format", "strict_date_optional_time_nanos"));
+        // The two homogeneous scalar lists, flat arrays like tagNames. `double` rather than
+        // aNumber's `integer`: the elements reach check() as CEL doubles, and an integer mapping
+        // would coerce a fractional element a future seed adds rather than keep it.
+        properties.put("aNumberList", Map.of("type", "double"));
+        properties.put("aBoolList", Map.of("type", "boolean"));
+        // Preserve malformed strings in _source while leaving them unindexed. CEL timestamp()
+        // errors on those rows; range predicates and their guarded negations must both deny them.
+        properties.put("createdBy", Map.of("type", "date", "format", "strict_date_optional_time_nanos",
+                "ignore_malformed", true));
+        properties.put("updatedAt", Map.of("type", "date", "format", "strict_date_optional_time_nanos"));
         properties.put("createdAt", Map.of("type", "date", "format", "strict_date_optional_time_nanos"));
         properties.put("scope", Map.of("type", "keyword"));
         properties.put("obj", Map.of("properties", Map.of("inner", Map.of("type", "keyword"))));
@@ -430,8 +451,14 @@ class ElasticsearchAdversarialConformanceTest {
             }
             document.put("coOwner", scopeFor(seed));
             document.put("tagNames", seed.tags().stream().map(Tag::name).toList());
+            // Verbatim, null elements included, as tagNames carries a null tag name: the source
+            // keeps the list as the corpus wrote it, and Elasticsearch indexes the non-null values
+            // as an unordered bag — which is why no positional read of either list translates.
+            document.put("aNumberList", seed.aNumberList());
+            document.put("aBoolList", seed.aBoolList());
             document.put("createdBy", isoFor(seed));
-            if (timestampFor(seed) != null) document.put("createdAt", timestampFor(seed).toString());
+            if (timestampFor(seed) != null) document.put("createdAt", derivedFor(seed).createdAt());
+            if (derivedFor(seed).updatedAt() != null) document.put("updatedAt", derivedFor(seed).updatedAt());
             if (scopeFor(seed) != null) document.put("scope", scopeFor(seed));
             document.put("obj", Map.of("inner", seed.aString()));
             document.put("tags", seed.tags().stream().map(tag -> {
@@ -502,22 +529,29 @@ class ElasticsearchAdversarialConformanceTest {
     }
 
     /**
-     * One principal attribute, converted by the JSON type the corpus actually carries. Strings and
-     * lists of strings are the two shapes today; anything else fails loudly rather than being
-     * coerced, because a silently reshaped principal attribute feeds the plan and the oracle at
-     * once and they would agree for the wrong reason.
+     * One principal attribute, converted by the JSON type the corpus actually carries. JSON scalars, lists and structs are preserved recursively so the plan and oracle receive
+     * the same unmodified principal.
      */
     private static AttributeValue principalAttribute(String key, Object value) {
-        if (value instanceof String s) return AttributeValue.stringValue(s);
+        if (value == null) return nullAttributeValue();
+        if (value instanceof String text) return AttributeValue.stringValue(text);
+        if (value instanceof Number number) return AttributeValue.doubleValue(number.doubleValue());
+        if (value instanceof Boolean bool) return AttributeValue.boolValue(bool);
         if (value instanceof List<?> list) {
-            return AttributeValue.listValue(list.stream().map(element -> {
-                if (element instanceof String s) return AttributeValue.stringValue(s);
-                throw new IllegalStateException(
-                        "seeds.json principal.attr." + key + " holds a non-string element");
-            }).toList());
+            return AttributeValue.listValue(list.stream()
+                    .map(element -> principalAttribute(key, element)).toList());
         }
-        throw new IllegalStateException(
-                "seeds.json principal.attr." + key + " is neither a string nor a list of strings");
+        if (value instanceof Map<?, ?> map) {
+            Map<String, AttributeValue> fields = new LinkedHashMap<>();
+            map.forEach((name, element) -> {
+                if (!(name instanceof String field)) {
+                    throw new IllegalStateException("Non-string principal field: " + key);
+                }
+                fields.put(field, principalAttribute(key + "." + field, element));
+            });
+            return AttributeValue.mapValue(fields);
+        }
+        throw new IllegalStateException("Unsupported principal attribute: " + key);
     }
 
     // -- the real to-one relation (conformance/README.md, "The real to-one relation") -----------
@@ -593,6 +627,19 @@ class ElasticsearchAdversarialConformanceTest {
                 .map(tag -> tag.name() == null
                         ? nullAttributeValue() : AttributeValue.stringValue(tag.name()))
                 .toList()));
+        // The homogeneous scalar lists, verbatim. A null ELEMENT is sent as an explicit null
+        // rather than dropped: a6's aNumberList [null, 2] has a first element, and CEL answers
+        // `null == 2` false and its negation true, where a shortened [2] would answer the opposite.
+        resource = resource.withAttribute("aNumberList", AttributeValue.listValue(
+                seed.aNumberList().stream()
+                        .map(number -> number == null
+                                ? nullAttributeValue() : AttributeValue.doubleValue(number))
+                        .toList()));
+        resource = resource.withAttribute("aBoolList", AttributeValue.listValue(
+                seed.aBoolList().stream()
+                        .map(bool -> bool == null
+                                ? nullAttributeValue() : AttributeValue.boolValue(bool))
+                        .toList()));
         if (doubleFor(seed) != null) {
             resource = resource.withAttribute("aDouble", AttributeValue.doubleValue(doubleFor(seed)));
         }
@@ -601,7 +648,10 @@ class ElasticsearchAdversarialConformanceTest {
         }
         if (timestampFor(seed) != null) {
             resource = resource.withAttribute("createdAt",
-                    AttributeValue.stringValue(timestampFor(seed).toString()));
+                    AttributeValue.stringValue(derivedFor(seed).createdAt()));
+        }
+        if (derivedFor(seed).updatedAt() != null) {
+            resource = resource.withAttribute("updatedAt", AttributeValue.stringValue(derivedFor(seed).updatedAt()));
         }
         if (!seed.subCategoryNames().isEmpty()) {
             resource = resource.withAttribute("mainCategory", AttributeValue.mapValue(Map.of(
@@ -686,6 +736,17 @@ class ElasticsearchAdversarialConformanceTest {
     void adapterMatchesCheckOracle(String action) throws Exception {
         assertEquals(oracleAllowedIds(action), adapterFilteredIds(action),
                 "adapter result diverges from check() oracle for action '" + action + "'");
+    }
+
+    @Test
+    void malformedTimestampRemainsDeniedUnderBothPolarities() throws Exception {
+        Seed malformed = seeds.stream().filter(seed -> seed.id().equals("h5")).findFirst().orElseThrow();
+        assertEquals("not-a-timestamp", isoFor(malformed),
+                "the oracle must receive the original malformed string, not a normalized date");
+        for (String action : List.of("p-timestamp", "cast-not-timestamp")) {
+            assertFalse(oracleAllowedIds(action).contains("h5"), action);
+            assertFalse(adapterFilteredIds(action).contains("h5"), action);
+        }
     }
 
     @ParameterizedTest(name = "{0}")
@@ -812,25 +873,31 @@ class ElasticsearchAdversarialConformanceTest {
      * the string casts, {@code filter-as-conjunct}, {@code null-eq-missing} — is refused on this
      * adapter and so never reaches the oracle comparison at all.
      */
-    private static final Map<String, String> DEGENERATE_BY_CONSTRUCTION = Map.of(
-            // `R.attr.aString in []`: nothing is a member of the empty list, so the planner folds
-            // the plan to ALWAYS_DENIED and check() denies every seed. The comparison is still
-            // made — an adapter that emitted `terms: []` and let Elasticsearch match nothing would
-            // agree by accident — which is why it stays oracle-compared rather than excluded.
-            "in-empty", "statically false membership: the plan is ALWAYS_DENIED and the oracle"
-                    + " is empty",
-            // `R.attr.aDouble < -1e19`: no seed lies below the literal, so check() denies every
-            // seed. The shape exists to catch a translator that narrows the literal to Long.MIN,
-            // which would return g1 (-9.5e18); the mirrored `double-huge-gt` carries the
-            // non-empty oracle, so this half is compared for liveness only.
-            "double-huge-lt", "no seed lies below -1e19: the oracle is empty, and the mirrored"
-                    + " double-huge-gt is the compared half");
+    private static final Map<String, String> DEGENERATE_BY_CONSTRUCTION = Map.ofEntries(
+            Map.entry("in-empty", "The planner folds empty membership to always denied."),
+            Map.entry("double-huge-lt", "The narrowed int64 threshold would return g1 while the correct oracle is empty."),
+            Map.entry("pv-empty-exists", "PDP oracle is empty: Pinned empty principal collection proves CEL macro identity and planner folding."),
+            Map.entry("pv-empty-not-exists", "PDP oracle is total: Pinned empty principal collection proves CEL macro identity and planner folding."),
+            Map.entry("pv-empty-all", "PDP oracle is total: Pinned empty principal collection proves CEL macro identity and planner folding."),
+            Map.entry("pv-empty-not-all", "PDP oracle is empty: Pinned empty principal collection proves CEL macro identity and planner folding."),
+            Map.entry("pv-structs-missing", "PDP oracle is empty: Eleven principal structs force a value-list lambda; projected members include null or missing variants."),
+            Map.entry("type-string-number", "PDP oracle is empty: Heterogeneous operands deny in CEL; SQL implicit coercion must not over-grant."),
+            Map.entry("type-number-string", "PDP oracle is empty: Heterogeneous operands deny in CEL; SQL implicit coercion must not over-grant."),
+            Map.entry("type-hierarchy-number", "PDP oracle is empty: Heterogeneous operands deny in CEL; SQL implicit coercion must not over-grant."),
+            Map.entry("type-number-contains", "PDP oracle is empty: Non-string receiver must not be coerced to text by the datastore."),
+            Map.entry("type-number-startswith", "PDP oracle is empty: Non-string receiver must not be coerced to text by the datastore."),
+            Map.entry("type-number-endswith", "PDP oracle is empty: Non-string receiver must not be coerced to text by the datastore."));
 
     /**
      * Shapes this adapter refuses to translate: they have no oracle comparison to guard, and stay
      * here as PDP/policy liveness probes for a group the list above cannot cover.
      */
     private static final List<String> DEGENERACY_LIVENESS_PROBES = List.of(
+            "cast-not-double", "cast-not-int", "cast-not-string-missing",
+            "cast-not-string-null", "index-fractional", "index-negative",
+            "index-not-oob", "regex-eq-true", "regex-lookahead",
+            "projection-exists-not-eq",
+            "regex-digit", "regex-case", "regex-posix", "regex-unanchored", "regex-dot", "regex-alternation", "regex-brace", "except-size", "except-eq", "pv-structs", "pv-exists-one", "pv-filter", "pv-map", "pv-except", "lambda-in-literal", "lambda-in-literal-neg", "lambda-ternary", "in-var-var-omitted", "in-var-var-omitted-neg", "not-concat-unsolvable", "not-concat-unsolvable-ne", "hier-overlaps-list-prefix", "not-hasint-empty-chain", "div-by-division", "temporal-raw-eq", "not-nan-ord-le", "not-ternary-parent", "not-nan-order-string", "hasint-null-vf", "hasint-map-null", "hasint-map-null-vf", "eq-list", "ne-list",
             // Three shapes the audit added the corpus for, each refused by name here and compared
             // on the adapters that can express it: size() over a string, a top-level regex
             // alternation, and an empty hierarchy delimiter.
@@ -873,7 +940,19 @@ class ElasticsearchAdversarialConformanceTest {
             "not-contains",
             "arith-mod",
             "index-scalar-list",
+            "index-scalar-list-not-eq",
+            "index-scalar-list-null",
             "map-eq-list",
+            // The same positional read over the number and boolean lists, refused at the same
+            // site: the element type those actions discriminate is never reached here, including
+            // by the two cross-type probes, whose `aNumber == 5` branch is refused with the whole
+            // disjunction.
+            "index-number-list",
+            "index-number-list-not-eq",
+            "index-bool-list",
+            "index-bool-list-not-eq",
+            "index-bool-list-vs-number",
+            "index-number-list-vs-bool",
             // The one hierarchy shape that stays fail-closed once the rest of the group translates (#332):
             // its descendant path is CONSTRUCTED by list() from a constant segment and the primary
             // key, so there is no stored path for a prefix or terms query to run against. It sits
@@ -988,6 +1067,10 @@ class ElasticsearchAdversarialConformanceTest {
         for (int i = 0; i < rawSeeds.size(); i++) {
             String label = "seeds.json seeds[" + i + "]";
             assertKeys(label, keysOf(rawSeeds.get(i)), SEED_KEYS, List.of(SEED_NOTE_KEY));
+            assertScalarList(label + ".aNumberList", rawSeeds.get(i).get("aNumberList"),
+                    JsonNode::isNumber);
+            assertScalarList(label + ".aBoolList", rawSeeds.get(i).get("aBoolList"),
+                    JsonNode::isBoolean);
             JsonNode rawTags = rawSeeds.get(i).get("tags");
             for (int j = 0; j < rawTags.size(); j++) {
                 assertKeys(label + ".tags[" + j + "]", keysOf(rawTags.get(j)), TAG_KEYS,
@@ -1015,11 +1098,8 @@ class ElasticsearchAdversarialConformanceTest {
      *
      * <p>Asserted against the RAW JSON because {@link #principal()} rebuilds the principal from
      * {@link PrincipalSpec} — a rebuilt object could only ever report the keys this harness already
-     * names. The attribute VALUES are asserted too: a key-set guard says nothing about a change
-     * inside one, and three of the four attributes are lists. {@link #principalAttribute} accepts
-     * exactly a string and a list of strings, so a third shape fails here, next to the
-     * declaration, rather than deep in the conversion. It is the same reason the seed guard
-     * descends into {@code tags[]}.
+     * names. Attribute values are guarded as well: scalar types, collection element types and
+     * struct keys must match the corpus declaration before recursive conversion feeds both APIs.
      */
     private static void assertPrincipalCoverage(JsonNode principal) {
         assertKeys("seeds.json principal", keysOf(principal), PRINCIPAL_KEYS, List.of());
@@ -1028,14 +1108,42 @@ class ElasticsearchAdversarialConformanceTest {
         for (Map.Entry<String, JsonNode> entry : attr.properties()) {
             String label = "seeds.json principal.attr." + entry.getKey();
             JsonNode value = entry.getValue();
-            boolean listOfStrings = value.isArray();
-            for (JsonNode element : value) {
-                listOfStrings &= element.isTextual();
+            switch (entry.getKey()) {
+                case "context" -> assertTrue(value.isTextual(), label);
+                case "zero" -> assertTrue(value.isNumber(), label);
+                case "manyStructs", "nullableStructs", "missingStructs" -> {
+                    assertTrue(value.isArray(), label);
+                    for (JsonNode element : value) {
+                        assertTrue(element.isObject(), label);
+                        assertKeys(label + "[]", keysOf(element),
+                                entry.getKey().equals("missingStructs") ? List.of() : List.of("name"),
+                                List.of());
+                        if (!entry.getKey().equals("missingStructs")) {
+                            assertTrue(element.get("name").isTextual() || element.get("name").isNull(), label);
+                        }
+                    }
+                }
+                default -> {
+                    assertTrue(value.isArray(), label);
+                    for (JsonNode element : value) assertTrue(element.isTextual(), label);
+                }
             }
-            assertTrue(value.isTextual() || listOfStrings, () -> label
-                    + " is neither a string nor a list of strings, the only two shapes this harness"
-                    + " consumes: a reshaped principal attribute feeds the plan and the check()"
-                    + " oracle at once");
+        }
+    }
+
+    /**
+     * One homogeneous scalar list, checked against the RAW JSON. The {@link Seed} record's element
+     * type is not a check: Jackson's scalar coercion reads a quoted {@code "2"} into a number list,
+     * and the coerced value would then reach the index and {@code check()} alike, so the
+     * differential would agree about a list the corpus never wrote. A null element is allowed —
+     * the corpus carries them on purpose.
+     */
+    private static void assertScalarList(String label, JsonNode list,
+                                         Predicate<JsonNode> elementType) {
+        assertTrue(list.isArray(), () -> label + " is not an array: " + list);
+        for (JsonNode element : list) {
+            assertTrue(element.isNull() || elementType.test(element),
+                    () -> label + " holds " + element + ", which is not its declared element type");
         }
     }
 

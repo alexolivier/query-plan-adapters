@@ -99,11 +99,11 @@ function requiredEnv(name: string): string {
 
 /**
  * The shared runner sets this, and a fallback would be actively harmful. The obvious default —
- * Cerbos's own 3592/3593 — is the address every adapter's `cerbos run` test sidecar binds, so an
- * unset CERBOS_HOST would not fail: it would quietly plan against the conformance corpus that
- * sidecar serves, and produce a diff against demo/expected.json that reads as an adapter bug.
- * demo/README.md requires reaching the PDP at $CERBOS_HOST, "never a hardcoded address", for
- * exactly that reason.
+ * Cerbos's own 3592/3593 — is where any other local PDP listens (a `cerbos server`, a `docker run`,
+ * another project's), so an unset CERBOS_HOST would not fail: it would quietly plan against
+ * whatever policies that PDP serves, and produce a diff against demo/expected.json that reads as an
+ * adapter bug. demo/README.md requires reaching the PDP at $CERBOS_HOST, "never a hardcoded
+ * address", for exactly that reason.
  */
 const cerbosHost = requiredEnv("CERBOS_HOST");
 
@@ -168,10 +168,6 @@ type Filter = Where | undefined | "denied";
  * `conjoin` below. Getting this wrong is not a silent over-grant; it is a loud `ChromaValueError`
  * on the first unconditional plan the application meets.
  *
- * A `CONDITIONAL` plan with no filter is refused rather than defaulted to "no constraint": the
- * published type makes `filters` optional across all three kinds, and reading a missing one as
- * "match everything" is exactly the over-grant this adapter throws to avoid everywhere else.
- *
  * There is no `default` arm. The three cases are every `PlanKind`, so a fourth would fail to
  * compile here rather than reaching a runtime branch nothing exercises.
  */
@@ -183,7 +179,7 @@ function toFilter(result: QueryPlanToChromaDBResult): Filter {
       return undefined;
     case PlanKind.CONDITIONAL: {
       const filters = result.filters;
-      if (!filters || Object.keys(filters).length === 0) {
+      if (Object.keys(filters).length === 0) {
         throw new Error(
           "a KIND_CONDITIONAL plan carried no filter — refusing to query without one"
         );

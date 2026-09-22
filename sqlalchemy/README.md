@@ -2,7 +2,7 @@
 
 An adapter library that takes a [Cerbos](https://cerbos.dev) Query Plan ([PlanResources API](https://docs.cerbos.dev/cerbos/latest/api/index.html#resources-query-plan)) response and converts it into a [SQLAlchemy](https://docs.sqlalchemy.org/en/14/) Select instance. This is designed to work alongside a project using the [Cerbos Python SDK](https://github.com/cerbos/cerbos-sdk-python).
 
-The adapter supports logical and comparison operators, value-first and field-to-field comparisons, literal-safe string helpers, arithmetic and conditional expressions, scalar casts and sizes, timestamps, and hierarchy comparisons. `operator_override_fns` can provide database- or schema-specific translations for collection and other non-portable shapes.
+The adapter supports logical and comparison operators, value-first and field-to-field comparisons, literal-safe string helpers, arithmetic and conditional expressions, scalar casts and sizes, timestamps, and hierarchy comparisons. A collection stored as a JSON document or a PostgreSQL array is declared in `collection_columns`, which gives it `size()` and constant indexing; `operator_override_fns` can provide database- or schema-specific translations for relation-backed collections and other non-portable shapes.
 
 ## NULL attribute representation
 
@@ -75,6 +75,83 @@ undeclared side needs UNKNOWN — so the adapter throws rather than picking a di
 [#308](https://github.com/cerbos/query-plan-adapters/issues/308) and
 [ADR 0004](../docs/adr/0004-the-null-convention-is-a-property-of-the-attribute.md).
 
+## Collection storage
+
+`size(R.attr.tags)` and `R.attr.tags[0]` have no portable translation until you say how the
+collection is stored — a JSON document, a PostgreSQL array and a related table each need different
+SQL, and a related table has no positional order at all. Declare the storage per attribute:
+
+```python
+from cerbos_sqlalchemy import CollectionColumn, get_query
+
+get_query(
+    plan,
+    Resource,
+    attr_map,
+    collection_columns={
+        # PostgreSQL JSON/JSONB, or a SQLite JSON text column
+        "request.resource.attr.tags": CollectionColumn(Resource.tags, "json"),
+        # a PostgreSQL array of text, varchar, boolean, integer or smallint
+        "request.resource.attr.labels": CollectionColumn(Resource.labels, "pgArray"),
+    },
+)
+```
+
+The storage names are the ones the drizzle adapter uses. The declaration is read in exactly two
+places, and in both it takes precedence over `attr_map` and over any operator override:
+
+- **`size()`** counts the elements. An empty collection is `0`; an SQL NULL column, or a JSON value
+  that is not an array, is UNKNOWN — CEL raises for a missing attribute, so `size(x) == 0` selects the
+  empty rows and never the missing ones, and `size(x) >= 0` still excludes them.
+- **`x[i] == literal`** and **`x[i] != literal`**, for a string, number, boolean or `null` literal
+  at a constant non-negative position, in either operand order and under logical operators. JSON
+  types are kept, as CEL's equality keeps them: `"1"` is not `1`, and a `true` element is not `1`
+  even though SQLite stores both as 1. Numbers compare as doubles. An absent element is UNKNOWN, so
+  it stays excluded under negation just as CEL's index error denies it. A null *element* is a value: `[null][0] == null` is true, and so is
+  `[null][0] != "public"`. PostgreSQL arrays are read through `to_jsonb`, which addresses positions,
+  so an array whose lower bound is not 1 still reads the element CEL does.
+
+Everything else over a declared element raises: a negative or fractional index (CEL raises for both,
+and neither is coerced into a valid read), a dynamic index, an ordering, a projection such as
+`x[0].name`, and a comparison with a list or map literal. Everywhere else the attribute keeps resolving
+through `attr_map`, so a relation marker there goes on serving `exists`, `all`, `in` and the other
+collection macros through your overrides; the column you declare must hold exactly the list you send
+to Cerbos, null elements included.
+
+The SQL is chosen per dialect when the statement is compiled, since `get_query` is never told the
+dialect. It renders on SQLite (JSON1) and PostgreSQL; any other dialect raises `CompileError`.
+
+What translates with no override, and what still needs one:
+
+| Shape | Default | Otherwise |
+| --- | --- | --- |
+| Comparisons, logical operators, value-first and field-to-field forms, ternaries | translated | — |
+| `contains`, `startsWith`, `endsWith` | escaped `LIKE` | — |
+| Arithmetic; `string()` over a numeric, text or boolean column | translated (a boolean through a `CASE` that spells `'true'`/`'false'`) | — |
+| `int()`, `double()` | refused | an override matching your database |
+| `size()` over a string column | `LENGTH` | — |
+| `size()` over a JSON or PostgreSQL array column | refused until declared | `collection_columns` |
+| `x[i] == literal`, `x[i] != literal` over a JSON or PostgreSQL array column | refused until declared | `collection_columns` |
+| `exists`, `all` over a literal list (a principal attribute) | folded | — |
+| `exists`, `all`, `exists_one`, `filter`, `map`, `in`, `hasIntersection`, `size()` over a related table | — | overrides; `require_hops` for a chain through a to-one parent |
+| `index` over any other storage | refused | an `index` override |
+| `matches()` | refused | an override, only if your engine matches RE2 |
+| Timestamps, hierarchies | translated | — |
+
+**Behaviour change (#227).** `size()` over a JSON or array column that `collection_columns` does not
+declare now raises. It used to return `LENGTH()` of the column — the length of its text, a number and
+the wrong one. `index` over a collection with no declared storage now raises a message naming the
+missing declaration rather than `Unrecognised operator: index`. Declaring the storage is new, so no
+existing mapping translates differently.
+
+**Behaviour change (#418).** `string()` over a boolean column now translates, to
+`CASE WHEN col IS NULL THEN NULL WHEN col THEN 'true' ELSE 'false' END`, where it used to raise:
+`CAST` renders `'1'` on SQLite and MySQL where CEL renders `'true'`, and the `CASE` spells CEL's two
+words on every dialect. The `IS NULL` arm keeps a NULL column UNKNOWN, since CEL has no `string()`
+for a missing or null value. The two words are literals, so on MySQL they compare in the
+*connection's* collation: make it case-sensitive, or `string(flag) == "TRUE"` selects the rows CEL
+does not.
+
 ## Example application
 
 This repository carries a runnable [`example/`](example/), which installs the adapter from the
@@ -100,7 +177,7 @@ Three suites, each answering a different question, and only one of them needs an
 | --- | --- | --- |
 | `tests/test_translator.py` | what SQL does `get_query` emit for a plan? | nothing — plans come from `conformance/wire-fixtures/`, expectations from `golden/expectations.json` |
 | `tests/test_query.py`, `tests/test_relations.py` | what does `get_query` do with a plan the planner cannot produce, or an option no policy can reach? | nothing |
-| `tests/test_adversarial_conformance.py` | do the rows that query returns match `check()`? | Docker: a pinned Cerbos PDP, plus in-memory SQLite |
+| `tests/test_adversarial_conformance.py` | do the rows that query returns match `check()`? | Docker: a pinned Cerbos PDP, in-memory SQLite, and a PostgreSQL pinned in [`POSTGRES_IMAGE`](POSTGRES_IMAGE) for the declared collection storage |
 
 ```bash
 pdm install
@@ -123,8 +200,9 @@ adapter's own, and three things about the choice made here are worth knowing:
   after `WHERE`, and the suite asserts the rest of the statement is the same `SELECT … FROM` every
   time.
 - **Two dialects, because they genuinely differ.** SQLite is what the conformance harness executes;
-  PostgreSQL is executed by nothing in this repository and is the dialect this adapter's own source
-  reasons about most (NaN ordering, `CAST` rounding, `string()` over a boolean). They are not close
+  PostgreSQL executes only the actions that read a declared collection — under both storage shapes,
+  with every array rebased to start at 0 — and is the dialect this adapter's own source reasons about
+  most (NaN ordering, `CAST` rounding, `string()` over a boolean). They are not close
   to identical — SQLite has no boolean type, so a `CASE` in a `WHERE` needs `= 1` and a negation
   renders as `= 0`, and the two spell float division differently.
 - **The asset declares which SQLAlchemy major compiled it.** SQL text is the adapter's expression
@@ -136,14 +214,34 @@ adapter's own, and three things about the choice made here are worth knowing:
   run under the other major rather than rewriting the file with a compiler swap dressed up as a
   translation change.
 
+**Behavior changes (#414).** Numeric `size()` and string operations now preserve CEL type errors
+instead of allowing SQL coercion. NaN ordering is false and its negation is true, matching Cerbos 0.55. Membership also
+preserves the declared NULL convention inside lambda bodies and against stored collections.
+Bare comparisons of temporal attributes now raise: database timestamps discard the RFC 3339
+spelling that CEL compares as a string. Use `timestamp()` on both operands to compare instants.
+
 ## Conformance contract
 
-The adapter is differentially tested against Cerbos PDP 0.54.0 `check()` decisions using 22 hostile seed rows and executable SQLAlchemy queries. The Spring Data adapter defines the reference semantics for this compatibility snapshot.
+**Compatibility:** constant NaN ordering follows Cerbos 0.55: an unordered comparison is
+false, so its negation is true. This differs from Cerbos 0.54, where the comparison was
+an evaluation error and remained denied under negation. Missing attributes and other
+evaluation errors retain their existing behavior.
+
+
+The live conformance harness accepts `ADAPTER_TEST_STRICT_EVALUATION=false` (the default)
+or `true`, and rejects other values. CI runs both modes against the same corpus, comparing
+each plan with `check()` decisions from a PDP configured with that same mode.
+
+
+The adapter is differentially tested against Cerbos PDP 0.55.0 `check()` decisions in both strict evaluation modes using 27 hostile seed rows and executable SQLAlchemy queries. The Spring Data adapter defines the reference semantics for this compatibility snapshot.
+
+The oracle comparison runs on four legs, each varying one caller-side choice the corpus cannot: the baseline (the HTTP client, legacy `declarative_base()` models, a synchronous `Connection`), then the **gRPC** client, SQLAlchemy 2.0 **`DeclarativeBase`** models (skipped on 1.4, which has none), and the returned `Select` executed through an **`AsyncSession`** over aiosqlite. Every oracle action runs on every leg, and every fail-closed shape is asserted as a throw over both transports ([#321](https://github.com/cerbos/query-plan-adapters/issues/321)).
 
 | Classification | Coverage |
 | --- | --- |
-| Oracle-tested | 182 reference conformance actions |
-| Fail-closed corpus shapes | Nanosecond `now()` thresholds, regex `matches()`, ordered list indexing/`get-field`, `timestamp()` over an ambiguous string column, `int()`/`double()` casts (SQL `CAST` reads a numeric prefix where CEL demands the whole string, and rounds where CEL truncates toward zero) and `filter()`/`map()` used as a condition (both return a list, not a boolean), a constant zero divisor whose sign the HTTP transport discards, `string()` over a boolean column (SQLite and MySQL store 1/0 and render `'1'` where CEL and PostgreSQL render `'true'`), a hierarchy path constructed by `list()` rather than read from a column, `mod` (reached through the `int()` cast that gives `%` an integer operand), a positional read of a scalar list (row order in a SQL relation is not defined), and list equality over a `map()` projection, whose deferred intermediate no enclosing override consumes, and a hierarchy with an empty delimiter (Cerbos splits the path per character, and the prefix `LIKE` this adapter emits would match the path itself) (21 actions) |
+| Oracle-tested | 242 reference conformance actions, of which the 21 that read a declared collection also run on PostgreSQL under both storage shapes |
+| Transport-dependent | `cr-div-neg-zero` and `nan-ord-inf` — a constant zero divisor. Refused over HTTP, whose JSON body renders `-0.0` as `-0` and decodes it to the integer `0`, so the sign that picks CEL's infinity is gone; **translated over gRPC**, where the protobuf double keeps it, and compared against the oracle there. Both stay among the 57 fail-closed actions below, which classify the HTTP transport |
+| Fail-closed corpus shapes | Nanosecond `now()` thresholds, regex `matches()`, a negative or fractional index and an indexed object projection (`get-field`), `timestamp()` over an ambiguous string column, `int()`/`double()` casts (SQL `CAST` reads a numeric prefix where CEL demands the whole string, and rounds where CEL truncates toward zero) and `filter()`/`map()` used as a condition (both return a list, not a boolean), a constant zero divisor whose sign the HTTP transport discards, a hierarchy path constructed by `list()` rather than read from a column, `mod` (reached through the `int()` cast that gives `%` an integer operand), and list equality over a `map()` projection, whose deferred intermediate no enclosing override consumes, and a hierarchy with an empty delimiter (Cerbos splits the path per character, and the prefix `LIKE` this adapter emits would match the path itself), two-list `except` with resource-list and principal-list receivers, constructor expressions and structured membership needles, unsupported principal-list macros, conditional divisors, and bare temporal-column comparisons (57 actions) |
 | Representation-dependent | `null-eq-missing` — raises under `null_attribute_representation="omitted"`; translated as `IS NULL` under the default, which over-grants if the caller omits attributes for NULL columns |
 | Attribute NULL convention | The equality family (`eq`, `ne`, `in`) over an attribute the caller sends as an explicit null renders definitely, so a NULL row is included where CEL's null *value* says it should be. Declare it per attribute — `attribute_null_representation={reference: "explicit"}` — or the historical rendering applies and `!=` against a constant under-grants those rows (cerbos/query-plan-adapters#308) |
 | Known planner divergence | `has()` on a missing attribute is folded by the Cerbos planner to `ALWAYS_ALLOWED`, while `check()` denies the missing-attribute rows. Until the planner is fixed, use `R.attr.x != null` for database-backed attributes instead of `has(R.attr.x)` |
@@ -229,6 +327,30 @@ It is **optional**, and calling it is not enforced: a caller wiring a join chain
 Passing an ORM model returns `Select[Tuple[Model]]` and passing a Core `Table`
 returns `Select[Any]`, so the row type reaches the caller instead of being erased
 to a bare `Select`.
+
+### Transports
+
+`get_query` accepts the plan from either SDK client: the HTTP `CerbosClient`'s
+`PlanResourcesResponse` or the gRPC client's protobuf one. They are equivalent
+except for one shape — a constant zero divisor such as `x / -0.0` — which only the
+gRPC client can translate, because only its plan keeps the sign of the zero (see
+the transport-dependent row under [Conformance contract](#conformance-contract)).
+Over HTTP that shape raises rather than guessing which infinity CEL produced.
+
+### Async
+
+`get_query` does no I/O: it returns a plain `Select`, which you execute however
+your application already does, including through `AsyncSession` or an
+`AsyncConnection`:
+
+```python
+async with AsyncSession(async_engine) as session:
+    rows = (await session.execute(get_query(plan, Resource, attr_map))).scalars()
+```
+
+Plan with the SDK's async client, or with the sync one off the event loop. The
+conformance harness executes every oracle action this way on aiosqlite, on both
+SQLAlchemy majors.
 
 ### Database collation requirements
 
@@ -356,6 +478,11 @@ query = get_query(
     },
 )
 ```
+
+An entry whose value is `None` uses the default handler, including inside nested expressions.
+Omitting `operator_override_fns` validates every `attr_map` entry. Passing an explicit mapping
+(including `{}` or a map containing only `None` entries) validates the attributes reached outside
+active overrides; an override owns the operands it translates.
 
 The types are as follows:
 

@@ -12,6 +12,37 @@ trap cleanup EXIT INT TERM
 
 cd "${CONFORMANCE_DIR}"
 
+# Keep entry schemas closed so misspelled metadata cannot be silently ignored by loaders.
+if ! jq -e '
+  def text: type == "string" and length > 0;
+  def entry($required; $optional):
+    type == "object"
+    and (($required - keys) | length == 0)
+    and ((keys - ($required + $optional)) | length == 0)
+    and all(to_entries[] | select(.key != "messages" and .key != "adapters"); .value | text);
+  def entries($required; $optional):
+    type == "array" and all(.[]; entry($required; $optional));
+  def per_adapter($required):
+    type == "object" and all(.[]; entries($required; []));
+  def check($bucket; $valid):
+    if $valid then true else error("invalid " + $bucket + " entry schema") end;
+  check("conformance"; .conformance | type == "array" and all(.[]; text))
+  and check("adapterUnsupported"; .adapterUnsupported | per_adapter(["action", "reason", "message"]))
+  and check("adapterSupportedExpected"; .adapterSupportedExpected | per_adapter(["action", "reason"]))
+  and check("expectedUnsupported";
+    (.expectedUnsupported | entries(["action", "shape", "messages"]; ["reason"]))
+    and all(.expectedUnsupported[]; .messages | type == "object" and all(.[]; text)))
+  and check("nullRepresentationOmitted";
+    (.nullRepresentationOmitted | entries(["action", "reason", "messages"]; ["relatedIssue"]))
+    and all(.nullRepresentationOmitted[]; .messages | type == "object" and all(.[]; text)))
+  and check("knownDivergences";
+    (.knownDivergences | entries(["action", "reason", "adapters"]; ["relatedIssue"]))
+    and all(.knownDivergences[]; .adapters | type == "array" and all(.[]; text)))
+' actions.json >/dev/null; then
+  echo "actions.json entries must use their declared keys and non-empty metadata types" >&2
+  exit 1
+fi
+
 sed -n 's/^[[:space:]]*- actions: \["\([^"]*\)"\].*/\1/p' \
   policies/adversarial.yaml | sort >"${VALIDATION_TMP}/policy-actions"
 
@@ -40,13 +71,15 @@ if ! diff -u "${VALIDATION_TMP}/policy-actions" "${VALIDATION_TMP}/classified-ac
 fi
 
 if ! jq -e '
-  all(
+  .adapters as $roster
+  | all(
     .knownDivergences[];
     (.adapters | type == "array" and length > 0 and length == (unique | length))
     and all(.adapters[]; type == "string" and length > 0)
+    and ((.adapters - $roster) | length == 0)
   )
 ' actions.json >/dev/null; then
-  echo "Each known divergence must name a non-empty, duplicate-free adapters list"
+  echo "Each known divergence must name a non-empty, duplicate-free adapters list drawn from the roster"
   exit 1
 fi
 
@@ -178,47 +211,49 @@ while IFS=$'\t' read -r adapter action; do
   fi
 done <"${VALIDATION_TMP}/adapter-supported-expected"
 
-find wire-fixtures -type f -name '*.json' -exec basename {} .json \; |
-  sort >"${VALIDATION_TMP}/fixture-actions"
+for fixture_dir in wire-fixtures wire-fixtures-strict; do
+  find "${fixture_dir}" -type f -name '*.json' -exec basename {} .json \; |
+    sort >"${VALIDATION_TMP}/fixture-actions"
 
-if ! diff -u "${VALIDATION_TMP}/policy-actions" "${VALIDATION_TMP}/fixture-actions"; then
-  echo "Every policy action must have exactly one golden wire fixture"
-  exit 1
-fi
+  if ! diff -u "${VALIDATION_TMP}/policy-actions" "${VALIDATION_TMP}/fixture-actions"; then
+    echo "Every policy action must have exactly one golden wire fixture"
+    exit 1
+  fi
 
-resource_kind="$(jq -r '.resourceKind' seeds.json)"
-while IFS= read -r action; do
-  fixture="wire-fixtures/${action}.json"
-  if ! jq -e \
-    --arg action "${action}" \
-    --arg resourceKind "${resource_kind}" '
-      .action == $action
-      and .resourceKind == $resourceKind
-      and (
-        .filter.kind == "KIND_ALWAYS_ALLOWED"
-        or .filter.kind == "KIND_ALWAYS_DENIED"
-        or .filter.kind == "KIND_CONDITIONAL"
-      )
+  resource_kind="$(jq -r '.resourceKind' seeds.json)"
+  while IFS= read -r action; do
+    fixture="${fixture_dir}/${action}.json"
+    if ! jq -e \
+      --arg action "${action}" \
+      --arg resourceKind "${resource_kind}" '
+        .action == $action
+        and .resourceKind == $resourceKind
+        and (
+          .filter.kind == "KIND_ALWAYS_ALLOWED"
+          or .filter.kind == "KIND_ALWAYS_DENIED"
+          or .filter.kind == "KIND_CONDITIONAL"
+        )
+      ' "${fixture}" >/dev/null; then
+      echo "Invalid golden wire fixture content: ${fixture}"
+      exit 1
+    fi
+  done <"${VALIDATION_TMP}/policy-actions"
+
+  for action in ts-window ts-vf; do
+    fixture="${fixture_dir}/${action}.json"
+    if ! jq -e '
+      [
+        ..
+        | objects
+        | select(.expression?.operator == "timestamp")
+        | .expression.operands[0].value?
+        | select(. != null)
+      ] == ["__NOW_MINUS_24H__"]
     ' "${fixture}" >/dev/null; then
-    echo "Invalid golden wire fixture content: ${fixture}"
-    exit 1
-  fi
-done <"${VALIDATION_TMP}/policy-actions"
-
-for action in ts-window ts-vf; do
-  fixture="wire-fixtures/${action}.json"
-  if ! jq -e '
-    [
-      ..
-      | objects
-      | select(.expression?.operator == "timestamp")
-      | .expression.operands[0].value?
-      | select(. != null)
-    ] == ["__NOW_MINUS_24H__"]
-  ' "${fixture}" >/dev/null; then
-    echo "Dynamic now()-24h timestamp is not normalized in ${fixture}"
-    exit 1
-  fi
+      echo "Dynamic now()-24h timestamp is not normalized in ${fixture}"
+      exit 1
+    fi
+  done
 done
 
 # CERBOS_VERSION and CERBOS_IMAGE_DIGEST are the single source of truth for the pinned PDP: every
@@ -539,6 +574,7 @@ if ! jq -e '
     ((.createdBy | type) == "string")
     and ((.aDouble | type) == "number" or .aDouble == null)
     and ((.createdAt | type) == "string" or .createdAt == null)
+    and ((.updatedAt | type) == "string" or .updatedAt == null)
     and ((.scope | type) == "string" or .scope == null)
     and ((.labels | type) == "array")
     and all(.labels[]; type == "string" or . == null))
@@ -554,7 +590,9 @@ derived_drift="$(jq -r -s '
   | $derived[$seed.id] as $entry
   | [
       (if $entry.createdBy != (
-         if $seed.aNumber >= 2 then "2024-06-01T00:00:00Z" else "2026-06-01T00:00:00Z" end
+         {"h5": "not-a-timestamp"} as $fixed
+         | if ($fixed | has($seed.id)) then $fixed[$seed.id]
+           elif $seed.aNumber >= 2 then "2024-06-01T00:00:00Z" else "2026-06-01T00:00:00Z" end
        ) then "createdBy" else empty end),
       (if $entry.aDouble != (
          {"a1": -0.6, "a2": 0.25, "a3": null, "g1": -9.5e18} as $fixed
@@ -571,7 +609,10 @@ derived_drift="$(jq -r -s '
          | if ($fixed | has($seed.id)) then $fixed[$seed.id]
            elif $seed.aNumber >= 2 then "2036-06-06T06:06:06Z"
            else "2021-05-05T05:05:05Z" end
-       ) then "createdAt" else empty end)
+       ) then "createdAt" else empty end),
+      (if $entry.updatedAt != (
+         {"a1": "2020-03-15T10:30:00.000Z", "a4": "2024-06-01T00:00:00Z"}[$seed.id]
+       ) then "updatedAt" else empty end)
     ]
   | select(length > 0)
   | "  \($seed.id): \(join(", "))"
@@ -611,7 +652,12 @@ cat >"${VALIDATION_TMP}/expected-tables" <<'JSON'
   "d2": { "scope": "e:prod:eu",             "labels": [] },
   "e1": { "scope": null,                    "labels": [] },
   "f1": { "scope": null,                    "labels": [] },
-  "g1": { "scope": null,                    "labels": [] }
+  "g1": { "scope": null,                    "labels": [] },
+  "h1": { "scope": null,                    "labels": [] },
+  "h2": { "scope": null,                    "labels": [] },
+  "h3": { "scope": null,                    "labels": [] },
+  "h4": { "scope": null,                    "labels": [] },
+  "h5": { "scope": null,                    "labels": [] }
 }
 JSON
 jq -S '.derived | map_values({scope, labels})' derived-fields.json \

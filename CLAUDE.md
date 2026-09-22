@@ -110,7 +110,9 @@ pdm run format         # isort + black
 `tests/test_query.py` / `tests/test_relations.py` are `get_query`'s contract for plans the planner
 cannot produce; none of the three starts anything, so `pdm run pytest tests/test_translator.py`
 needs no PDP and no database. Only `tests/test_adversarial_conformance.py` needs Docker, and it
-starts its own pinned PDP against `conformance/policies/`.
+starts its own pinned PDP against `conformance/policies/` — plus a PostgreSQL pinned in
+`sqlalchemy/POSTGRES_IMAGE`, on which the actions that read a `collection_columns` declaration run
+again under both storage shapes (`json` and `pgArray`), since nothing else executes that SQL.
 
 ### Ruby (ActiveRecord)
 ```bash
@@ -400,14 +402,21 @@ For pull requests: give a concise summary, note the affected adapters, link rela
 
 ## CI
 
-Each adapter has its own GitHub Actions workflow triggered by changes in its directory or `/conformance/` — plus `/demo/` where that adapter has an example. Matrix tests across Node versions (22, 24, 25) and relevant service versions. Every adapter workflow validates the corpus and runs its adversarial suite **inside the same job as the regular tests** — there is no separate `adversarial` job. Convex is the one exception, and not by choice: its harness imports `convex/_generated`, which only exists once a live backend has been deployed to, so the corpus leg lives in the job that does the deploy and the codegen rather than putting Docker on every Node leg. On the TypeScript adapters the adversarial step is gated to the baseline Node leg (`if: matrix.node-version == '22'`), because the corpus discriminates the translator and the datastore, not the Node runtime; the other matrix dimensions still get their own adversarial run, and those divide into two kinds:
+Each adapter has its own GitHub Actions workflow triggered by changes in its directory or `/conformance/` — plus `/demo/` where that adapter has an example. Each workflow declares its runtime and service-version matrix. Every adapter workflow validates the corpus and runs its adversarial suite **inside the same job as the regular tests** — there is no separate `adversarial` job. Convex is the one exception, and not by choice: its harness imports `convex/_generated`, which only exists once a live backend has been deployed to, so the corpus leg lives in the job that does the deploy and the codegen rather than putting Docker on every Node leg. On the TypeScript adapters the adversarial step is gated to the baseline Node leg (`if: matrix.node-version == '22'`), because the corpus discriminates the translator and the datastore, not the Node runtime; the other matrix dimensions still get their own adversarial run, and those divide into two kinds:
 
 - **The datastore is one.** Drizzle and Prisma each run the corpus once per `ADAPTER_TEST_DB` store on the baseline Node leg (SQLite, PostgreSQL, MySQL) — collation, LIKE escaping, cast targets and parameter typing are translator behaviour, so a store the workflow does not execute is a store the adapter does not cover. MongoDB server version is the mongoose equivalent, and there the store dimension exists **only** on the baseline Node leg: once `npm test` became an offline translator unit test, a second server crossed with a non-baseline Node version ran byte-identical work, so the workflow `exclude`s those legs rather than paying for them.
 - **The client engine is not, on its own.** Prisma's v6/v7 dimension is an engine matrix; it crosses with the store dimension, giving six adversarial runs per Prisma workflow (2 majors × 3 stores), all on Node 22.
 
 Adding a new adversarial job — or dropping the Node gate so the corpus replays on every Node leg — multiplies runner minutes for no extra coverage. Adding a *store* leg does buy coverage; adding a Node leg does not. `conformance.yaml` additionally replans the golden wire fixtures against the pinned PDP and fails on drift.
 
-Tag-based publishing: `prisma/v*` -> npm, `sqla/v*` -> PyPI, `activerecord/v*` -> RubyGems; `ent/v*` and `pgx/v*` are Go
+Npm releases use `<package-name>@v<version>` tags (for example, `@cerbos/orm-prisma@v5.0.0`),
+as declared in each `*-publish.yaml` workflow. The publish workflow calls the adapter's test
+workflow at the tagged commit and publishes only after its full matrix, conformance suite and
+packaged example succeed. Adapter test workflows run directly on pull requests and through
+`workflow_call` for releases, so a release runs the checks once. Keep the publish workflow
+filenames stable: npm trusted publishing is configured against them.
+
+Other release tags: `sqla/v*` -> PyPI, `activerecord/v*` -> RubyGems; `ent/v*` and `pgx/v*` are Go
 module tags resolved directly from the repository. `elasticsearch-java/v*`, `spring-data/v*` and `exposed/v*` only run that
 adapter's CI workflow: none of those builds configures a Maven Central release (all three are `publishToMavenLocal` only, and
 their `publishing` blocks say what wiring a release still needs), so no Maven Central publish is wired yet.

@@ -9,6 +9,7 @@ import static dev.cerbos.queryplan.elasticsearch.Refusals.malformed;
 import static dev.cerbos.queryplan.elasticsearch.Refusals.unsupported;
 
 import dev.cerbos.api.v1.engine.Engine.PlanResourcesFilter.Expression.Operand;
+import dev.cerbos.queryplan.elasticsearch.ElasticsearchQueryPlanAdapter.ScalarType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -41,9 +42,11 @@ import java.util.Map;
 final class HierarchyTranslator {
 
     private final Scope root;
+    private final Map<String, ScalarType> scalarTypes;
 
-    HierarchyTranslator(Scope root) {
+    HierarchyTranslator(Scope root, Map<String, ScalarType> scalarTypes) {
         this.root = root;
+        this.scalarTypes = scalarTypes;
     }
 
     /** A resolved {@code hierarchy(...)} operand. */
@@ -69,8 +72,8 @@ final class HierarchyTranslator {
     }
 
     /**
-     * Lower one hierarchy relation. The false direction throws before any operand is examined —
-     * see {@link #negatedHierarchy}.
+     * Lower one hierarchy relation. Negated overlap requires the compared field to exist;
+     * negated strict ancestry remains refused until its own corpus probe covers that lowering.
      *
      * <p>The emitted clauses are built from the DEFAULT term-level forms rather than through
      * {@code operatorOverrides}: an override replaces one named plan OPERATOR, and a hierarchy
@@ -80,7 +83,11 @@ final class HierarchyTranslator {
      * already needs.
      */
     Map<String, Object> translate(String operator, List<Operand> operands, Polarity polarity) {
-        if (!polarity.holds()) {
+        if (comparesANonStringField(operands)) {
+            // A hierarchy over a field declared as a non-string is a CEL type error: never true.
+            return Queries.matchNone();
+        }
+        if (!polarity.holds() && !"overlaps".equals(operator)) {
             throw negatedHierarchy(operator);
         }
         if (operands.size() != 2) {
@@ -88,9 +95,39 @@ final class HierarchyTranslator {
         }
         Hierarchy left = normalizeHierarchy(resolveHierarchy(operator, operands.get(0)));
         Hierarchy right = normalizeHierarchy(resolveHierarchy(operator, operands.get(1)));
-        return "overlaps".equals(operator)
+        Map<String, Object> positive = "overlaps".equals(operator)
                 ? hierarchyOverlaps(operator, left, right)
                 : hierarchyStrict(operator, left, right);
+        if (polarity.holds()) return positive;
+        if (left instanceof Hierarchy.FieldRef field) {
+            return Queries.definedAndNot(field.field(), positive);
+        }
+        if (right instanceof Hierarchy.FieldRef field) {
+            return Queries.definedAndNot(field.field(), positive);
+        }
+        throw negatedHierarchy(operator);
+    }
+
+    /**
+     * Whether a {@code hierarchy(<field>, ...)} operand names a field the caller declared with a
+     * scalar type other than {@link ScalarType#STRING}.
+     */
+    private boolean comparesANonStringField(List<Operand> operands) {
+        for (Operand operand : operands) {
+            if (operand.getNodeCase() != Operand.NodeCase.EXPRESSION
+                    || !"hierarchy".equals(operand.getExpression().getOperator())
+                    || operand.getExpression().getOperandsCount() == 0) {
+                continue;
+            }
+            Operand path = operand.getExpression().getOperands(0);
+            if (path.getNodeCase() == Operand.NodeCase.VARIABLE) {
+                ScalarType type = scalarTypes.get(root.field(path.getVariable()));
+                if (type != null && type != ScalarType.STRING) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /** {@code ancestorOf(A, B)} and its mirror {@code descendentOf(A, B)}. */
@@ -104,7 +141,7 @@ final class HierarchyTranslator {
                 && descendant instanceof Hierarchy.FieldRef field) {
             String prefix = String.join(field.delimiter(), constant.segments())
                     + field.delimiter();
-            return prefixQuery(field.field(), prefix);
+            return Queries.prefix(field.field(), prefix);
         }
         if (ancestor instanceof Hierarchy.FieldRef field
                 && descendant instanceof Hierarchy.Constant constant) {
@@ -112,7 +149,7 @@ final class HierarchyTranslator {
             // A one-segment path has no proper prefix, so NOTHING is a strict ancestor of it. An
             // empty `terms` list is a query Elasticsearch accepts and matches nothing with, but it
             // reads as an oversight; `match_none` says the emptiness was the answer.
-            return prefixes.isEmpty() ? Queries.matchNone() : defaultMembership(field.field(), prefixes);
+            return prefixes.isEmpty() ? Queries.matchNone() : Queries.terms(field.field(), prefixes);
         }
         if (ancestor instanceof Hierarchy.Constant a && descendant instanceof Hierarchy.Constant d) {
             // Both sides constant: the relation is decidable here, and only one answer is
@@ -161,12 +198,12 @@ final class HierarchyTranslator {
         // ...the field is a strict ancestor of the constant...
         List<String> prefixes = strictPrefixes(constant.segments(), delimiter);
         if (!prefixes.isEmpty()) {
-            clauses.add(defaultMembership(field.field(), prefixes));
+            clauses.add(Queries.terms(field.field(), prefixes));
         }
         // ...or equal to it...
-        clauses.add(Queries.DEFAULT_OPERATORS.get("eq").apply(field.field(), whole));
+        clauses.add(Queries.term(field.field(), whole));
         // ...or a strict descendant of it.
-        clauses.add(prefixQuery(field.field(), whole + delimiter));
+        clauses.add(Queries.prefix(field.field(), whole + delimiter));
         return Queries.boolShould(List.copyOf(clauses));
     }
 
@@ -193,49 +230,55 @@ final class HierarchyTranslator {
             if (delimiterOperand.getNodeCase() != Operand.NodeCase.VALUE) {
                 throw malformed("hierarchy delimiter must be a value");
             }
-            String delimiter = String.valueOf(PlanValues.protoValueToJava(delimiterOperand.getValue()));
-            return switch (path.getNodeCase()) {
-                case VALUE -> new Hierarchy.Constant(
-                        splitLiteral(String.valueOf(PlanValues.protoValueToJava(path.getValue())), delimiter),
-                        delimiter);
-                case VARIABLE -> new Hierarchy.FieldRef(
-                        root.field(path.getVariable()), delimiter);
-                default -> throw malformed(
-                        "hierarchy(path, delimiter) requires a value or field path");
-            };
+            String delimiter = literalString(delimiterOperand);
+            if (!isValueOrField(path)) {
+                throw malformed("hierarchy(path, delimiter) requires a value or field path");
+            }
+            return pathHierarchy(path, delimiter);
         }
         if (operands.size() == 1) {
             Operand inner = operands.get(0);
-            return switch (inner.getNodeCase()) {
-                case VALUE -> new Hierarchy.Constant(
-                        splitLiteral(String.valueOf(PlanValues.protoValueToJava(inner.getValue())), "."), ".");
-                case VARIABLE -> new Hierarchy.FieldRef(
-                        root.field(inner.getVariable()), ".");
-                case EXPRESSION -> {
-                    if (!"list".equals(inner.getExpression().getOperator())) {
-                        throw malformed("hierarchy requires a value, field or list operand, got "
-                                + inner.getExpression().getOperator());
-                    }
-                    List<HierarchySegment> segments = new ArrayList<>();
-                    for (Operand segment : inner.getExpression().getOperandsList()) {
-                        switch (segment.getNodeCase()) {
-                            case VALUE -> segments.add(new HierarchySegment.Literal(
-                                    String.valueOf(PlanValues.protoValueToJava(segment.getValue()))));
-                            case VARIABLE -> segments.add(new HierarchySegment.Field(
-                                    root.field(segment.getVariable())));
-                            default -> throw malformed(
-                                    "hierarchy list segment must be a value or a field, got "
-                                            + segment.getNodeCase());
-                        }
-                    }
-                    yield new Hierarchy.Segmented(List.copyOf(segments));
-                }
-                default -> throw malformed(
-                        "hierarchy requires a value, field or list operand, got "
-                                + inner.getNodeCase());
-            };
+            if (isValueOrField(inner)) {
+                return pathHierarchy(inner, ".");
+            }
+            if (inner.getNodeCase() != Operand.NodeCase.EXPRESSION) {
+                throw malformed("hierarchy requires a value, field or list operand, got "
+                        + inner.getNodeCase());
+            }
+            if (!"list".equals(inner.getExpression().getOperator())) {
+                throw malformed("hierarchy requires a value, field or list operand, got "
+                        + inner.getExpression().getOperator());
+            }
+            List<HierarchySegment> segments = new ArrayList<>();
+            for (Operand segment : inner.getExpression().getOperandsList()) {
+                segments.add(switch (segment.getNodeCase()) {
+                    case VALUE -> new HierarchySegment.Literal(literalString(segment));
+                    case VARIABLE -> new HierarchySegment.Field(root.field(segment.getVariable()));
+                    default -> throw malformed(
+                            "hierarchy list segment must be a value or a field, got "
+                                    + segment.getNodeCase());
+                });
+            }
+            return new Hierarchy.Segmented(List.copyOf(segments));
         }
         throw malformed("hierarchy requires 1 or 2 operands, got " + operands.size());
+    }
+
+    private static boolean isValueOrField(Operand operand) {
+        return operand.getNodeCase() == Operand.NodeCase.VALUE
+                || operand.getNodeCase() == Operand.NodeCase.VARIABLE;
+    }
+
+    /** A delimited path that is either a literal or a document field holding the whole path. */
+    private Hierarchy pathHierarchy(Operand path, String delimiter) {
+        if (path.getNodeCase() == Operand.NodeCase.VALUE) {
+            return new Hierarchy.Constant(splitLiteral(literalString(path), delimiter), delimiter);
+        }
+        return new Hierarchy.FieldRef(root.field(path.getVariable()), delimiter);
+    }
+
+    private static String literalString(Operand value) {
+        return String.valueOf(PlanValues.protoValueToJava(value.getValue()));
     }
 
     /** Collapse an all-literal {@code list(...)} to a plain constant path. */
@@ -273,7 +316,7 @@ final class HierarchyTranslator {
     }
 
     /**
-     * Why the false direction of a hierarchy relation is refused rather than negated.
+     * Why strict ancestry remains refused in the false direction.
      *
      * <p>A SQL adapter gets the exclusion free from three-valued logic: {@code NULL LIKE 'x%'} is
      * UNKNOWN, so a row with no scope drops out of a negated hierarchy test on its own. Here the
@@ -281,22 +324,13 @@ final class HierarchyTranslator {
      * {@code bool.must_not} around any of them MATCHES a document that has no value for the field
      * — which is the CEL missing-attribute error, an error the PDP denies on. An
      * {@code exists}-guarded negation would express it, exactly as {@code eq}, {@code in},
-     * {@code contains} and {@code startsWith} already are; no corpus action negates a hierarchy
-     * shape, so that guard would ship unproven and this fails closed instead.
+     * {@code contains} and {@code startsWith} already are. The corpus now proves that guard
+     * for overlap; strict ancestry still lacks its own negated probe and remains refused.
      */
     private static UnsupportedPlanShapeException negatedHierarchy(String operator) {
         return unsupported("Negated " + operator + " cannot be expressed safely: "
                 + "a bool.must_not over the prefix/terms/term queries a hierarchy relation lowers "
                 + "to matches every document that has no value for the field");
-    }
-
-    private static Map<String, Object> prefixQuery(String field, String prefix) {
-        return Queries.DEFAULT_OPERATORS.get("startsWith").apply(field, prefix);
-    }
-
-    /** The default {@code terms} form, for the hierarchy lowering that borrows it by shape only. */
-    private static Map<String, Object> defaultMembership(String field, Object value) {
-        return Queries.DEFAULT_OPERATORS.get("in").apply(field, value);
     }
 
     private static boolean isPrefixOf(List<String> shorter, List<String> longer) {
