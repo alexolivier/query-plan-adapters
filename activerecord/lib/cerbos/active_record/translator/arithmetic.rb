@@ -31,7 +31,23 @@ module Cerbos
             return left.public_send(ARITHMETIC.fetch(operator), right)
           end
 
+          # CEL arithmetic on attributes uses doubles, and SQL does not. PostgreSQL and MySQL type
+          # a literal such as `0.1` as an EXACT decimal, so `integer_column * 0.1` is exact there:
+          # `3 * 0.1 = 0.3` is TRUE in SQL and `0.30000000000000004 == 0.3` is FALSE in CEL, and
+          # the filter would give a row that the PDP denies (the corpus action p-double-frac). A
+          # column beside a constant with a fraction is thus cast to a double, which makes the
+          # database do the arithmetic that CEL does. SQLite already uses doubles there, so it
+          # only gains a cast that changes nothing.
+          if fractional_constant?(left) || fractional_constant?(right)
+            left = as_double(left) unless left.is_a?(Numeric)
+            right = as_double(right) unless right.is_a?(Numeric)
+          end
+
           ArelSupport.infix(ARITHMETIC.fetch(operator), left, right)
+        end
+
+        def fractional_constant?(value)
+          value.is_a?(Float) && value.finite? && value != value.truncate
         end
 
         # Cerbos sends each number as a double, and CEL arithmetic on attributes uses doubles.

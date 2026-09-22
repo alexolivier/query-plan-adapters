@@ -114,14 +114,20 @@ cd activerecord
 ./scripts/test.sh spec/translator_spec.rb              # offline: no PDP, no database server
 ./scripts/golden-update.sh                             # rewrite golden/expectations.json
 RUBY_VERSION=3.2 ACTIVERECORD_VERSION=7.1 ./scripts/test.sh
+ADAPTER_TEST_DB=postgres ./scripts/test.sh spec/adversarial_conformance_spec.rb
+ADAPTER_TEST_DB=mysql ./scripts/test.sh spec/adversarial_conformance_spec.rb
 ./scripts/lint.sh
 ```
 
 `spec/translator_spec.rb` is the **translator unit test** and `spec/adapter_contract_spec.rb` is
 the caller-supplied contract — mapper forms, operator overrides, the per-call null
 representation, and the association shapes the adapter refuses to guess at. Neither starts a PDP;
-their models are SQLite in memory. Only `spec/adversarial_conformance_spec.rb` needs Docker, and
-it starts its own pinned PDP against `conformance/policies/`.
+their models are SQLite in memory, and both refuse any other store. Only
+`spec/adversarial_conformance_spec.rb` needs Docker, and it starts its own pinned PDP against
+`conformance/policies/` — and, when `ADAPTER_TEST_DB` names one, a real PostgreSQL or MySQL
+pinned in `activerecord/POSTGRES_IMAGE` and `activerecord/MYSQL_IMAGE` (`sqlite` by default; an
+unknown value fails). The MySQL driver is `trilogy`, with the collation set through
+`collation_connection`, exactly as on Sequel below.
 
 Its golden expectations record the emitted relation **rendered as SQL** — `to_sql` against
 SQLite, with literals inlined, so the operands are in the asset rather than behind a `?`. That
@@ -153,7 +159,7 @@ rather than a minor series: Sequel ships a minor every month without changing it
 both CI legs (5.60 and the newest 5.x) assert the SAME bytes and there is no divergence list.
 Inside `module Cerbos`, `Sequel` is the adapter; the library is `::Sequel`.
 
-Unlike ActiveRecord, the adversarial harness also replays the corpus on a real PostgreSQL and a
+As on ActiveRecord, the adversarial harness also replays the corpus on a real PostgreSQL and a
 real MySQL (`ADAPTER_TEST_DB`, as on drizzle and prisma; an unknown value fails), pinned in
 `sequel/POSTGRES_IMAGE` and `sequel/MYSQL_IMAGE` and started by `scripts/test.sh` through compose
 profiles. The offline suites refuse any store but SQLite, because they assert SQLite's rendering.
@@ -365,7 +371,7 @@ For pull requests: give a concise summary, note the affected adapters, link rela
 
 Each adapter has its own GitHub Actions workflow triggered by changes in its directory or `/conformance/` — plus `/demo/` where that adapter has an example. Each workflow declares its runtime and service-version matrix. Every adapter workflow validates the corpus and runs its adversarial suite **inside the same job as the regular tests** — there is no separate `adversarial` job. Convex is the one exception, and not by choice: its harness imports `convex/_generated`, which only exists once a live backend has been deployed to, so the corpus leg lives in the job that does the deploy and the codegen rather than putting Docker on every Node leg. On the TypeScript adapters the adversarial step is gated to the baseline Node leg (`if: matrix.node-version == '22'`), because the corpus discriminates the translator and the datastore, not the Node runtime; the other matrix dimensions still get their own adversarial run, and those divide into two kinds:
 
-- **The datastore is one.** Drizzle and Prisma each run the corpus once per `ADAPTER_TEST_DB` store on the baseline Node leg (SQLite, PostgreSQL, MySQL), and Sequel does the same on its baseline Ruby leg — collation, LIKE escaping, cast targets and parameter typing are translator behaviour, so a store the workflow does not execute is a store the adapter does not cover. MongoDB server version is the mongoose equivalent, and there the store dimension exists **only** on the baseline Node leg: once `npm test` became an offline translator unit test, a second server crossed with a non-baseline Node version ran byte-identical work, so the workflow `exclude`s those legs rather than paying for them.
+- **The datastore is one.** Drizzle and Prisma each run the corpus once per `ADAPTER_TEST_DB` store on the baseline Node leg (SQLite, PostgreSQL, MySQL), and Sequel and ActiveRecord do the same on their baseline Ruby leg — collation, LIKE escaping, cast targets and parameter typing are translator behaviour, so a store the workflow does not execute is a store the adapter does not cover. MongoDB server version is the mongoose equivalent, and there the store dimension exists **only** on the baseline Node leg: once `npm test` became an offline translator unit test, a second server crossed with a non-baseline Node version ran byte-identical work, so the workflow `exclude`s those legs rather than paying for them.
 - **The client engine is not, on its own.** Prisma's v6/v7 dimension is an engine matrix; it crosses with the store dimension, giving six adversarial runs per Prisma workflow (2 majors × 3 stores), all on Node 22.
 
 Adding a new adversarial job — or dropping the Node gate so the corpus replays on every Node leg — multiplies runner minutes for no extra coverage. Adding a *store* leg does buy coverage; adding a Node leg does not. `conformance.yaml` additionally replans the golden wire fixtures against the pinned PDP and fails on drift.

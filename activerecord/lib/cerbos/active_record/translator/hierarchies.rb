@@ -18,6 +18,13 @@ module Cerbos
             return Values::Hierarchy.new(value: nil, segments: value, delimiter: delimiter)
           end
 
+          # CEL has hierarchy() for a string and for a list of strings, and for nothing else: a
+          # number is a no-overload error, and Cerbos denies the row under both polarities. The
+          # descendant test below is a LIKE, and a LIKE over an integer column is an error on
+          # PostgreSQL and a text coercion on SQLite and MySQL, so the adapter refuses the
+          # operand here rather than leave the answer to the store.
+          require_string_operand("hierarchy", value)
+
           Values::Hierarchy.new(value: value, segments: nil, delimiter: delimiter)
         end
 

@@ -19,6 +19,7 @@
 # At load, not in a `before` hook: the golden regeneration below runs while this file is being
 # read, and rendering a relation needs a connection to quote against. Offline either way — the
 # schema is SQLite in memory and the rows come from conformance/seeds.json.
+Database.require_sqlite!("spec/translator_spec.rb")
 AdversarialModels.establish!
 
 RSpec.describe "translator" do
@@ -102,7 +103,7 @@ RSpec.describe "translator" do
         "conditional" => conditional.size,
         "unconditional" => unconditional.size,
         "throwing" => THROWING_ACTIONS.size
-      }).to eq({"conditional" => 222, "unconditional" => 7, "throwing" => 72})
+      }).to eq({"conditional" => 221, "unconditional" => 7, "throwing" => 73})
     end
 
     # The unconditional folds are the planner's, not this adapter's, and each is pinned

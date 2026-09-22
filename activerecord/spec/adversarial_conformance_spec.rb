@@ -63,7 +63,7 @@ RSpec.describe "adversarial conformance" do
   # into adapterUnsupported fails this list instead of emptying it without a word.
   #
   # The list belongs to this adapter. Do not copy it from another harness: this adapter compares
-  # 227 of the 288 conformance actions, and a list built for an adapter that compares fewer would
+  # 226 of the 288 conformance actions, and a list built for an adapter that compares fewer would
   # leave most of the groups here with no guard at all (cerbos/query-plan-adapters#324).
   #
   # Each entry has an oracle that is not empty and not every seed. Some actions cannot join
@@ -224,7 +224,7 @@ RSpec.describe "adversarial conformance" do
       expect(ConformanceCorpus::NULL_REPRESENTATION_OMITTED.size).to eq(1)
       expect(ConformanceCorpus::MANIFEST_ACTIONS.size).to eq(301)
       # Refusals must retain their pinned messages.
-      expect(ConformanceCorpus::THROWING_ACTIONS.size).to eq(72)
+      expect(ConformanceCorpus::THROWING_ACTIONS.size).to eq(73)
       # Each new hostile group needs a non-degenerate representative.
       expect(DEGENERACY_GUARD_ACTIONS.size).to eq(100)
     end

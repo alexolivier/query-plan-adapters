@@ -5,6 +5,8 @@
 #   ./scripts/test.sh                                    # all the specs
 #   ./scripts/test.sh spec/adversarial_conformance_spec.rb
 #   RUBY_VERSION=3.2 ./scripts/test.sh                   # a different version of Ruby
+#   ADAPTER_TEST_DB=postgres ./scripts/test.sh spec/adversarial_conformance_spec.rb
+#   ADAPTER_TEST_DB=mysql ./scripts/test.sh spec/adversarial_conformance_spec.rb
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -12,6 +14,11 @@ cd "$(dirname "$0")/.."
 CERBOS_VERSION="$(tr -d '[:space:]' < ../conformance/CERBOS_VERSION)"
 CERBOS_IMAGE_DIGEST="$(tr -d '[:space:]' < ../conformance/CERBOS_IMAGE_DIGEST)"
 export CERBOS_VERSION CERBOS_IMAGE_DIGEST
+# The store images, pinned beside this adapter by tag and digest. Compose interpolates every
+# service, so they are exported even for a run that starts neither.
+POSTGRES_IMAGE="$(tr -d '[:space:]' < POSTGRES_IMAGE)"
+MYSQL_IMAGE="$(tr -d '[:space:]' < MYSQL_IMAGE)"
+export POSTGRES_IMAGE MYSQL_IMAGE
 export ADAPTER_TEST_STRICT_EVALUATION="${ADAPTER_TEST_STRICT_EVALUATION-false}"
 case "${ADAPTER_TEST_STRICT_EVALUATION}" in
   false|true) ;;
@@ -19,6 +26,17 @@ case "${ADAPTER_TEST_STRICT_EVALUATION}" in
 esac
 export RUBY_VERSION="${RUBY_VERSION:-3.4}"
 export ACTIVERECORD_VERSION="${ACTIVERECORD_VERSION:-8.0}"
+
+# The store the adversarial harness replays the corpus on. An unknown value fails here rather
+# than falling back, because a typo that quietly ran SQLite would report a store as covered that
+# nothing executed. The offline suites refuse any store but SQLite themselves.
+export ADAPTER_TEST_DB="${ADAPTER_TEST_DB:-sqlite}"
+case "${ADAPTER_TEST_DB}" in
+  sqlite) export DATABASE_URL="" ;;
+  postgres) export DATABASE_URL="postgres://cerbos:cerbos@postgres-store:5432/cerbos" ;;
+  mysql) export DATABASE_URL="trilogy://root:cerbos@mysql-store:3306/cerbos" ;;
+  *) echo "ADAPTER_TEST_DB must be sqlite, postgres or mysql" >&2; exit 1 ;;
+esac
 
 compose() { docker compose "$@"; }
 
@@ -42,8 +60,13 @@ if [[ $# -gt 0 ]]; then
   done
 fi
 
-echo "==> Cerbos ${CERBOS_VERSION}, Ruby ${RUBY_VERSION}, ActiveRecord ${ACTIVERECORD_VERSION}"
+echo "==> Cerbos ${CERBOS_VERSION}, Ruby ${RUBY_VERSION}, ActiveRecord ${ACTIVERECORD_VERSION}, store ${ADAPTER_TEST_DB}"
 compose build tests
+if [[ "${ADAPTER_TEST_DB}" != "sqlite" ]]; then
+  # Named explicitly, which starts a service behind a profile; `--wait` holds until its
+  # healthcheck passes, so the harness never races the server's first boot.
+  compose up -d --wait "${ADAPTER_TEST_DB}-store"
+fi
 if [[ "${needs_pdp}" -eq 1 ]]; then
   compose run --rm tests bundle exec rspec "$@"
 else

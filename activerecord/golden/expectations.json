@@ -13,15 +13,15 @@
     },
     "arith-add-eq-frac": {
       "kind": "KIND_CONDITIONAL",
-      "where": "(\"adversarial_resources\".\"a_double\" + 0.7) = 0.1"
+      "where": "(CAST(\"adversarial_resources\".\"a_double\" AS REAL) + 0.7) = 0.1"
     },
     "arith-add-eq-frac-exact": {
       "kind": "KIND_CONDITIONAL",
-      "where": "(\"adversarial_resources\".\"a_double\" + 0.5) = 0.75"
+      "where": "(CAST(\"adversarial_resources\".\"a_double\" AS REAL) + 0.5) = 0.75"
     },
     "arith-add-ne-frac": {
       "kind": "KIND_CONDITIONAL",
-      "where": "(\"adversarial_resources\".\"a_double\" + 0.7) != 0.1"
+      "where": "(CAST(\"adversarial_resources\".\"a_double\" AS REAL) + 0.7) != 0.1"
     },
     "arith-both": {
       "kind": "KIND_CONDITIONAL",
@@ -521,7 +521,7 @@
     },
     "p-double-frac": {
       "kind": "KIND_CONDITIONAL",
-      "where": "(\"adversarial_resources\".\"a_number\" * 0.1) = 0.3"
+      "where": "(CAST(\"adversarial_resources\".\"a_number\" AS REAL) * 0.1) = 0.3"
     },
     "p-has": {
       "kind": "KIND_ALWAYS_ALLOWED"
@@ -807,10 +807,6 @@
     "type-columns": {
       "kind": "KIND_CONDITIONAL",
       "where": "(CASE WHEN ((\"adversarial_resources\".\"a_string\") IS NULL OR (\"adversarial_resources\".\"a_number\") IS NULL) THEN NULL ELSE FALSE END)"
-    },
-    "type-hierarchy-number": {
-      "kind": "KIND_CONDITIONAL",
-      "where": "\"adversarial_resources\".\"a_number\" LIKE '1.2.%' ESCAPE '\\'"
     },
     "type-number-string": {
       "kind": "KIND_CONDITIONAL",

@@ -54,9 +54,11 @@ module Cerbos
         end
       end
 
-      # The type name that a CAST to a string must use. MySQL has no +TEXT+ target for a CAST.
+      # The type name that a CAST to a string must use. MySQL has no +TEXT+ target for a CAST,
+      # and no +VARCHAR+ one either: its string target is +CHAR+, which without a length gives a
+      # string of any length in the character set and collation of the connection.
       def text_type
-        mysql? ? "VARCHAR" : "TEXT"
+        mysql? ? "CHAR" : "TEXT"
       end
     end
   end

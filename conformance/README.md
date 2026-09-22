@@ -692,8 +692,8 @@ compares them in the *connection's* collation rather than a column's, and a driv
 connection collation is case-insensitive: on it, `string(flag) == "TRUE"` matches every true row,
 which CEL never does. drizzle renders the literals `COLLATE utf8mb4_0900_bin`, and ent keeps its
 binary-collation `CAST` around the `CASE`, so both are byte-exact on their MySQL legs; sequel's
-MySQL leg sets `collation_connection` to `utf8mb4_0900_bin`, which is where those literals compare;
-activerecord and sqlalchemy run no MySQL leg and state the requirement in their READMEs; spring-data never
+and activerecord's MySQL legs set `collation_connection` to `utf8mb4_0900_bin`, which is where those
+literals compare; sqlalchemy runs no MySQL leg and states the requirement in its README; spring-data never
 compares text. The action only ever compares with `"true"`, and `aBool` is never NULL on any seed,
 so neither the collation nor the `IS NULL` arm is proved against the oracle yet — both are pinned
 in unit tests and golden expectations until the corpus carries a probe for each
@@ -1546,11 +1546,12 @@ the policy suite and classify it like anything else.
 - **A dialect the harness does not exercise is not covered.** Collation, LIKE metacharacter
   handling and parameter typing all differ per dialect, and the READMEs treat them as part of the
   policy contract for exactly this reason. `ent` and `spring-data` run three dialects each, and so
-  do `drizzle` and `prisma` — SQLite, PostgreSQL and MySQL, chosen with `ADAPTER_TEST_DB`
+  do `drizzle`, `prisma`, `sequel` and `activerecord` — SQLite, PostgreSQL and MySQL, chosen with
+  `ADAPTER_TEST_DB`
   ([#320](https://github.com/cerbos/query-plan-adapters/issues/320) for PostgreSQL,
   [#340](https://github.com/cerbos/query-plan-adapters/issues/340) for MySQL); the remaining
-  TypeScript harnesses are still single-store. Those legs are not a formality. Adding them turned
-  up four live mechanisms SQLite could not see, only two of them visible in `actions.json`
+  TypeScript harnesses are still single-store. Those legs are not a formality. Adding them to
+  drizzle and prisma turned up four live mechanisms SQLite could not see, only two of them visible in `actions.json`
   afterwards because the other two were fixed in the translator:
   - `drizzle`, `$1 IS NULL` over a bound constant — untypeable on PostgreSQL, so a hard error
     rather than the redundancy it is on SQLite (`cr-contains`, `like-underscore`, and the five
@@ -1569,6 +1570,12 @@ the policy suite and classify it like anything else.
     An adapter that does not know its dialect has no portable spelling, so `string()` is now
     `adapterUnsupported` there and throws; `ent` keeps translating it because `WithDialect` tells
     its renderer which target to emit.
+  - `sequel` and `activerecord`, the same `p-double-frac` over-grant from the other side: the
+    column is an `integer`, and PostgreSQL and MySQL type the literal `0.1` as an exact decimal,
+    so both now cast the column to a double beside a constant with a fraction. The same legs
+    showed `hierarchy()` over an integer reaching a `LIKE` PostgreSQL rejects
+    (`type-hierarchy-number`, now `adapterUnsupported` on both), and on `activerecord` a
+    `CAST(… AS VARCHAR)` MySQL cannot parse, now `CHAR` from the dialect it already knew.
 
   The MySQL legs also measured what the collation costs, which is a store fact no classification
   records: replayed under MySQL's default `utf8mb4_0900_ai_ci`, **45 of drizzle's 176 and 42 of

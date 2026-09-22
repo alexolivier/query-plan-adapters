@@ -20,12 +20,12 @@ module AdversarialModels
   def define_schema!
     ActiveRecord::Schema.verbose = false
     ActiveRecord::Schema.define do
-      create_table :adversarial_resources, id: false, force: true do |t|
+      create_table :adversarial_resources, id: false, force: true, **Database.table_options do |t|
         t.string :id, null: false, primary_key: true
         t.boolean :a_bool, null: false
         t.string :a_string, null: false
         t.integer :a_number, null: false
-        t.float :a_double
+        t.column :a_double, Database.double_type
         t.string :a_optional_string
         t.string :created_by, null: false
         t.string :scope
@@ -42,7 +42,7 @@ module AdversarialModels
       # The unique index on the foreign key is what makes each level to-ONE. Without it,
       # ActiveRecord would still accept the mapping and the adapter would make a subquery that
       # can give more than one row.
-      create_table :adversarial_parents, id: false, force: true do |t|
+      create_table :adversarial_parents, id: false, force: true, **Database.table_options do |t|
         t.string :id, null: false, primary_key: true
         t.boolean :a_bool, null: false
         t.string :a_string, null: false
@@ -51,7 +51,7 @@ module AdversarialModels
         t.string :resource_id, null: false, index: {unique: true}
       end
 
-      create_table :adversarial_inners, id: false, force: true do |t|
+      create_table :adversarial_inners, id: false, force: true, **Database.table_options do |t|
         t.string :id, null: false, primary_key: true
         t.boolean :a_bool, null: false
         t.string :a_string, null: false
@@ -60,7 +60,7 @@ module AdversarialModels
         t.string :parent_id, null: false, index: {unique: true}
       end
 
-      create_table :adversarial_tags, force: true do |t|
+      create_table :adversarial_tags, force: true, **Database.table_options do |t|
         t.string :tag_id, null: false
         t.string :name
         t.string :resource_id, null: false
@@ -71,31 +71,31 @@ module AdversarialModels
       # is a value, as it is in `tagNames`), and the element's position. The position is the
       # one thing `aNumberList[0]` needs and the one thing a relation mapping cannot carry,
       # which is why every corpus action that reads these lists is refused at `index`.
-      create_table :adversarial_number_list_elements, force: true do |t|
+      create_table :adversarial_number_list_elements, force: true, **Database.table_options do |t|
         t.integer :position, null: false
-        t.float :value
+        t.column :value, Database.double_type
         t.string :resource_id, null: false
       end
 
-      create_table :adversarial_bool_list_elements, force: true do |t|
+      create_table :adversarial_bool_list_elements, force: true, **Database.table_options do |t|
         t.integer :position, null: false
         t.boolean :value
         t.string :resource_id, null: false
       end
 
-      create_table :adversarial_categories, id: false, force: true do |t|
+      create_table :adversarial_categories, id: false, force: true, **Database.table_options do |t|
         t.string :id, null: false, primary_key: true
         t.string :name, null: false
         t.string :resource_id, null: false
       end
 
-      create_table :adversarial_sub_categories, id: false, force: true do |t|
+      create_table :adversarial_sub_categories, id: false, force: true, **Database.table_options do |t|
         t.string :id, null: false, primary_key: true
         t.string :name, null: false
         t.string :category_id, null: false
       end
 
-      create_table :adversarial_labels, id: false, force: true do |t|
+      create_table :adversarial_labels, id: false, force: true, **Database.table_options do |t|
         t.string :id, null: false, primary_key: true
         t.string :name
         t.string :sub_category_id, null: false

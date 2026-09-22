@@ -51,6 +51,16 @@ ordering now preserve CEL's null/error behavior through negation. Comparisons be
 heterogeneous scalar types preserve CEL equality and missing values instead of allowing SQL
 to coerce a string such as `"0"` into a number; two declared explicit nulls still compare equal.
 
+**Breaking:** `hierarchy()` over a non-string column (`type-hierarchy-number`) now raises
+`hierarchy requires a string operand, got integer`. It used to return a filter: a `LIKE` over
+the integer column, which PostgreSQL rejects as an error and SQLite and MySQL answered by
+coercing the number to text. CEL has no `hierarchy()` for a number, so Cerbos denies every row.
+Arithmetic between a column and a constant with a fraction (`R.attr.n * 0.1`) now casts the
+column to a double, so PostgreSQL and MySQL compute in doubles as CEL does instead of in exact
+decimals — without it `3 * 0.1 == 0.3` returned rows the PDP denies (`p-double-frac`). And
+`string()` over a non-boolean column now casts to `CHAR` on MySQL, whose `CAST` has no
+`VARCHAR` target: the previous SQL was a syntax error there.
+
 ### Conformance contract
 
 **Compatibility:** constant NaN ordering follows Cerbos 0.55: an unordered comparison is
@@ -80,8 +90,8 @@ server. Rewrite it with `./scripts/golden-update.sh` and review the diff.
 
 | Classification | Coverage |
 | --- | --- |
-| Tested against the oracle | 227 corpus actions |
-| Fail-closed | 72 actions: 61 that this adapter cannot show, and the 11 that the reference adapter does not support either. Each one must raise an error whose message the corpus pins, so a typo or a transport error cannot pass as the refusal |
+| Tested against the oracle | 226 corpus actions, on SQLite, PostgreSQL and MySQL |
+| Fail-closed | 73 actions: 62 that this adapter cannot show, and the 11 that the reference adapter does not support either. Each one must raise an error whose message the corpus pins, so a typo or a transport error cannot pass as the refusal |
 | Refused under the `omitted` NULL convention | 1 action — see [The NULL convention of the caller](#the-null-convention-of-the-caller) |
 | Known difference in the planner | The Cerbos planner changes `has()` on a missing attribute into `ALWAYS_ALLOWED`, but `checkResource` denies the rows in which the attribute is missing. Until the planner has a correction, use `R.attr.x != null` and not `has(R.attr.x)` for the attributes in your database |
 
@@ -107,6 +117,7 @@ models is a usual correlated predicate. These shapes stay:
 | `index-scalar-list`, `index-number-list`, `index-number-list-not-eq`, `index-bool-list`, `index-bool-list-not-eq`, `index-bool-list-vs-number`, `index-number-list-vs-bool` | `tagNames[0]`, `aNumberList[0]` and `aBoolList[0]`, positional access into a list of strings, numbers or booleans. The same missing row order as `p-index`, reached through a relation mapped by member field rather than through a principal attribute. The last two compare a boolean element with `1` and a number element with `true`, which CEL answers false for every row. SQLite holds a boolean as the integer 1, so a positional lowering that compared the stored element with the literal would return rows the PDP denies. |
 | `map-eq-list` | A `map()` projection compared with `==` to a literal list. The projection is held until `size()` or `hasIntersection()` gives it a scalar meaning; comparing the ordered projection itself gives it none, and a correlated subquery has no ordering to compare element-wise against. |
 | `hier-empty-delim` | A hierarchy with an empty delimiter. Cerbos splits the path on `""` into one segment per character, so `descendentOf` becomes a test of a string prefix. The adapter makes `LIKE prefix + delimiter + '%'`, which with an empty delimiter also matches the path itself, and a path is never its own descendant. The adapter refuses the delimiter before it makes the `LIKE`. |
+| `type-hierarchy-number` | `hierarchy()` over an integer column. CEL has `hierarchy()` for a string and a list of strings only, so Cerbos denies every row. The descendant test is a `LIKE`, which PostgreSQL rejects over an integer and SQLite and MySQL answer by coercing the number to text, so the adapter refuses the operand when it builds the hierarchy. |
 
 The adapter also raises an error for a plan whose `and` or `or` carries no operands, and for any
 operator that carries the wrong number of operands. The planner does not make those shapes, so
@@ -241,7 +252,8 @@ column, so MySQL uses the collation of the connection for it. Make that collatio
 case-sensitive too: with the default `utf8mb4_0900_ai_ci`, `string(R.attr.flag) == "TRUE"`
 selects the rows where the flag is true, and CEL selects none.
 
-The suites here use SQLite only. This adapter has no test coverage for the other dialects.
+The adversarial harness replays the corpus on SQLite, PostgreSQL and MySQL, so all three
+dialects are covered. The offline suites record and assert SQLite's rendering only.
 
 ## Requirements
 
@@ -508,8 +520,25 @@ All the components run in Docker. The version of the PDP comes from
 ./scripts/test.sh spec/translator_spec.rb           # offline: no PDP, no database server
 ./scripts/golden-update.sh                          # rewrite golden/expectations.json
 RUBY_VERSION=3.2 ACTIVERECORD_VERSION=7.1 ./scripts/test.sh
+ADAPTER_TEST_DB=postgres ./scripts/test.sh spec/adversarial_conformance_spec.rb
+ADAPTER_TEST_DB=mysql ./scripts/test.sh spec/adversarial_conformance_spec.rb
 ./scripts/lint.sh
 ```
+
+`ADAPTER_TEST_DB` chooses the store the adversarial harness runs on: `sqlite` (the default, in
+memory), `postgres` or `mysql`; any other value fails. The two servers are pinned by tag and
+digest in [`POSTGRES_IMAGE`](POSTGRES_IMAGE) and [`MYSQL_IMAGE`](MYSQL_IMAGE), and
+`scripts/test.sh` starts the one it needs. MySQL runs with `utf8mb4_0900_bin` on the server, the
+tables and the connection, because the default collation makes `=` case-insensitive and CEL's
+string equality is byte-exact. The driver is `trilogy`; the harness sets the collation with
+`collation_connection`, never `SET NAMES ... COLLATE`, which crashes that driver. The two
+offline suites refuse any store but SQLite, because they assert SQLite's rendering. CI replays
+the corpus on all three stores, under both evaluation modes.
+
+The real stores are not a formality. They found three filters that SQLite answered without
+complaint: `integer_column * 0.1` computing in exact decimals (an over-grant, `p-double-frac`),
+`hierarchy()` over an integer column reaching a `LIKE` PostgreSQL rejects
+(`type-hierarchy-number`), and `CAST(... AS VARCHAR)`, which MySQL cannot parse.
 
 The `tests` service mounts the **root directory of the repository**, because both corpus suites
 read shared data at `../conformance/` (`seeds.json`, `actions.json`, `derived-fields.json`,

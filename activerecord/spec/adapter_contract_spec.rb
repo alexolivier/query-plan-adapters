@@ -32,6 +32,8 @@
 #
 # Needs no PDP and no database server: the models are SQLite in memory.
 
+Database.require_sqlite!("spec/adapter_contract_spec.rb")
+
 RSpec.describe Cerbos::ActiveRecord do
   before(:all) do
     AdversarialModels.establish!

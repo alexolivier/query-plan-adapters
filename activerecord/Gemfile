@@ -15,6 +15,11 @@ group :development, :test do
   # plan and check against a real PDP through it, so its output types are what the adapter
   # is proved against.
   gem "cerbos", "~> 0.13"
+  # The drivers of the two real stores the adversarial harness replays the corpus on
+  # (ADAPTER_TEST_DB=postgres|mysql). trilogy and not mysql2: it needs no MySQL client library,
+  # and ActiveRecord ships an adapter for it from 7.1, the bottom of the gemspec's range.
+  gem "pg", "~> 1.5"
+  gem "trilogy", "~> 2.9"
   gem "rake", "~> 13.2"
   gem "rspec", "~> 3.13"
   gem "sqlite3", "~> 2.6"
