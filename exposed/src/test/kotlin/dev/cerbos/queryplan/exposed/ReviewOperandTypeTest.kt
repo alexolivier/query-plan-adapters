@@ -154,8 +154,8 @@ class ReviewOperandTypeTest {
 
         /**
          * Runs [body] against a throwaway MySQL server, pinned by `exposed/MYSQL_IMAGE` and
-         * configured exactly as the conformance harness configures its own MySQL leg — a case- and
-         * accent-sensitive collation, so nothing below can be blamed on MySQL's default.
+         * configured exactly as the conformance harness configures its own MySQL leg — a byte-exact
+         * collation, so nothing below can be blamed on MySQL's default.
          */
         fun withMySql(body: (MySqlQueries) -> Unit) {
             // Skips without Docker rather than failing: the coercion it measures is a property of

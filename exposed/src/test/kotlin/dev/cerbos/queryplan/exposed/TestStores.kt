@@ -54,10 +54,12 @@ internal class TestStore(
         /**
          * MySQL's own default, `utf8mb4_0900_ai_ci`, makes `=` itself case- and accent-insensitive
          * while CEL's is byte-exact. That is a store misconfiguration, not an adapter limitation,
-         * so the leg pins a case- and accent-sensitive collation; overriding it with the default
-         * reproduces the documented over-grant and measures what it costs.
+         * so the leg pins the byte-exact NO PAD collation; overriding it with the default
+         * reproduces the documented over-grant and measures what it costs. Case- and
+         * accent-sensitive is not enough: `utf8mb4_0900_as_cs` gives a soft hyphen no weight, so
+         * seed h6 (`"o\u00ADne"`) equals `"one"` under it (cerbos/query-plan-adapters#474).
          */
-        const val DEFAULT_MYSQL_COLLATION: String = "utf8mb4_0900_as_cs"
+        const val DEFAULT_MYSQL_COLLATION: String = "utf8mb4_0900_bin"
 
         fun selected(): String = System.getProperty(PROPERTY, "h2")
 

@@ -464,8 +464,8 @@ capture the outer correlation. **Do not give a table in your own query an alias 
 
 ## Database collation and case sensitivity
 
-> **⚠️ Hard requirement: every string column a mapping references must compare case- and
-> accent-sensitively, and `LIKE` must be case-sensitive.**
+> **⚠️ Hard requirement: every string column a mapping references must compare byte-exactly, and
+> `LIKE` must be case-sensitive.**
 
 CEL string comparison at the PDP is exact and byte-sensitive: with `R.attr.department == "finance"`,
 a `check()` for a resource holding `"Finance"` returns **DENY**. The adapter emits the comparison
@@ -474,10 +474,15 @@ than CEL, the filter returns rows the policy denies — an over-grant, with noth
 Both of the following are store configuration, not adapter limitations:
 
 - **MySQL.** The default `utf8mb4_0900_ai_ci` is case- *and* accent-insensitive, so `=` itself
-  over-grants. Use a case- and accent-sensitive collation — `utf8mb4_0900_as_cs`, or `utf8mb4_bin` —
-  on every string column a mapping references. The differential harness creates its MySQL schema
-  with `utf8mb4_0900_as_cs` for exactly this reason, and its mixed-case seeds fail the oracle
-  comparison under the default.
+  over-grants. Use `utf8mb4_0900_bin` (MySQL 8.0.17+) on every string column a mapping references.
+  Case-sensitive is not enough: `utf8mb4_0900_as_cs` is still a Unicode collation, which gives a
+  default-ignorable code point such as SOFT HYPHEN (U+00AD) no weight, so `'o\u00ADne' = 'one'` is
+  TRUE under it and `==` and `in` over-grant while `!=` under-grants
+  ([#474](https://github.com/cerbos/query-plan-adapters/issues/474)). `utf8mb4_bin` is byte-exact but
+  PAD SPACE, so `'a' = 'a '` is TRUE under it. `utf8mb4_0900_bin` is the one MySQL collation that is
+  both byte-exact and NO PAD. The differential harness creates its MySQL schema with it for exactly
+  this reason: its mixed-case seeds fail the oracle comparison under the default, and its
+  soft-hyphen seed (`h6`) under `utf8mb4_0900_as_cs`.
 - **SQLite.** `LIKE` is case-insensitive for ASCII by default, and this adapter lowers string
   matching (`contains` / `startsWith` / `endsWith`, and hierarchy prefix tests) to `LIKE`. Set
   `PRAGMA case_sensitive_like = ON` on the connection, as the harness does.
@@ -491,7 +496,7 @@ and hierarchy descendant checks. Treat collation as part of your policy contract
 ## Conformance contract
 
 The adapter is differentially tested against Cerbos PDP 0.55.0 `check()` decisions, in both strict
-evaluation modes, using 27 hostile seed rows, on H2, SQLite, PostgreSQL and MySQL. The Spring Data adapter defines the reference
+evaluation modes, using 29 hostile seed rows, on H2, SQLite, PostgreSQL and MySQL. The Spring Data adapter defines the reference
 semantics this one follows.
 
 The figures below are an **output** of that harness, not an estimate, and the same figures hold on
@@ -511,7 +516,7 @@ against a real store, and compares the returned ids with per-row `check()` decis
 the oracle for both sides, so there are no hand-written expectations.
 `ExposedTranslatorTest` translates the same actions offline from `conformance/wire-fixtures/` and
 asserts the emitted SQL against [`golden/expectations.json`](golden/expectations.json). What the
-second buys over the first is the rows nobody seeded: two queries can agree on all 27 seeds and
+second buys over the first is the rows nobody seeded: two queries can agree on all 29 seeds and
 disagree on the row you have, so a rewrite that quietly changes the emitted SQL passes the oracle
 and shows up there as a diff.
 

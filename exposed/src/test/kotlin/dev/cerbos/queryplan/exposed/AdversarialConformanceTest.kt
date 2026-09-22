@@ -1395,7 +1395,7 @@ class AdversarialConformanceTest {
         assertEquals(301, manifest.size) {
             "corpus size changed; triage the new action(s) before bumping this pin"
         }
-        assertEquals(27, seeds.size, "seed count changed")
+        assertEquals(29, seeds.size, "seed count changed")
         // Throwing-count tripwire: each of these carries a pinned message, so a shape gained or
         // lost has to be re-triaged here rather than joining the throw suite unnoticed.
         assertEquals(74, throwing.size, "throwing action count changed")
