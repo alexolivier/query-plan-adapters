@@ -28,8 +28,9 @@ import { PlanKind } from ".";
  *   proves that same filter returns the documents the PDP allows. Both read `MAPPER` from
  *   `../convex/adversarialMapper`, which is also where the Convex backend reads it — one
  *   definition, three readers, no copy to drift.
- * - **the classification.** Which actions this adapter must refuse, and with which message, is a
- *   corpus decision (`actions.json`), not a per-suite one.
+ * - **the classification.** Which actions this adapter must refuse, and with which message, is an
+ *   adapter decision recorded in this adapter's ledger (`conformance-ledger.json`), not a
+ *   per-suite one — see [ADR 0010](../../docs/adr/0010-each-adapter-owns-its-conformance-ledger.md).
  *
  * The declared-key guards live here for the same reason, even though only the harness consumes
  * seeds: they are one adapter's statement of what it reads out of the corpus, and a second copy
@@ -47,6 +48,13 @@ import { PlanKind } from ".";
 export const ADAPTER = "convex";
 
 export const CONFORMANCE_DIR = path.join(__dirname, "..", "..", "conformance");
+
+/**
+ * This adapter's classification against the corpus: which actions it refuses and with which
+ * message. It sits beside the adapter, not under `conformance/` — see
+ * [ADR 0010](../../docs/adr/0010-each-adapter-owns-its-conformance-ledger.md).
+ */
+export const LEDGER_FILE = path.join(__dirname, "..", "conformance-ledger.json");
 
 // -- the PDP -------------------------------------------------------------------------------------
 
@@ -156,26 +164,19 @@ export function assertKeys(
 export interface UnsupportedShape {
   action: string;
   shape: string;
-  /** One entry per adapter that must reject the shape; the corpus asserts the key set. */
-  messages: Record<string, string>;
-}
-
-export interface AdapterOutcome {
-  action: string;
-  reason: string;
-  /** Absent on `adapterSupportedExpected` / `nullRepresentationOmitted`, required on a throw. */
-  message?: string;
+  /** Set on some entries; the message this adapter must raise is in the ledger, not here. */
+  reason?: string;
 }
 
 /**
  * A `nullRepresentationOmitted` entry. Every adapter must reject these — the two NULL conventions
- * are indistinguishable on the wire — so `messages` names the whole roster with no promotions to
- * subtract.
+ * are indistinguishable on the wire — so the ledger pins a message for every one, with no
+ * promotions to subtract.
  */
 export interface NullRepresentationOmittedEntry {
   action: string;
   reason: string;
-  messages: Record<string, string>;
+  relatedIssue?: unknown;
 }
 
 export interface KnownDivergence {
@@ -196,8 +197,6 @@ export interface DegenerateOracle {
 
 export interface ActionsFile {
   conformance: string[];
-  adapterUnsupported: Record<string, AdapterOutcome[]>;
-  adapterSupportedExpected: Record<string, AdapterOutcome[]>;
   expectedUnsupported: UnsupportedShape[];
   nullRepresentationOmitted: NullRepresentationOmittedEntry[];
   knownDivergences: KnownDivergence[];
@@ -208,31 +207,14 @@ const isUnsupportedShape = (value: unknown): value is UnsupportedShape =>
   isRecord(value) &&
   typeof value["action"] === "string" &&
   typeof value["shape"] === "string" &&
-  isMessageMap(value["messages"]);
-
-const isAdapterOutcome = (value: unknown): value is AdapterOutcome =>
-  isRecord(value) &&
-  typeof value["action"] === "string" &&
-  typeof value["reason"] === "string" &&
-  // `adapterUnsupported` carries this and the classification below requires it;
-  // `adapterSupportedExpected` and `nullRepresentationOmitted` do not throw, so they do not.
-  (value["message"] === undefined || typeof value["message"] === "string");
-
-const isAdapterMap = (
-  value: unknown,
-): value is Record<string, AdapterOutcome[]> =>
-  isRecord(value) &&
-  Object.values(value).every(
-    (entries) => Array.isArray(entries) && entries.every(isAdapterOutcome),
-  );
+  (value["reason"] === undefined || typeof value["reason"] === "string");
 
 const isNullRepresentationOmitted = (
   value: unknown,
 ): value is NullRepresentationOmittedEntry =>
   isRecord(value) &&
   typeof value["action"] === "string" &&
-  typeof value["reason"] === "string" &&
-  isMessageMap(value["messages"]);
+  typeof value["reason"] === "string";
 
 const isKnownDivergence = (value: unknown): value is KnownDivergence =>
   isRecord(value) &&
@@ -256,8 +238,6 @@ export function parseActionsFile(value: unknown): ActionsFile {
   if (
     !isRecord(value) ||
     !isStringArray(value["conformance"]) ||
-    !isAdapterMap(value["adapterUnsupported"]) ||
-    !isAdapterMap(value["adapterSupportedExpected"]) ||
     !Array.isArray(value["expectedUnsupported"]) ||
     !value["expectedUnsupported"].every(isUnsupportedShape) ||
     !Array.isArray(value["nullRepresentationOmitted"]) ||
@@ -270,6 +250,78 @@ export function parseActionsFile(value: unknown): ActionsFile {
     throw new Error("Invalid conformance actions");
   }
   return value as unknown as ActionsFile;
+}
+
+// -- conformance-ledger.json ---------------------------------------------------------------------
+
+export interface AdapterOutcome {
+  action: string;
+  reason: string;
+  /** Absent on `adapterSupportedExpected`, which does not throw; required on a throw. */
+  message?: string;
+}
+
+/**
+ * This adapter's ledger (`conformance-ledger.json`): its classification against the corpus. The
+ * roster-wide invariants — closed schema, no duplicates, every action exists, message key sets
+ * exactly right — are `validate-corpus.sh`'s; this parse is what stops a renamed key arriving as
+ * `undefined` and being read as "nothing to refuse".
+ */
+export interface ConformanceLedger {
+  description: string;
+  adapter: string;
+  adapterUnsupported: AdapterOutcome[];
+  adapterSupportedExpected: AdapterOutcome[];
+  expectedUnsupportedMessages: Record<string, string>;
+  nullRepresentationOmittedMessages: Record<string, string>;
+}
+
+const LEDGER_KEYS = [
+  "description",
+  "adapter",
+  "adapterUnsupported",
+  "adapterSupportedExpected",
+  "expectedUnsupportedMessages",
+  "nullRepresentationOmittedMessages",
+] as const;
+
+const isAdapterOutcome = (value: unknown): value is AdapterOutcome =>
+  isRecord(value) &&
+  typeof value["action"] === "string" &&
+  typeof value["reason"] === "string" &&
+  // `adapterUnsupported` carries this and the classification below requires it;
+  // `adapterSupportedExpected` does not throw, so it does not.
+  (value["message"] === undefined || typeof value["message"] === "string");
+
+const isOutcomeList = (value: unknown): value is AdapterOutcome[] =>
+  Array.isArray(value) && value.every(isAdapterOutcome);
+
+/** The ledger, validated rather than cast, and asserted to be THIS adapter's. */
+export function parseLedger(value: unknown): ConformanceLedger {
+  if (!isRecord(value)) {
+    throw new Error(`${LEDGER_FILE} is not a JSON object`);
+  }
+  assertKeys(LEDGER_FILE, Object.keys(value), LEDGER_KEYS);
+  if (
+    typeof value["description"] !== "string" ||
+    typeof value["adapter"] !== "string" ||
+    !isOutcomeList(value["adapterUnsupported"]) ||
+    !isOutcomeList(value["adapterSupportedExpected"]) ||
+    !isMessageMap(value["expectedUnsupportedMessages"]) ||
+    !isMessageMap(value["nullRepresentationOmittedMessages"])
+  ) {
+    throw new Error(`Invalid conformance ledger ${LEDGER_FILE}`);
+  }
+  if (value["adapter"] !== ADAPTER) {
+    throw new Error(
+      `${LEDGER_FILE} declares adapter "${value["adapter"]}", not "${ADAPTER}"`,
+    );
+  }
+  return value as unknown as ConformanceLedger;
+}
+
+export function readLedger(): ConformanceLedger {
+  return parseLedger(JSON.parse(fs.readFileSync(LEDGER_FILE, "utf8")));
 }
 
 /**
@@ -318,7 +370,7 @@ export function requireMessage(
 ): string {
   if (message === undefined || message === "") {
     throw new Error(
-      `actions.json pins no throw message for ${label}: the throw suite would accept a failure for any reason`,
+      `conformance-ledger.json pins no throw message for ${label}: the throw suite would accept a failure for any reason`,
     );
   }
   return message;
@@ -326,14 +378,12 @@ export function requireMessage(
 
 export function classifyActionsForAdapter(
   manifest: ActionsFile,
-  adapter: string,
+  ledger: ConformanceLedger,
 ): ActionClassification {
-  const unsupported = manifest.adapterUnsupported[adapter] ?? [];
+  const unsupported = ledger.adapterUnsupported;
   const unsupportedActions = new Set(unsupported.map((entry) => entry.action));
   const supportedExpected = new Set(
-    (manifest.adapterSupportedExpected[adapter] ?? []).map(
-      (entry) => entry.action,
-    ),
+    ledger.adapterSupportedExpected.map((entry) => entry.action),
   );
   const oracleActions = [
     ...manifest.conformance.filter((action) => !unsupportedActions.has(action)),
@@ -344,7 +394,7 @@ export function classifyActionsForAdapter(
       action: entry.action,
       reason: entry.reason,
       message: requireMessage(
-        `adapterUnsupported.${adapter}.${entry.action}`,
+        `adapterUnsupported.${entry.action}`,
         entry.message,
       ),
     })),
@@ -354,8 +404,8 @@ export function classifyActionsForAdapter(
         action: entry.action,
         reason: entry.shape,
         message: requireMessage(
-          `expectedUnsupported.${entry.action}.messages.${adapter}`,
-          entry.messages[adapter],
+          `expectedUnsupportedMessages.${entry.action}`,
+          ledger.expectedUnsupportedMessages[entry.action],
         ),
       })),
   ];
@@ -376,13 +426,13 @@ export function classifyActionsForAdapter(
  */
 export function nullRepresentationOmittedFor(
   manifest: ActionsFile,
-  adapter: string,
+  ledger: ConformanceLedger,
 ): (NullRepresentationOmittedEntry & { message: string })[] {
   return manifest.nullRepresentationOmitted.map((entry) => ({
     ...entry,
     message: requireMessage(
-      `nullRepresentationOmitted.${entry.action}.messages.${adapter}`,
-      entry.messages[adapter],
+      `nullRepresentationOmittedMessages.${entry.action}`,
+      ledger.nullRepresentationOmittedMessages[entry.action],
     ),
   }));
 }

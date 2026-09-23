@@ -239,8 +239,9 @@ Data adapter defines the reference semantics for this snapshot.
 
 Coverage includes value-first comparisons, field-to-field expressions, null and missing-attribute
 behaviour, nested lambdas, collection macros, string and arithmetic expressions, timestamps,
-hierarchy operations and chained nested fields. Every fail-closed message is pinned in
-`conformance/actions.json` and asserted. The emitted filters themselves are pinned by the
+hierarchy operations and chained nested fields. Every fail-closed message is pinned in this
+adapter's ledger, [`conformance-ledger.json`](conformance-ledger.json), and asserted
+([ADR 0010](../docs/adr/0010-each-adapter-owns-its-conformance-ledger.md)). The emitted filters themselves are pinned by the
 translator unit test (see [Development](#development)), which is also the only place the
 `allowPostFilter` gate, function mappers, unmapped-reference refusal, the
 `nullAttributeRepresentation` boundary and malformed input are asserted.
@@ -358,7 +359,7 @@ the boundary would still pass the adversarial suite:
 "in-empty": { "kind": "KIND_ALWAYS_DENIED" }
 ```
 
-A refused action has no entry (its message is in `conformance/actions.json`); a fixture with
+A refused action has no entry (its message is in [`conformance-ledger.json`](conformance-ledger.json)); a fixture with
 neither fails the suite, so a new corpus action cannot land silently. See "Golden expectations" in
 [conformance/README.md](../conformance/README.md),
 [ADR 0006](../docs/adr/0006-translator-unit-tests-take-their-plans-from-wire-fixtures.md) and

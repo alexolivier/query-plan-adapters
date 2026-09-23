@@ -25,6 +25,7 @@ import {
   parseActionsFile,
   parseStringArray,
   readCorpusJson,
+  readLedger,
   requireArray,
   requireBoolean,
   requireNumber,
@@ -402,6 +403,7 @@ assertSeedKeyCoverage(rawSeedsJson);
 assertPrincipalKeyCoverage(rawSeedsJson);
 const seedsFile = parseSeedsFile(rawSeedsJson);
 const actionsFile = parseActionsFile(readCorpusJson("actions.json"));
+const ledger = readLedger();
 const derivedFile = parseDerivedFile(readCorpusJson("derived-fields.json"));
 const SEEDS = seedsFile.seeds;
 
@@ -415,29 +417,29 @@ for (const seed of SEEDS) {
   derivedFor(seed);
 }
 
-const CHROMA_UNSUPPORTED = actionsFile.adapterUnsupported[ADAPTER] ?? [];
-const CHROMA_SUPPORTED_EXPECTED =
-  actionsFile.adapterSupportedExpected[ADAPTER] ?? [];
+const CHROMA_UNSUPPORTED = ledger.adapterUnsupported;
+const CHROMA_SUPPORTED_EXPECTED = ledger.adapterSupportedExpected;
 const CHROMA_DIVERGENCES = new Set(
   actionsFile.knownDivergences
     .filter(({ adapters }) => adapters.includes(ADAPTER))
     .map(({ action }) => action),
 );
 /**
- * The classification, read from the corpus by the loader `translator.test.ts` shares. Which actions
- * this adapter must refuse, and with which message, is a corpus decision — asserting it identically
- * in both suites is what makes the offline completeness guard total.
+ * The classification, read from this adapter's ledger (`conformance-ledger.json`, ADR 0010) by the
+ * loader `translator.test.ts` shares. Which actions this adapter must refuse, and with which
+ * message, is recorded there rather than in either suite — asserting it identically in both is
+ * what makes the offline completeness guard total.
  */
 const {
   oracleActions: CHROMA_SUPPORTED_ACTIONS,
   throwingActions: THROWING_ACTIONS,
-} = classifyActionsForAdapter(actionsFile, ADAPTER);
+} = classifyActionsForAdapter(actionsFile, ledger);
 // Actions whose `== null` probe targets an attribute the oracle OMITS for NULL columns. Chroma
 // needs no representation option: it cannot index an explicit null distinguishably from a missing
 // key, so every null comparison operand is already rejected outright (#302).
 const NULL_REPRESENTATION_OMITTED = nullRepresentationThrows(
   actionsFile,
-  ADAPTER,
+  ledger,
 );
 const MANIFEST_ACTIONS = new Set([
   ...actionsFile.conformance,

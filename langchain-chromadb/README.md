@@ -186,7 +186,7 @@ try {
 A malformed plan or mapper misconfiguration is a plain `Error`, so a fallback keyed on
 `UnsupportedOperatorError` does not swallow it: an invalid plan kind, a non-`PlanExpression`
 operand, wrong operand counts on `and`/`or`/`not`/comparisons, or a mapper resolving to an empty
-field name. Messages match those pinned in `conformance/actions.json`.
+field name. Messages match those pinned in [`conformance-ledger.json`](conformance-ledger.json).
 
 ## Conformance contract
 
@@ -205,7 +205,9 @@ The adapter is differentially tested against Cerbos PDP 0.55.0 `checkResource` d
 | Attribute NULL convention | Also representation-independent: Chroma metadata has no null value, so a NULL column is stored as an absent key and `$ne`/`$nin` match absent records. All five `null-value-*` probes for the explicit convention (cerbos/query-plan-adapters#308) are refused |
 | Known planner divergence | `has()` on a missing attribute is folded by the Cerbos planner to `ALWAYS_ALLOWED`, while `checkResource` denies the missing-attribute documents. Until the planner is fixed, use `R.attr.x != null` for database-backed attributes instead of `has(R.attr.x)` |
 
-Every fail-closed shape's error message is pinned in `conformance/actions.json` and asserted here.
+Every fail-closed shape's error message is pinned in this adapter's ledger,
+[`conformance-ledger.json`](conformance-ledger.json), and asserted here
+([ADR 0010](../docs/adr/0010-each-adapter-owns-its-conformance-ledger.md)).
 The translator unit test also pins **where** each of the 267 refusals (the 266 fail-closed actions
 plus `null-eq-missing`) is raised across the adapter's nine rejection sites; `binaryOperands`
 refusing a computed operand accounts for 160 of them, since arithmetic, casts, ternaries,
@@ -264,7 +266,7 @@ demo/scripts/run-example.sh langchain-chromadb
 `npm test` reads its plans from `../conformance/wire-fixtures/` and asserts them against
 `golden/expectations.json`. Because a `Where` clause is JSON, each entry is the translator's
 `{ kind, filters? }` result verbatim, keyed by action name; a literal JSON cannot carry fails
-regeneration. A refused action has no entry (its message lives in `conformance/actions.json`) —
+regeneration. A refused action has no entry (its message lives in [`conformance-ledger.json`](conformance-ledger.json)) —
 that is 267 of the corpus's 330 shapes. A wire fixture in neither place fails the suite. The suite
 also asserts, across every translated action, that each field is a mapped key, no `$not`/`$nor`
 is emitted, inequalities appear only on `required` fields, and fractional thresholds only on

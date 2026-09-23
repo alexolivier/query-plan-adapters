@@ -23,7 +23,6 @@ import type {
   QueryPlanToConvexResult,
 } from ".";
 import {
-  ADAPTER,
   GOLDEN_REGENERATE_COMMAND,
   classifyActionsForAdapter,
   nullRepresentationOmittedFor,
@@ -32,6 +31,7 @@ import {
   planFromWireFixture,
   readCorpusJson,
   readGoldenExpectations,
+  readLedger,
   requireMessage,
   wireFixtureActions,
   writeGoldenExpectations,
@@ -46,11 +46,13 @@ import type { FilterNode, GoldenExpectation } from "./corpus";
  */
 
 const actionsFile = parseActionsFile(readCorpusJson("actions.json"));
+const ledger = readLedger();
 
-// Refusal messages come from the same classification ledger as the live harness.
+// Refusal messages come from the same classification ledger (conformance-ledger.json) as the
+// live harness.
 const { throwingActions: THROWING_ACTIONS } = classifyActionsForAdapter(
   actionsFile,
-  ADAPTER,
+  ledger,
 );
 const THROWING = new Set(THROWING_ACTIONS.map(({ action }) => action));
 
@@ -227,7 +229,7 @@ function pathFor(action: string, options: TranslateOptions = {}): string {
 if (process.env["GOLDEN_UPDATE"] === "1") {
   const regenerated = new Map<string, GoldenExpectation>();
   for (const action of wireFixtureActions()) {
-    // A throwing action gets no entry: its message is corpus data. Skipping it here is also what
+    // A throwing action gets no entry: its message is ledger data. Skipping it here is also what
     // keeps regeneration from papering over a misclassification — an action moved into
     // `adapterUnsupported` that this adapter still translates fails the throw suite, and one moved
     // out of it that this adapter still refuses fails regeneration itself.
@@ -268,7 +270,7 @@ describe("corpus shapes", () => {
   // same assertion against a live PDP; here it costs a millisecond and covers the whole roster,
   // which is what lets the completeness guard below be total.
   test.each(THROWING_ACTIONS)(
-    "$action is refused with the message actions.json pins ($reason)",
+    "$action is refused with the message the ledger pins ($reason)",
     ({ action, message }) => {
       expect(() => translate(action)).toThrow(message);
     },
@@ -541,8 +543,8 @@ describe("nullAttributeRepresentation", () => {
   // on the wire — the planner emits the same `eq(attr, null)` either way — so the adapter has to
   // be told, and the whole behaviour is a translator property with no store in it.
   const OMITTED_MESSAGE = requireMessage(
-    "nullRepresentationOmitted.null-eq-missing.messages.convex",
-    nullRepresentationOmittedFor(actionsFile, ADAPTER).find(
+    "nullRepresentationOmittedMessages.null-eq-missing",
+    nullRepresentationOmittedFor(actionsFile, ledger).find(
       (entry) => entry.action === "null-eq-missing",
     )?.message,
   );

@@ -16,7 +16,6 @@ import type { Where } from "chromadb";
 import { PlanKind, queryPlanToChromaDB, UnsupportedOperatorError } from ".";
 import type { FieldMapper, FieldNameMapperConfig } from ".";
 import {
-  ADAPTER,
   FIELD_NAME_MAPPER,
   GOLDEN_REGENERATE_COMMAND,
   classifyActionsForAdapter,
@@ -26,6 +25,7 @@ import {
   planFromWireFixture,
   readCorpusJson,
   readGoldenExpectations,
+  readLedger,
   requireMessage,
   requiredMetadataKeys,
   wireFixtureActions,
@@ -41,15 +41,17 @@ import type { GoldenExpectation } from "./corpus";
  */
 
 const actionsFile = parseActionsFile(readCorpusJson("actions.json"));
+const ledger = readLedger();
 
-// Refusal messages come from the same classification ledger as the live harness.
+// Refusal messages come from the same classification ledger (conformance-ledger.json) as the
+// live harness.
 const THROWING_ACTIONS = [
-  ...classifyActionsForAdapter(actionsFile, ADAPTER).throwingActions,
+  ...classifyActionsForAdapter(actionsFile, ledger).throwingActions,
   // The `nullRepresentationOmitted` group belongs here on this adapter and only on this adapter's
   // terms: elsewhere it is a refusal under one convention, here it is unconditional, because Chroma
   // metadata cannot hold a null distinguishably from an absent key (#302). It is a separate corpus
   // classification, so the harness keeps it separate; the throw suite does not need to.
-  ...nullRepresentationThrows(actionsFile, ADAPTER),
+  ...nullRepresentationThrows(actionsFile, ledger),
 ].sort(([left], [right]) => left.localeCompare(right));
 const THROWING = new Set(THROWING_ACTIONS.map(([action]) => action));
 
@@ -166,7 +168,7 @@ function literalsOf(where: Where | undefined): Comparison[] {
 if (process.env["GOLDEN_UPDATE"] === "1") {
   const regenerated = new Map<string, GoldenExpectation>();
   for (const action of wireFixtureActions()) {
-    // A throwing action gets no entry: its message is corpus data. Skipping it here is also what
+    // A throwing action gets no entry: its message is ledger data. Skipping it here is also what
     // keeps regeneration from papering over a misclassification — an action moved into
     // `adapterUnsupported` that this adapter still translates fails the throw suite, and one moved
     // out of it that this adapter still refuses fails regeneration itself.
@@ -204,7 +206,7 @@ describe("corpus shapes", () => {
   // express, so a caller catching `UnsupportedOperatorError` must see all of them (#228). A site
   // that regresses to a plain `Error` keeps its message and fails here.
   test.each(THROWING_ACTIONS)(
-    "%s is refused with the message actions.json pins (%s)",
+    "%s is refused with the message the ledger pins (%s)",
     (action, _reason, message) => {
       expect(() => translate(action)).toThrow(message);
       expect(() => translate(action)).toThrow(UnsupportedOperatorError);
@@ -250,19 +252,19 @@ describe("corpus shapes", () => {
 /**
  * Where in the walk each rejection happens, and how many corpus shapes reach each site.
  *
- * `actions.json` pins a substring of the message per action, so the throw suite above proves every
- * refusal is the declared one. It cannot say anything about the *shape* of the refusals taken
- * together, and on an adapter that refuses 267 of 330 shapes that is the more interesting property:
- * five sixths of this corpus is rejected, and it matters whether that happens at five sites or at
- * one catch-all.
+ * The ledger (`conformance-ledger.json`) pins a substring of the message per action, so the throw
+ * suite above proves every refusal is the declared one. It cannot say anything about the *shape*
+ * of the refusals taken together, and on an adapter that refuses 267 of 330 shapes that is the more
+ * interesting property: five sixths of this corpus is rejected, and it matters whether that
+ * happens at five sites or at one catch-all.
  *
  * Two things are asserted. **Total**: every refusal matches a site this adapter actually has, so a
  * shape rejected by an accident — a `TypeError`, a mapper lookup that happened to fail — cannot pass
  * as a declared limitation, which is the #326 trap at corpus scale. **Pinned counts**: a translator
  * change that moves a shape from one site to another shows up as a diff even though both sites throw
- * and `actions.json` is unchanged. The distribution below is the honest summary of this adapter:
+ * and the ledger is unchanged. The distribution below is the honest summary of this adapter:
  * `binaryOperands` rejecting a computed operand is the single mechanism behind 160 of the 267, and
- * every reason in `actions.json` for those shapes — arithmetic, casts, ternaries, projections,
+ * every reason the ledger gives for those shapes — arithmetic, casts, ternaries, projections,
  * macros above the unroll cap — reduces to the same thing at the wire level, an operand that is not
  * a bare metadata key or a literal.
  */
@@ -635,7 +637,7 @@ describe("mapper forms", () => {
    * a placeholder, because it differs on every capture — so reading the fixture back means choosing
    * an instant. On the SQL adapters that choice is load-bearing: the PDP emits nanosecond precision,
    * which is exactly why they refuse the action, and a tidy millisecond substitution in the loader
-   * would translate cleanly and quietly contradict `actions.json`.
+   * would translate cleanly and quietly contradict their ledgers.
    *
    * Here it is inert, because the comparison never reaches a literal — the operand is a computed
    * expression and `binaryOperands` rejects it first. `corpus.ts` says so; this is what makes it a

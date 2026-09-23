@@ -30,8 +30,9 @@ import type { FieldNameMapperConfig } from ".";
  *   harness proves that same filter returns the documents the PDP allows. Two copies that drifted
  *   would leave the pinned filters describing metadata keys no harness ever seeds, which is why
  *   `FIELD_NAME_MAPPER` lives here rather than in either suite.
- * - **the classification.** Which actions this adapter must refuse, and with which message, is a
- *   corpus decision (`actions.json`), not a per-suite one.
+ * - **the classification.** Which actions this adapter must refuse, and with which message, is an
+ *   adapter decision recorded in this adapter's ledger (`conformance-ledger.json`), not a
+ *   per-suite one — see [ADR 0010](../../docs/adr/0010-each-adapter-owns-its-conformance-ledger.md).
  *
  * The code in this file is duplicated across adapters **on purpose** — adapters share data, not
  * code, so that every adapter stays standalone. Do not extract it into `conformance/`, do not
@@ -44,6 +45,13 @@ import type { FieldNameMapperConfig } from ".";
 export const ADAPTER = "langchain-chromadb";
 
 const CONFORMANCE_DIR = path.join(__dirname, "..", "..", "conformance");
+
+/**
+ * This adapter's classification against the corpus: which actions it refuses and with which
+ * message. It sits beside the adapter, not under `conformance/` — see
+ * [ADR 0010](../../docs/adr/0010-each-adapter-owns-its-conformance-ledger.md).
+ */
+export const LEDGER_FILE = path.join(__dirname, "..", "conformance-ledger.json");
 
 // -- the PDP -------------------------------------------------------------------------------------
 
@@ -157,26 +165,16 @@ export function parseStringArray(value: unknown, label: string): string[] {
 export interface UnsupportedShape {
   action: string;
   shape: string;
-  /** One entry per adapter that must reject the shape; the corpus asserts the key set. */
-  messages: Record<string, string>;
-}
-
-export interface AdapterUnsupportedEntry {
-  action: string;
-  reason: string;
-  /** Absent on `adapterSupportedExpected`, required on a throw. */
-  message?: string;
 }
 
 /**
  * A `nullRepresentationOmitted` entry. Every adapter must reject these — the two NULL conventions
- * are indistinguishable on the wire — so `messages` names the whole roster with no promotions to
- * subtract.
+ * are indistinguishable on the wire — so the ledger pins a message for every one, with no
+ * promotions to subtract.
  */
 export interface NullRepresentationOmittedEntry {
   action: string;
   reason: string;
-  messages: Record<string, string>;
 }
 
 export interface KnownDivergence {
@@ -199,22 +197,10 @@ export interface DegenerateOracleEntry {
 
 export interface ActionsFile {
   conformance: string[];
-  adapterUnsupported: Record<string, AdapterUnsupportedEntry[]>;
-  adapterSupportedExpected: Record<string, AdapterUnsupportedEntry[]>;
   expectedUnsupported: UnsupportedShape[];
   nullRepresentationOmitted: NullRepresentationOmittedEntry[];
   knownDivergences: KnownDivergence[];
   degenerateOracles: DegenerateOracleEntry[];
-}
-
-/** The `messages` map of one entry: adapter key -> required substring. */
-function parseMessages(value: unknown, label: string): Record<string, string> {
-  const messages = requireRecord(value, label);
-  const result: Record<string, string> = {};
-  for (const [adapter, message] of Object.entries(messages)) {
-    result[adapter] = requireString(message, `${label}.${adapter}`);
-  }
-  return result;
 }
 
 function parseUnsupportedShape(value: unknown, index: number): UnsupportedShape {
@@ -223,40 +209,7 @@ function parseUnsupportedShape(value: unknown, index: number): UnsupportedShape 
   return {
     action: requireString(shape["action"], `${label}.action`),
     shape: requireString(shape["shape"], `${label}.shape`),
-    messages: parseMessages(shape["messages"], `${label}.messages`),
   };
-}
-
-function parseAdapterUnsupportedEntry(
-  value: unknown,
-  label: string,
-): AdapterUnsupportedEntry {
-  const entry = requireRecord(value, label);
-  const message = entry["message"];
-  return {
-    action: requireString(entry["action"], `${label}.action`),
-    reason: requireString(entry["reason"], `${label}.reason`),
-    // `adapterUnsupported` carries this and the classification below requires it;
-    // `adapterSupportedExpected` does not throw, so it does not.
-    ...(message === undefined
-      ? {}
-      : { message: requireString(message, `${label}.message`) }),
-  };
-}
-
-function parseAdapterMap(
-  value: unknown,
-  label: string,
-): Record<string, AdapterUnsupportedEntry[]> {
-  const adapters = requireRecord(value, label);
-  const result: Record<string, AdapterUnsupportedEntry[]> = {};
-  for (const [adapter, entries] of Object.entries(adapters)) {
-    result[adapter] = requireArray(entries, `${label}.${adapter}`).map(
-      (entry, index) =>
-        parseAdapterUnsupportedEntry(entry, `${label}.${adapter}[${index}]`),
-    );
-  }
-  return result;
 }
 
 /**
@@ -270,14 +223,6 @@ export function parseActionsFile(value: unknown): ActionsFile {
   const file = requireRecord(value, "actions.json");
   return {
     conformance: parseStringArray(file["conformance"], "conformance"),
-    adapterUnsupported: parseAdapterMap(
-      file["adapterUnsupported"],
-      "adapterUnsupported",
-    ),
-    adapterSupportedExpected: parseAdapterMap(
-      file["adapterSupportedExpected"],
-      "adapterSupportedExpected",
-    ),
     expectedUnsupported: requireArray(
       file["expectedUnsupported"],
       "expectedUnsupported",
@@ -291,7 +236,6 @@ export function parseActionsFile(value: unknown): ActionsFile {
       return {
         action: requireString(record["action"], `${label}.action`),
         reason: requireString(record["reason"], `${label}.reason`),
-        messages: parseMessages(record["messages"], `${label}.messages`),
       };
     }),
     knownDivergences: requireArray(
@@ -324,6 +268,120 @@ export function parseActionsFile(value: unknown): ActionsFile {
       };
     }),
   };
+}
+
+// -- conformance-ledger.json ---------------------------------------------------------------------
+
+export interface AdapterUnsupportedEntry {
+  action: string;
+  reason: string;
+  /** Absent on `adapterSupportedExpected`, required on a throw. */
+  message?: string;
+}
+
+/**
+ * This adapter's ledger (`conformance-ledger.json`): its classification against the corpus. The
+ * roster-wide invariants — closed schema, no duplicates, every action exists, message key sets
+ * exactly right — are `validate-corpus.sh`'s.
+ */
+export interface ConformanceLedger {
+  description: string;
+  adapter: string;
+  adapterUnsupported: AdapterUnsupportedEntry[];
+  adapterSupportedExpected: AdapterUnsupportedEntry[];
+  expectedUnsupportedMessages: Record<string, string>;
+  nullRepresentationOmittedMessages: Record<string, string>;
+}
+
+const LEDGER_KEYS: readonly string[] = [
+  "description",
+  "adapter",
+  "adapterUnsupported",
+  "adapterSupportedExpected",
+  "expectedUnsupportedMessages",
+  "nullRepresentationOmittedMessages",
+];
+
+/** One `{action: message}` map of the ledger. */
+function parseMessages(value: unknown, label: string): Record<string, string> {
+  const messages = requireRecord(value, label);
+  const result: Record<string, string> = {};
+  for (const [action, message] of Object.entries(messages)) {
+    result[action] = requireString(message, `${label}.${action}`);
+  }
+  return result;
+}
+
+function parseAdapterUnsupportedEntry(
+  value: unknown,
+  label: string,
+): AdapterUnsupportedEntry {
+  const entry = requireRecord(value, label);
+  const message = entry["message"];
+  return {
+    action: requireString(entry["action"], `${label}.action`),
+    reason: requireString(entry["reason"], `${label}.reason`),
+    // `adapterUnsupported` carries this and the classification below requires it;
+    // `adapterSupportedExpected` does not throw, so it does not.
+    ...(message === undefined
+      ? {}
+      : { message: requireString(message, `${label}.message`) }),
+  };
+}
+
+function parseOutcomeList(
+  value: unknown,
+  label: string,
+): AdapterUnsupportedEntry[] {
+  return requireArray(value, label).map((entry, index) =>
+    parseAdapterUnsupportedEntry(entry, `${label}[${index}]`),
+  );
+}
+
+/**
+ * The ledger, validated rather than cast, and asserted to be THIS adapter's.
+ *
+ * Its key set is closed as well as parsed field by field: a group this rebuild did not name would
+ * otherwise be dropped silently, and its actions would vanish from every count and `test.each`.
+ */
+export function parseLedger(value: unknown): ConformanceLedger {
+  const file = requireRecord(value, "conformance-ledger.json");
+  const keys = Object.keys(file).sort();
+  if (JSON.stringify(keys) !== JSON.stringify([...LEDGER_KEYS].sort())) {
+    throw Error(
+      `conformance-ledger.json carries keys ${JSON.stringify(keys)}, expected exactly ${JSON.stringify(LEDGER_KEYS)}`,
+    );
+  }
+  const adapter = requireString(file["adapter"], "adapter");
+  if (adapter !== ADAPTER) {
+    throw Error(
+      `${LEDGER_FILE} declares adapter "${adapter}", not "${ADAPTER}"`,
+    );
+  }
+  return {
+    description: requireString(file["description"], "description"),
+    adapter,
+    adapterUnsupported: parseOutcomeList(
+      file["adapterUnsupported"],
+      "adapterUnsupported",
+    ),
+    adapterSupportedExpected: parseOutcomeList(
+      file["adapterSupportedExpected"],
+      "adapterSupportedExpected",
+    ),
+    expectedUnsupportedMessages: parseMessages(
+      file["expectedUnsupportedMessages"],
+      "expectedUnsupportedMessages",
+    ),
+    nullRepresentationOmittedMessages: parseMessages(
+      file["nullRepresentationOmittedMessages"],
+      "nullRepresentationOmittedMessages",
+    ),
+  };
+}
+
+export function readLedger(): ConformanceLedger {
+  return parseLedger(JSON.parse(fs.readFileSync(LEDGER_FILE, "utf8")));
 }
 
 /** `degenerateOracles` as a map, rejecting an action listed twice. */
@@ -367,14 +425,15 @@ export function requireMessage(
 ): string {
   if (message === undefined || message === "") {
     throw Error(
-      `actions.json pins no throw message for ${label}: the throw suite would accept a failure for any reason`,
+      `conformance-ledger.json pins no throw message for ${label}: the throw suite would accept a failure for any reason`,
     );
   }
   return message;
 }
 
 /**
- * The corpus's own classification of every action, from this adapter's point of view.
+ * This adapter's classification of every corpus action: the corpus's groups, read through the
+ * ledger.
  *
  * `nullRepresentationOmitted` is deliberately NOT folded in: it is its own classification, and the
  * harness's four-way "exactly one outcome per action" guard depends on the groups staying distinct.
@@ -382,14 +441,12 @@ export function requireMessage(
  */
 export function classifyActionsForAdapter(
   manifest: ActionsFile,
-  adapter: string,
+  ledger: ConformanceLedger,
 ): ActionClassification {
-  const unsupported = manifest.adapterUnsupported[adapter] ?? [];
+  const unsupported = ledger.adapterUnsupported;
   const unsupportedActions = new Set(unsupported.map((entry) => entry.action));
   const supportedExpected = new Set(
-    (manifest.adapterSupportedExpected[adapter] ?? []).map(
-      (entry) => entry.action,
-    ),
+    ledger.adapterSupportedExpected.map((entry) => entry.action),
   );
   const oracleActions = [
     ...manifest.conformance.filter((action) => !unsupportedActions.has(action)),
@@ -401,7 +458,7 @@ export function classifyActionsForAdapter(
         entry.action,
         entry.reason,
         requireMessage(
-          `adapterUnsupported.${adapter}.${entry.action}`,
+          `adapterUnsupported.${entry.action}`,
           entry.message,
         ),
       ],
@@ -413,8 +470,8 @@ export function classifyActionsForAdapter(
           entry.action,
           entry.shape,
           requireMessage(
-            `expectedUnsupported.${entry.action}.messages.${adapter}`,
-            entry.messages?.[adapter],
+            `expectedUnsupportedMessages.${entry.action}`,
+            ledger.expectedUnsupportedMessages[entry.action],
           ),
         ],
       ),
@@ -436,18 +493,18 @@ export function classifyActionsForAdapter(
  * and needs no `nullAttributeRepresentation` option at all: Chroma metadata holds only finite
  * numbers, strings and booleans, so it cannot store an explicit null distinguishably from an absent
  * key and the null comparison operand is refused before the convention could matter
- * (cerbos/query-plan-adapters#302). The message that says so is corpus data, pinned per adapter.
+ * (cerbos/query-plan-adapters#302). The message that says so is pinned in the ledger.
  */
 export function nullRepresentationThrows(
   manifest: ActionsFile,
-  adapter: string,
+  ledger: ConformanceLedger,
 ): ThrowingAction[] {
   return manifest.nullRepresentationOmitted.map((entry): ThrowingAction => [
     entry.action,
     entry.reason,
     requireMessage(
-      `nullRepresentationOmitted.${entry.action}.messages.${adapter}`,
-      entry.messages?.[adapter],
+      `nullRepresentationOmittedMessages.${entry.action}`,
+      ledger.nullRepresentationOmittedMessages[entry.action],
     ),
   ]);
 }

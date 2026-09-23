@@ -16,7 +16,8 @@ import type { ExecutionPath } from "../convex/planExecution";
 import type { Mapper } from ".";
 import { PlanKind, queryPlanToConvex } from ".";
 // The corpus reader this adapter carries, shared with src/translator.test.ts. Nothing about
-// actions.json, seeds.json or derived-fields.json is parsed twice inside one adapter: one loader
+// actions.json, conformance-ledger.json, seeds.json or derived-fields.json is parsed twice inside
+// one adapter: one loader
 // means one answer to "which shapes must this adapter refuse" and one declaration of the corpus
 // keys it consumes. The duplication ACROSS adapters stays deliberate (ADR 0007).
 import {
@@ -29,6 +30,7 @@ import {
   parseSeedsFile,
   planCarriesNullLiteral,
   readCorpusJson,
+  readLedger,
   assertPinnedPdp,
   pdpAddress,
 } from "./corpus";
@@ -50,20 +52,21 @@ type StoredRelationLevel = Omit<NonNullable<StoredDocument["parent"]>, "inner">;
 
 const seedsFile = parseSeedsFile(readCorpusJson("seeds.json"));
 const actionsFile = parseActionsFile(readCorpusJson("actions.json"));
+const ledger = readLedger();
 const derivedFile = parseDerivedFile(
   readCorpusJson("derived-fields.json"),
   seedsFile.seeds,
 );
 
-const CONVEX_UNSUPPORTED = actionsFile.adapterUnsupported["convex"] ?? [];
-const CONVEX_SUPPORTED_EXPECTED =
-  actionsFile.adapterSupportedExpected["convex"] ?? [];
+const CONVEX_UNSUPPORTED = ledger.adapterUnsupported;
+const CONVEX_SUPPORTED_EXPECTED = ledger.adapterSupportedExpected;
 
-// The classification is a corpus decision, so it is read rather than re-derived: which actions
-// this adapter oracle-compares, which it must refuse, and with which message. src/translator.test.ts
-// asserts the same throws offline against the same classifier — two suites, one answer.
+// The classification is this adapter's ledger (conformance-ledger.json, ADR 0010), so it is read
+// rather than re-derived: which actions this adapter oracle-compares, which it must refuse, and
+// with which message. src/translator.test.ts asserts the same throws offline against the same
+// classifier — two suites, one answer.
 const { oracleActions: ORACLE_ACTIONS, throwingActions: THROWING_ACTIONS } =
-  classifyActionsForAdapter(actionsFile, "convex");
+  classifyActionsForAdapter(actionsFile, ledger);
 
 const KNOWN_DIVERGENCES = new Set(
   actionsFile.knownDivergences
@@ -75,7 +78,7 @@ const KNOWN_DIVERGENCES = new Set(
 // the adapter must reject the shape rather than emit a filter (#302).
 const NULL_REPRESENTATION_OMITTED = nullRepresentationOmittedFor(
   actionsFile,
-  "convex",
+  ledger,
 );
 /** The one message every null-carrying action must be rejected with under `omitted`. */
 const NULL_OMITTED_MESSAGE = NULL_REPRESENTATION_OMITTED[0]?.message ?? "";
