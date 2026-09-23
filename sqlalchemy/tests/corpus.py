@@ -12,7 +12,10 @@ things or they prove less than they appear to:
   ``OPERATOR_OVERRIDES`` and ``ATTRIBUTE_NULL_REPRESENTATION`` live here rather than in
   either suite.
 - **the classification.** Which actions this adapter must refuse, and with which message, is
-  a corpus decision (``conformance/actions.json``), not a per-suite one.
+  an adapter decision recorded once in this adapter's own ledger
+  (``sqlalchemy/conformance-ledger.json``, read against the shared groups in
+  ``conformance/actions.json``), not a per-suite one. See
+  `ADR 0010 <../../docs/adr/0010-each-adapter-owns-its-conformance-ledger.md>`_.
 
 What is deliberately NOT here: the seed rows, the derived fields and the ``check()`` oracle.
 Only the harness consumes those, and its coverage guards assert set equality against the
@@ -92,6 +95,12 @@ INSTALLED_SQLALCHEMY_MAJOR = (
 #: instead of the bytes (see ``test_translator.py``).
 GOLDEN_SQLALCHEMY_MAJOR = "2.x"
 
+#: This adapter's classification against the corpus. Never under ``conformance/`` -- see
+#: ADR 0010: each adapter owns its ledger, and ``validate-corpus.sh`` checks every one.
+LEDGER_FILE = os.path.realpath(
+    os.path.join(os.path.dirname(__file__), "..", "conformance-ledger.json")
+)
+
 
 def read_corpus_json(name: str) -> Any:
     with open(os.path.join(CONFORMANCE_DIR, name), encoding="utf-8") as f:
@@ -107,17 +116,15 @@ def read_corpus_json(name: str) -> Any:
 
 
 class ActionsFile:
-    """``conformance/actions.json``, read group by group rather than duck-typed."""
+    """``conformance/actions.json``, read group by group rather than duck-typed.
+
+    It carries only the roster-wide groups. What this adapter refuses, promotes and with
+    which messages is in :class:`ConformanceLedger`.
+    """
 
     def __init__(self, raw: Dict[str, Any]) -> None:
         self.adapters: List[str] = _require_list(raw, "adapters")
         self.conformance: List[str] = _require_list(raw, "conformance")
-        self.adapter_unsupported: Dict[str, List[Dict[str, Any]]] = _require_dict(
-            raw, "adapterUnsupported"
-        )
-        self.adapter_supported_expected: Dict[
-            str, List[Dict[str, Any]]
-        ] = _require_dict(raw, "adapterSupportedExpected")
         self.expected_unsupported: List[Dict[str, Any]] = _require_list(
             raw, "expectedUnsupported"
         )
@@ -148,17 +155,21 @@ class ActionsFile:
         }
 
 
-def _require_list(raw: Dict[str, Any], key: str) -> List[Any]:
+def _require_list(
+    raw: Dict[str, Any], key: str, source: str = "actions.json"
+) -> List[Any]:
     value = raw.get(key)
     if not isinstance(value, list):
-        raise AssertionError(f"actions.json {key} must be an array")
+        raise AssertionError(f"{source} {key} must be an array")
     return value
 
 
-def _require_dict(raw: Dict[str, Any], key: str) -> Dict[str, Any]:
+def _require_dict(
+    raw: Dict[str, Any], key: str, source: str = "actions.json"
+) -> Dict[str, Any]:
     value = raw.get(key)
     if not isinstance(value, dict):
-        raise AssertionError(f"actions.json {key} must be an object")
+        raise AssertionError(f"{source} {key} must be an object")
     return value
 
 
@@ -193,6 +204,45 @@ def parse_actions_file(raw: Dict[str, Any]) -> ActionsFile:
     return ActionsFile(raw)
 
 
+# -- conformance-ledger.json ------------------------------------------------
+#
+# This adapter's own classification, split out of actions.json so an adapter's triage
+# edits only its own directory (ADR 0010). Parsed with the same group-by-group
+# explicitness as actions.json; the roster-wide checks on it -- closed schema,
+# duplicates, actions that exist, message key sets -- belong to validate-corpus.sh.
+
+LEDGER_SOURCE = "conformance-ledger.json"
+
+
+class ConformanceLedger:
+    """``sqlalchemy/conformance-ledger.json``, read group by group, not duck-typed."""
+
+    def __init__(self, raw: Dict[str, Any], adapter: str) -> None:
+        if raw.get("adapter") != adapter:
+            raise AssertionError(
+                f"{LEDGER_SOURCE} adapter must be {adapter!r}, "
+                f"got {raw.get('adapter')!r}"
+            )
+        self.adapter: str = adapter
+        self.adapter_unsupported: List[Dict[str, Any]] = _require_list(
+            raw, "adapterUnsupported", LEDGER_SOURCE
+        )
+        self.adapter_supported_expected: List[Dict[str, Any]] = _require_list(
+            raw, "adapterSupportedExpected", LEDGER_SOURCE
+        )
+        self.expected_unsupported_messages: Dict[str, str] = _require_dict(
+            raw, "expectedUnsupportedMessages", LEDGER_SOURCE
+        )
+        self.null_representation_omitted_messages: Dict[str, str] = _require_dict(
+            raw, "nullRepresentationOmittedMessages", LEDGER_SOURCE
+        )
+
+
+def read_conformance_ledger(adapter: str = ADAPTER) -> ConformanceLedger:
+    with open(LEDGER_FILE, encoding="utf-8") as f:
+        return ConformanceLedger(json.load(f), adapter)
+
+
 def require_message(label: str, message: Any) -> str:
     """The substring this adapter's error must contain, or a loud failure.
 
@@ -202,7 +252,7 @@ def require_message(label: str, message: Any) -> str:
     """
     if not isinstance(message, str) or not message:
         raise AssertionError(
-            f"actions.json pins no throw message for {label}: the throw suite "
+            f"{LEDGER_SOURCE} pins no throw message for {label}: the throw suite "
             "would accept a failure for any reason"
         )
     return message
@@ -228,12 +278,13 @@ class Classification:
         self.supported_expected = supported_expected
 
 
-def classify_actions_for_adapter(manifest: ActionsFile, adapter: str) -> Classification:
-    unsupported = manifest.adapter_unsupported.get(adapter, [])
+def classify_actions_for_adapter(
+    manifest: ActionsFile, ledger: ConformanceLedger
+) -> Classification:
+    unsupported = ledger.adapter_unsupported
     unsupported_actions = {entry["action"] for entry in unsupported}
     supported_expected = {
-        entry["action"]
-        for entry in manifest.adapter_supported_expected.get(adapter, [])
+        entry["action"] for entry in ledger.adapter_supported_expected
     }
     oracle_actions = [
         action for action in manifest.conformance if action not in unsupported_actions
@@ -243,7 +294,7 @@ def classify_actions_for_adapter(manifest: ActionsFile, adapter: str) -> Classif
             (
                 entry["action"],
                 require_message(
-                    f'adapterUnsupported.{adapter}.{entry["action"]}',
+                    f'adapterUnsupported.{entry["action"]}',
                     entry.get("message"),
                 ),
             )
@@ -253,8 +304,8 @@ def classify_actions_for_adapter(manifest: ActionsFile, adapter: str) -> Classif
             (
                 entry["action"],
                 require_message(
-                    f'expectedUnsupported.{entry["action"]}.messages.{adapter}',
-                    entry.get("messages", {}).get(adapter),
+                    f'expectedUnsupportedMessages.{entry["action"]}',
+                    ledger.expected_unsupported_messages.get(entry["action"]),
                 ),
             )
             for entry in manifest.expected_unsupported
@@ -265,21 +316,21 @@ def classify_actions_for_adapter(manifest: ActionsFile, adapter: str) -> Classif
 
 
 def null_representation_throws(
-    manifest: ActionsFile, adapter: str
+    manifest: ActionsFile, ledger: ConformanceLedger
 ) -> List[Tuple[str, str, str]]:
     """The ``nullRepresentationOmitted`` actions as ``(action, reason, message)``.
 
     Every adapter must reject these -- the two NULL conventions are indistinguishable on the
-    wire -- so the message map names the whole roster and this adapter resolves its own
-    entry exactly as it does for a throwing action (#302).
+    wire -- so every ledger pins a message for each, and this adapter resolves its own
+    exactly as it does for a throwing action (#302).
     """
     return [
         (
             entry["action"],
             entry["reason"],
             require_message(
-                f'nullRepresentationOmitted.{entry["action"]}.messages.{adapter}',
-                entry.get("messages", {}).get(adapter),
+                f'nullRepresentationOmittedMessages.{entry["action"]}',
+                ledger.null_representation_omitted_messages.get(entry["action"]),
             ),
         )
         for entry in manifest.null_representation_omitted
@@ -295,7 +346,7 @@ def null_representation_throws(
 #: to ``__NOW_MINUS_24H__`` to keep the drift check deterministic. Reading the fixture back
 #: therefore means choosing a value, and the choice is load-bearing HERE -- the PDP emits
 #: NANOSECOND precision, which is exactly why this adapter refuses both actions, and a tidy
-#: millisecond substitution would translate cleanly and quietly contradict ``actions.json``.
+#: millisecond substitution would translate cleanly and quietly contradict the ledger.
 PLANNED_AT = "2026-08-11T09:13:39.123456789Z"
 
 _NOW_MINUS_24H = "__NOW_MINUS_24H__"

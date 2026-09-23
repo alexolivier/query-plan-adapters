@@ -62,6 +62,7 @@ from corpus import (
     classify_actions_for_adapter,
     null_representation_throws,
     parse_actions_file,
+    read_conformance_ledger,
     read_corpus_json,
     reads_declared_collection,
 )
@@ -77,6 +78,7 @@ from sqlalchemy.orm.attributes import InstrumentedAttribute
 SEEDS_FILE = read_corpus_json("seeds.json")
 DERIVED_FILE = read_corpus_json("derived-fields.json")
 MANIFEST = parse_actions_file(read_corpus_json("actions.json"))
+LEDGER = read_conformance_ledger(ADAPTER)
 
 SEEDS: List[Dict[str, Any]] = SEEDS_FILE["seeds"]
 RESOURCE_KIND: str = SEEDS_FILE["resourceKind"]
@@ -209,12 +211,13 @@ if set(DERIVED) != {seed["id"] for seed in SEEDS}:
 for _id, _entry in DERIVED.items():
     _assert_keys(f'derived-fields.json derived["{_id}"]', set(_entry), DERIVED_KEYS)
 
-# Capability classifications come from the shared manifest, derived at runtime
+# Capability classifications come from the shared manifest and this adapter's
+# ledger (conformance-ledger.json, ADR 0010), derived at runtime
 # rather than copied: unsupported conformance actions must throw, and
 # globally-unsupported actions promoted for this adapter are instead checked
 # against the PDP oracle. `test_translator.py` derives the same classification
 # from the same expressions, which is what lets its completeness guard be total.
-_CLASSIFICATION = classify_actions_for_adapter(MANIFEST, ADAPTER)
+_CLASSIFICATION = classify_actions_for_adapter(MANIFEST, LEDGER)
 ORACLE_ACTIONS = _CLASSIFICATION.oracle_actions
 
 # Globally expected-unsupported shapes promoted by this adapter. Regex is not
@@ -237,9 +240,9 @@ DECLARED_COLLECTION_ACTIONS = sorted(
 # columns. They carry no oracle comparison: under the omitted representation
 # check() denies every row, so the adapter must reject the shape rather than
 # emit a filter (#302).
-# Every adapter must reject these, so the message map names the whole roster and
+# Every adapter must reject these, so every ledger pins a message for each and
 # this harness resolves its own entry exactly as it does for a throwing action.
-NULL_REPRESENTATION_OMITTED = null_representation_throws(MANIFEST, ADAPTER)
+NULL_REPRESENTATION_OMITTED = null_representation_throws(MANIFEST, LEDGER)
 # The one message every null-carrying action must be rejected with under
 # ``omitted``.
 NULL_OMITTED_MESSAGE = NULL_REPRESENTATION_OMITTED[0][2]
@@ -273,11 +276,12 @@ SQLALCHEMY_SKIPPED_DIVERGENCES = MANIFEST.skipped_divergences(ADAPTER)
 LEGS = ("http", "grpc", "declarative-base", "async")
 _IS_SQLA_14 = INSTALLED_SQLALCHEMY_MAJOR == "1.4"
 
-# The adapterUnsupported entries whose refusal is an artefact of the HTTP transport, not
-# of SQL: a CONSTANT zero denominator whose sign the JSON decoding drops. Over gRPC the
-# sign survives, the adapter translates the shape, and this leg compares it against the
-# oracle — so the classification stays in `adapterUnsupported` (HTTP is the one mapping
-# the manifest classifies) while the gRPC leg proves the other transport is supported.
+# The ledger's adapterUnsupported entries whose refusal is an artefact of the HTTP
+# transport, not of SQL: a CONSTANT zero denominator whose sign the JSON decoding drops.
+# Over gRPC the sign survives, the adapter translates the shape, and this leg compares it
+# against the oracle — so the classification stays in the ledger's `adapterUnsupported`
+# (HTTP is the one mapping the ledger classifies) while the gRPC leg proves the other
+# transport is supported.
 # `test_the_grpc_leg_promotes_exactly_the_http_zero_sign_refusals` pins why each is here.
 GRPC_ONLY_ORACLE_ACTIONS = ("cr-div-neg-zero", "nan-ord-inf")
 HTTP_ZERO_SIGN_MESSAGE = (
@@ -380,7 +384,7 @@ DEGENERACY_LIVENESS_PROBES = (
     # denominator is gone before the adapter sees it.
     "cr-div-neg-zero",
     # int() over a numeric column: truncation-versus-rounding, unsupported for
-    # every adapter but convex, which promotes it in adapterSupportedExpected.
+    # every adapter but convex, whose ledger promotes it in adapterSupportedExpected.
     "cast-int-double",
     # `list` has no operator-table entry, so the constructed hierarchy path is
     # refused before the hierarchy operators around it are reached.
@@ -1044,8 +1048,8 @@ class TestAdversarialConformance:
         assert sorted(filtered) == sorted(oracle)
 
     def test_the_grpc_leg_promotes_exactly_the_http_zero_sign_refusals(self):
-        # Each promotion is an adapterUnsupported entry for THIS adapter, refused over
-        # HTTP with the signed-zero message — so it is the transport, not SQL, that
+        # Each promotion is an adapterUnsupported entry in this adapter's ledger, refused
+        # over HTTP with the signed-zero message — so it is the transport, not SQL, that
         # refuses it — and it is the whole set: any other entry carrying that message
         # would be a shape the gRPC leg should be comparing and is not.
         refused_for_sign = sorted(
@@ -1054,9 +1058,7 @@ class TestAdversarialConformance:
             if message.startswith(HTTP_ZERO_SIGN_MESSAGE)
         )
         assert refused_for_sign == sorted(GRPC_ONLY_ORACLE_ACTIONS)
-        adapter_unsupported = {
-            entry["action"] for entry in MANIFEST.adapter_unsupported[ADAPTER]
-        }
+        adapter_unsupported = {entry["action"] for entry in LEDGER.adapter_unsupported}
         assert set(GRPC_ONLY_ORACLE_ACTIONS) <= adapter_unsupported
 
     def test_the_declarative_base_leg_uses_the_2_0_models(self):
@@ -1327,7 +1329,7 @@ class TestAdversarialConformance:
     # nan-ord-inf is absent: its 1.0/0.0 and -1.0/0.0 branches carry a CONSTANT zero
     # denominator, and over the HTTP transport that arrives as the integer 0 with the
     # sign bit already gone, so the adapter now rejects the shape rather than guess
-    # which infinity CEL produced. It is declared in adapterUnsupported[sqlalchemy]
+    # which infinity CEL produced. It is declared in the ledger's adapterUnsupported
     # and asserted as a throw by test_fails_loudly (cerbos/query-plan-adapters#312);
     # over gRPC it translates, and the grpc leg compares it against the oracle (#321).
     @pytest.mark.parametrize(

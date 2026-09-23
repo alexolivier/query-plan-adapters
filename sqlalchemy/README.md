@@ -370,7 +370,9 @@ action runs on every leg, and every fail-closed shape is asserted as a throw ove
 
 The harness uses the same public `operator_override_fns` mechanism applications do for
 schema-specific collection translations. Every fail-closed shape's error message is pinned in
-`conformance/actions.json` and asserted, so each throw is proved to name its declared mechanism.
+this adapter's ledger, [`conformance-ledger.json`](conformance-ledger.json)
+([ADR 0010](../docs/adr/0010-each-adapter-owns-its-conformance-ledger.md)), and asserted, so each
+throw is proved to name its declared mechanism.
 
 ## Mapping hazards
 

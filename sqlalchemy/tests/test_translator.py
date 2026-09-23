@@ -13,7 +13,7 @@ assertion                                            who owns it
 the plan the PDP produces for a policy               ``conformance/wire-fixtures/``, replanned
                                                      and diffed by the ``Conformance Corpus``
                                                      workflow
-which shapes this adapter must refuse, and with      ``conformance/actions.json`` — read below,
+which shapes this adapter must refuse, and with      ``conformance-ledger.json`` — read below,
 what message                                         never restated
 the rows a filter returns                            ``test_adversarial_conformance.py``,
                                                      against real SQLite with ``check()`` as
@@ -44,7 +44,7 @@ reasoned about all through the translator source, and executed only by the harne
 declared-collection-storage leg — is rendered for every action.
 
 **Adding a corpus action fails this file.** Every wire fixture must be accounted for here
-exactly once — a golden expectation or a throw carrying the message ``actions.json`` pins —
+exactly once — a golden expectation or a throw carrying the message the ledger pins —
 and the completeness guard below is what makes a new action land as a failure rather than as
 silence.
 """
@@ -77,6 +77,7 @@ from corpus import (
     null_representation_throws,
     parse_actions_file,
     plan_from_wire_fixture,
+    read_conformance_ledger,
     read_corpus_json,
     read_golden_expectations,
     render,
@@ -93,24 +94,26 @@ from sqlalchemy import any_, exists, literal, select
 from sqlalchemy.exc import CompileError
 
 ACTIONS_FILE = parse_actions_file(read_corpus_json("actions.json"))
+LEDGER = read_conformance_ledger(ADAPTER)
 
-# The shapes `actions.json` says this adapter must refuse, each with the message it must
-# refuse them with. Identical to the classification `test_adversarial_conformance.py` asserts
-# against a live PDP; asserting it here as well is what lets the completeness guard below be
-# total, and it costs a millisecond rather than a container.
+# The shapes this adapter's ledger (`conformance-ledger.json`, ADR 0010) says it must
+# refuse, each with the message it must refuse them with. Identical to the classification
+# `test_adversarial_conformance.py` asserts against a live PDP; asserting it here as well is
+# what lets the completeness guard below be total, and it costs a millisecond rather than a
+# container.
 #
-# A throwing action needs no golden expectation of its own: the message is already corpus
-# data, pinned once in `actions.json` and read by every adapter. Writing it into this
-# adapter's asset too would create two places to change one string with nothing to say which
-# is authoritative.
-THROWING_ACTIONS = classify_actions_for_adapter(ACTIONS_FILE, ADAPTER).throwing_actions
+# A throwing action needs no golden expectation of its own: the message is already pinned
+# once, in `conformance-ledger.json`, and read by both suites. Writing it into this adapter's
+# asset too would create two places to change one string with nothing to say which is
+# authoritative.
+THROWING_ACTIONS = classify_actions_for_adapter(ACTIONS_FILE, LEDGER).throwing_actions
 THROWING = {action for action, _ in THROWING_ACTIONS}
 
 # `nullRepresentationOmitted` is NOT in that list: under the default representation this
 # adapter translates `null-eq-missing` into an `IS NULL` filter, so it carries a golden entry
 # like any other action. Its refusal is a property of the flipped option, asserted on its own
 # below.
-NULL_REPRESENTATION_OMITTED = null_representation_throws(ACTIONS_FILE, ADAPTER)
+NULL_REPRESENTATION_OMITTED = null_representation_throws(ACTIONS_FILE, LEDGER)
 
 
 def translate(
@@ -180,11 +183,11 @@ def expectation_for(action):
 if os.environ.get("GOLDEN_UPDATE") == "1":
     write_golden_expectations(
         {
-            # A throwing action gets no entry: its message is corpus data. Skipping it here is
+            # A throwing action gets no entry: its message is ledger data. Skipping it here is
             # also what keeps regeneration from papering over a misclassification — an action
-            # moved into `adapterUnsupported` that this adapter still translates fails the
-            # throw suite, and one moved out of it that this adapter still refuses fails
-            # regeneration itself.
+            # moved into the ledger's `adapterUnsupported` that this adapter still translates
+            # fails the throw suite, and one moved out of it that this adapter still refuses
+            # fails regeneration itself.
             action: expectation_for(action)
             for action in wire_fixture_actions()
             if action not in THROWING
@@ -303,7 +306,7 @@ class TestCorpusShapes:
     # harness makes the same assertion against a live PDP; here it costs a millisecond, which
     # is what lets the completeness guard below be total.
     @pytest.mark.parametrize("action,message", THROWING_ACTIONS)
-    def test_is_refused_with_the_message_actions_json_pins(self, action, message):
+    def test_is_refused_with_the_message_the_ledger_pins(self, action, message):
         with pytest.raises((ValueError, KeyError, TypeError), match=re.escape(message)):
             translate(action)
 
@@ -371,7 +374,7 @@ class TestCorpusShapes:
         # oracle set while staying on this list would break that argument silently, which is
         # why it is asserted rather than asserted in a comment. Runs on both majors, since the
         # claim is about the list rather than about either compiler.
-        oracle = set(classify_actions_for_adapter(ACTIONS_FILE, ADAPTER).oracle_actions)
+        oracle = set(classify_actions_for_adapter(ACTIONS_FILE, LEDGER).oracle_actions)
         assert [
             action
             for action in RENDERING_DIFFERS_ON_SQLALCHEMY_14
@@ -562,7 +565,7 @@ def _from_clauses_naming_the_resource(statement):
 
 
 def _null_omitted_message(action):
-    """The message ``actions.json`` pins for one ``nullRepresentationOmitted`` action."""
+    """The message the ledger pins for one ``nullRepresentationOmitted`` action."""
     return next(
         message
         for candidate, _reason, message in NULL_REPRESENTATION_OMITTED
@@ -662,7 +665,7 @@ class TestOperatorOverrides:
             translate("cs-eq", attr_map={}, attribute_null_representation=None)
 
     # The two tests below are the coverage the retired suite had that the corpus genuinely
-    # cannot carry, and the distinction is worth stating once. `actions.json` classifies a
+    # cannot carry, and the distinction is worth stating once. The ledger classifies a
     # shape against ONE mapping — the corpus's — so "unsupported" there means "this adapter
     # refuses it with these overrides", not "no caller can translate it". Both shapes are
     # documented in the README as caller-supplied, so an assertion that the documented
@@ -724,7 +727,7 @@ class TestOperatorOverrides:
 class TestDeclaredCollectionStorage:
     """``collection_columns``, which the corpus structurally cannot vary (#227).
 
-    ``actions.json`` classifies each action against ONE mapping, and the corpus's declares its
+    The ledger classifies each action against ONE mapping, and the corpus's declares its
     three collections as JSON documents -- that is what the golden expectations and the SQLite
     harness pin. A second storage shape, a missing declaration, a declaration the adapter must
     refuse and the precedence the declaration takes are properties of the caller's argument, not
@@ -870,7 +873,7 @@ class TestTimestampLiterals:
     ``regenerate-wire-fixtures.sh`` rewrites ``ts-window``'s folded ``now() - duration("24h")``
     literal to a placeholder, because it differs on every capture — so reading the fixture back
     means choosing a value, and here that choice is load-bearing. The PDP emits NANOSECOND
-    precision, which is the entire reason ``actions.json`` classifies ``ts-window`` and
+    precision, which is the entire reason the ledger classifies ``ts-window`` and
     ``ts-vf`` as ``adapterUnsupported`` for this adapter. A tidy millisecond substitution in
     ``corpus.py`` would translate cleanly and quietly contradict the corpus, so the throw suite
     above would be asserting a limitation that does not exist.
