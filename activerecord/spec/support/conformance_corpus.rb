@@ -7,12 +7,17 @@
 #
 # * derived fields are read from conformance/derived-fields.json, never computed here.
 # * key sets are asserted against the JSON: an unread key is an error, and so is a missing one.
+#
+# This adapter's classification is not in conformance/actions.json: it is in its own ledger,
+# activerecord/conformance-ledger.json (ADR 0010, docs/adr/0010-each-adapter-owns-its-conformance-ledger.md).
 module ConformanceCorpus
   DIR = File.expand_path("../../../conformance", __dir__)
+  LEDGER_PATH = File.expand_path("../../conformance-ledger.json", __dir__)
 
   SEEDS_FILE = JSON.parse(File.read(File.join(DIR, "seeds.json"))).freeze
   ACTIONS_FILE = JSON.parse(File.read(File.join(DIR, "actions.json"))).freeze
   DERIVED_FILE = JSON.parse(File.read(File.join(DIR, "derived-fields.json"))).freeze
+  LEDGER = JSON.parse(File.read(LEDGER_PATH)).freeze
   CERBOS_VERSION = File.read(File.join(DIR, "CERBOS_VERSION")).strip.freeze
 
   SEEDS = SEEDS_FILE.fetch("seeds").freeze
@@ -21,7 +26,7 @@ module ConformanceCorpus
   # would pass without testing anything.
   PRINCIPAL = SEEDS_FILE.fetch("principal").freeze
 
-  # This adapter's key in actions.json (its directory name).
+  # This adapter's name in actions.json's roster and in its ledger (its directory name).
   ADAPTER = "activerecord"
 
   # --- corpus coverage guards ---------------------------------------------------------------
@@ -35,6 +40,10 @@ module ConformanceCorpus
   # Tags are the only nested objects in a seed, so their keys are guarded too.
   TAG_KEYS = %w[id name].freeze
   DERIVED_KEYS = %w[createdBy aDouble createdAt scope labels updatedAt].freeze
+  LEDGER_KEYS = %w[
+    description adapter adapterUnsupported adapterSupportedExpected
+    expectedUnsupportedMessages nullRepresentationOmittedMessages
+  ].freeze
 
   # The principal feeds both the plan and the oracle, so its keys are guarded the same way,
   # on two levels: the principal itself and its `attr` (#399).
@@ -118,21 +127,27 @@ module ConformanceCorpus
     assert_keys!("derived-fields.json derived[#{id.inspect}]", entry.keys, DERIVED_KEYS)
   end
 
-  # --- classification, read from actions.json -----------------------------------------------
+  # --- classification, read from the ledger and actions.json ---------------------------------
   #
   # Each group is read by name. An unnamed group would vanish from every count and test
-  # silently (the projection trap in conformance/README.md).
+  # silently (the projection trap in conformance/README.md). This adapter's own buckets and
+  # pinned messages come from conformance-ledger.json; the shared groups from actions.json.
 
-  UNSUPPORTED = ACTIONS_FILE
-    .fetch("adapterUnsupported", {})
-    .fetch(ADAPTER, [])
-    .freeze
+  assert_keys!("conformance-ledger.json", LEDGER.keys, LEDGER_KEYS)
+  if LEDGER.fetch("adapter") != ADAPTER
+    raise "conformance-ledger.json declares adapter #{LEDGER.fetch("adapter").inspect}, but " \
+          "this harness is #{ADAPTER.inspect}"
+  end
 
-  SUPPORTED_EXPECTED = ACTIONS_FILE
-    .fetch("adapterSupportedExpected", {})
-    .fetch(ADAPTER, [])
+  UNSUPPORTED = LEDGER.fetch("adapterUnsupported").freeze
+
+  SUPPORTED_EXPECTED = LEDGER
+    .fetch("adapterSupportedExpected")
     .map { |entry| entry.fetch("action") }
     .freeze
+
+  EXPECTED_UNSUPPORTED_MESSAGES = LEDGER.fetch("expectedUnsupportedMessages").freeze
+  NULL_REPRESENTATION_OMITTED_MESSAGES = LEDGER.fetch("nullRepresentationOmittedMessages").freeze
 
   EXPECTED_UNSUPPORTED = ACTIONS_FILE
     .fetch("expectedUnsupported")
@@ -177,8 +192,8 @@ module ConformanceCorpus
       SUPPORTED_EXPECTED - SKIPPED
   ).freeze
 
-  # Every classified action, for any adapter, so the size tripwire and the "classified exactly
-  # once" test see divergences registered only by other adapters.
+  # Every classified action, so the size tripwire and the "classified exactly once" test see
+  # divergences registered only by other adapters.
   MANIFEST_ACTIONS = (
     ACTIONS_FILE.fetch("conformance") +
       EXPECTED_UNSUPPORTED +
@@ -191,7 +206,7 @@ module ConformanceCorpus
   # a transport error) would pass as the classified limitation (#326).
   def require_message(label, message)
     if message.nil? || message.empty?
-      raise "actions.json pins no throw message for #{label}: the throw suite would then " \
+      raise "conformance-ledger.json pins no throw message for #{label}: the throw suite would then " \
             "accept a failure for any reason at all"
     end
 
@@ -202,14 +217,14 @@ module ConformanceCorpus
   THROWING_ACTIONS = (
     UNSUPPORTED.map { |entry|
       action = entry.fetch("action")
-      [action, require_message("adapterUnsupported.#{ADAPTER}.#{action}", entry["message"])]
+      [action, require_message("adapterUnsupported.#{action}", entry["message"])]
     } +
     ACTIONS_FILE.fetch("expectedUnsupported")
       .reject { |entry| SUPPORTED_EXPECTED.include?(entry.fetch("action")) }
       .map { |entry|
         action = entry.fetch("action")
         [action, require_message(
-          "expectedUnsupported.#{action}.messages.#{ADAPTER}", entry["messages"]&.[](ADAPTER)
+          "expectedUnsupportedMessages.#{action}", EXPECTED_UNSUPPORTED_MESSAGES[action]
         )]
       }
   ).freeze
@@ -220,7 +235,7 @@ module ConformanceCorpus
     .map { |entry|
       action = entry.fetch("action")
       [action, require_message(
-        "nullRepresentationOmitted.#{action}.messages.#{ADAPTER}", entry["messages"]&.[](ADAPTER)
+        "nullRepresentationOmittedMessages.#{action}", NULL_REPRESENTATION_OMITTED_MESSAGES[action]
       )]
     }
     .freeze

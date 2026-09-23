@@ -52,7 +52,7 @@ RSpec.describe "translator" do
   end
 
   # CI never regenerates, so a changed filter fails there and the diff gets reviewed.
-  # Throwing actions get no entry; their messages are pinned in actions.json.
+  # Throwing actions get no entry; their messages are pinned in conformance-ledger.json.
   if ENV["GOLDEN_UPDATE"] == "1"
     GoldenExpectations.write(RECORDED_ACTIONS.to_h { |action| [action, expectation_for(action)] })
   end
@@ -236,7 +236,7 @@ RSpec.describe "translator" do
   # --- the shapes that must throw ------------------------------------------------------------
   describe "refuses" do
     THROWING_ACTIONS.each do |(action, message)|
-      it "#{action} with the message the corpus pins" do
+      it "#{action} with the message the ledger pins" do
         expect {
           Cerbos::ActiveRecord.query_plan_to_relation(
             plan: ConformanceCorpus.wire_fixture(action),

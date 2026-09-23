@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# The one attribute map this adapter is classified against in conformance/actions.json.
+# The one attribute map this adapter is classified against in conformance-ledger.json.
 # The conformance harness and the translator unit test both use it, so they cannot disagree.
 module CorpusAttributes
   def self.field(path, **kwargs) = Cerbos::ActiveRecord.field(path, **kwargs)
