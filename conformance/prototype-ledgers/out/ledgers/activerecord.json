@@ -1,0 +1,168 @@
+{
+  "adapter": "activerecord",
+  "generatedBy": "ledger:update (PROTOTYPE: split verbatim from actions.json)",
+  "expectedUnsupportedMessages": {
+    "null-value-f2f-mixed": "between two columns under mixed null conventions",
+    "p-timestamp": "must map to a datetime column rather than to a column holding a formatted timestamp string",
+    "p-matches": "Unsupported operator: matches",
+    "matches-alt": "Unsupported operator: matches",
+    "p-index": "Unsupported operator: index",
+    "cast-int-string": "int() applied to a :string column",
+    "cast-double-string": "double() needs a numeric column",
+    "cast-int-double": "int() applied to a double column is not portable",
+    "filter-as-condition": "a filtered relation cannot be used as a condition",
+    "filter-as-conjunct": "a filtered relation cannot be used as a condition",
+    "map-as-condition": "a projected relation cannot be used as a condition"
+  },
+  "nullRepresentationOmittedMessages": {
+    "null-eq-missing": "missing-attribute error"
+  },
+  "adapterSupportedExpected": [],
+  "reasons": {
+    "Unsupported operator: except. Supply an operator override if the database can express it faithfully.": [
+      "The SQL translator has no two-list difference value; the walk refuses except in each arrival position."
+    ],
+    "Unsupported operator: matches. Supply an operator override if the database can express it faithfully.": [
+      "ActiveRecord has no portable RE2 predicate; matches is refused even inside equality or disjunction.",
+      "The adapter has no RE2-compatible matches operator across its SQL dialects; the walk refuses matches before emitting SQL."
+    ],
+    "Unsupported operator: index. Supply an operator override if the database can express it faithfully.": [
+      "Relational associations do not expose CEL positional scalar-list indexing; the adapter refuses index before building a query.",
+      "Positional access into a list of numbers, the same refusal as index-scalar-list: `index` has no case in the translator's operator dispatch, so the walk falls through to the generic unsupported-operator refusal before the comparison around it is built. `aNumberList` is a has_many association mapped by member field, and a relation mapping carries no element order, so `aNumberList[0]` names whichever row the engine returns first without an ORDER BY the plan does not carry. A caller whose element table has a position column, as the harness table does, can supply the override the message offers",
+      "Positional access into a list of booleans, the same refusal as index-scalar-list: `index` has no case in the translator's operator dispatch, so the walk falls through to the generic unsupported-operator refusal before the comparison around it is built. `aBoolList` is a has_many association mapped by member field, and a relation mapping carries no element order, so `aBoolList[0]` names whichever row the engine returns first without an ORDER BY the plan does not carry. A caller whose element table has a position column, as the harness table does, can supply the override the message offers",
+      "The cross-type probe `aBoolList[0] == 1 || aNumber == 5`, refused at the `index` in its first disjunct for the same missing element order as index-bool-list, so nothing is emitted for either disjunct. The refusal is also what keeps the cross-type hazard shut on this store: SQLite holds a boolean column as the integer 1, so a positional lowering that compared the stored `aBoolList` element with the literal would return b4 and c1, whose first element is true, where CEL's heterogeneous equality is false for every row",
+      "The cross-type probe `aNumberList[0] == true || aNumber == 5`, refused at the `index` in its first disjunct for the same missing element order as index-number-list, so nothing is emitted for either disjunct. The refusal is also what keeps the cross-type hazard shut on this store: SQLite reads the literal TRUE as the integer 1, so a positional lowering that compared the stored `aNumberList` element with the literal would return b4, whose first element is 1, where CEL's heterogeneous equality is false for every row"
+    ],
+    "int() applied to a :string column: CEL reads the WHOLE string or makes an error, and Cerbos then denies the row, but SQL reads the digits at the front and gives a number, so the filter would keep the row. Compare the column directly, or give an operator override.": [
+      "SQL numeric casts accept malformed string prefixes or coerce them to zero, unlike CEL errors; negation cannot make the conversion safe."
+    ],
+    "timestamp() applied to a :string column: this adapter compares instants using the database's own temporal type, so the attribute must map to a datetime column rather than to a column holding a formatted timestamp string": [
+      "The mapper supplies a string column; the adapter only compares instants through native temporal columns, without portable error-preserving parsing of malformed strings."
+    ],
+    "double() needs a numeric column. CEL makes an error for a string that is not a number, and Cerbos denies the row, but SQL gives 0.0 and the filter would keep it. Compare the column directly, or give an operator override.": [
+      "SQL floating-point casts accept malformed string prefixes or coerce them to zero, unlike CEL errors; negation cannot make the conversion safe."
+    ],
+    "Unsupported operator: set-field. Supply an operator override if the database can express it faithfully.": [
+      "The planner emits a struct through set-field; this translator has no structured literal value and refuses that operator."
+    ],
+    "filter over a list of constants is not supported: only exists, all and exists_one have a translation for that shape": [
+      "Filtering or mapping a principal list produces a list-valued intermediate that this translator does not represent."
+    ],
+    "map over a list of constants is not supported: only exists, all and exists_one have a translation for that shape": [
+      "Filtering or mapping a principal list produces a list-valued intermediate that this translator does not represent."
+    ],
+    "size requires a string operand, got boolean": [
+      "CEL requires a string for this operation; the mapped ActiveRecord column is numeric or boolean, so SQL coercion would over-grant."
+    ],
+    "size requires a string operand, got integer": [
+      "CEL requires a string for this operation; the mapped ActiveRecord column is numeric or boolean, so SQL coercion would over-grant."
+    ],
+    "contains requires a string operand, got integer": [
+      "CEL requires a string for this operation; the mapped ActiveRecord column is numeric or boolean, so SQL coercion would over-grant."
+    ],
+    "startsWith requires a string operand, got integer": [
+      "CEL requires a string for this operation; the mapped ActiveRecord column is numeric or boolean, so SQL coercion would over-grant."
+    ],
+    "endsWith requires a string operand, got integer": [
+      "CEL requires a string for this operation; the mapped ActiveRecord column is numeric or boolean, so SQL coercion would over-grant."
+    ],
+    "Cannot divide by a column that may be zero: IEEE-754 keeps the sign of a zero, SQL cannot tell -0.0 from 0.0, and thus the sign of the Infinity is unknown. Divide by a constant, or keep this shape out of the policy.": [
+      "The inner divisor is a column that may be zero; SQL cannot preserve the IEEE signed-zero infinity needed to evaluate the nested division."
+    ],
+    "Raw temporal column comparison loses RFC-3339 string spelling; wrap both operands in timestamp()": [
+      "SQL temporal columns preserve instants but discard the RFC-3339 spelling compared by bare CEL attributes; timestamp wrappers are required."
+    ],
+    "eq cannot take a collection operand (a relation)": [
+      "A relational collection is not a scalar SQL comparison operand; the adapter refuses whole-list equality rather than compare a member."
+    ],
+    "ne cannot take a collection operand (a relation)": [
+      "A relational collection is not a scalar SQL comparison operand; the adapter refuses whole-list equality rather than compare a member."
+    ],
+    "in requires scalar elements; SQL scalar membership cannot compare a list or map element": [
+      "SQL scalar membership cannot bind or compare a nested list element; the adapter refuses before constructing the query."
+    ],
+    "carries sub-microsecond precision, which ActiveRecord truncates when binding a Time into SQL": [
+      "The planner folds `now() - duration(\"24h\")` to a literal with nanosecond precision, and ActiveRecord binds a Time into SQL at microsecond precision at best \u2014 SQLite stores a formatted string and MySQL DATETIME(6) truncates. Rounding the literal compares against a different instant than the policy names, in the direction that admits rows just outside the window, so the adapter refuses rather than move the boundary",
+      "The same sub-microsecond now() literal as ts-window, reached with the operands the other way round. Operand order does not change what a Time binds as, so the refusal is the same one"
+    ],
+    "Cannot divide by a column that may be zero": [
+      "The denominator is a DIFFERENT column, so it may be zero on a row where the numerator is not. CEL divides to a signed Infinity and IEEE-754 keeps the sign of the zero; SQL cannot tell -0.0 from 0.0, and a NULLIF guard collapses both to NULL. The sign of the Infinity decides which side of an order comparison the row falls on, so no guard recovers it and the adapter refuses. A constant denominator, or a column divided by itself, stays translatable"
+    ],
+    "add cannot take an operand that may be NaN or Infinity": [
+      "CEL carries a NaN or a signed Infinity out of the division and through the arithmetic composed on top of it; SQL has no value that does, because the NULLIF divide-by-zero guard turns the whole sum into NULL. The adapter resolves a non-finite division only where the division IS the comparison operand, so a division nested under further arithmetic fails closed instead of emitting the under-granting filter",
+      "The same nested-division limitation as cr-div-then-add, and the arm that proves it matters: `NaN != 2.0` is TRUE and the PDP allows the zero row, while `NULL + 1 <> 2` is UNKNOWN and drops it"
+    ],
+    "Unsupported operator: index": [
+      "Positional access into a scalar list. `index` has no case in the translator's operator dispatch at all, so the walk falls through to the generic unsupported-operator refusal rather than to a leaf-operand guard \u2014 which is why the message names the operator and offers an override. No case was written because row order in a SQL relation is not defined without an ORDER BY the plan does not carry: `tagNames` is a has_many association, and `tagNames[0]` names whichever row the engine happens to return first. A caller whose table has a deterministic ordering column can express it faithfully, and the override the message offers is that escape hatch"
+    ],
+    "eq cannot take a collection operand (a projected relation)": [
+      "map() is held as a projected relation until size() or hasIntersection() gives it a scalar meaning as an aggregate or an EXISTS subquery. Comparing the ordered projection itself to a literal list gives it neither, and a correlated subquery has no ordering to compare element-wise against, so the held projection reaches a plain value position and is refused there"
+    ],
+    "hierarchy() delimiter must be a non-empty string": [
+      "An empty delimiter is refused when the hierarchy operand is parsed, before the descendant LIKE is built: the adapter emits `prefix + delimiter + '%'`, which with an empty delimiter is a bare string-prefix LIKE that also matches the path itself (a2, never its own descendant)"
+    ]
+  },
+  "refuses": {
+    "cast-not-double": "double() needs a numeric column. CEL makes an error for a string that is not a number, and Cerbos denies the row, but SQL gives 0.0 and the filter would keep it. Compare the column directly, or give an operator override.",
+    "cast-not-int": "int() applied to a :string column: CEL reads the WHOLE string or makes an error, and Cerbos then denies the row, but SQL reads the digits at the front and gives a number, so the filter would keep the row. Compare the column directly, or give an operator override.",
+    "cast-not-timestamp": "timestamp() applied to a :string column: this adapter compares instants using the database's own temporal type, so the attribute must map to a datetime column rather than to a column holding a formatted timestamp string",
+    "cr-div-other-column": "Cannot divide by a column that may be zero",
+    "cr-div-then-add": "add cannot take an operand that may be NaN or Infinity",
+    "cr-div-then-add-ne": "add cannot take an operand that may be NaN or Infinity",
+    "div-by-division": "Cannot divide by a column that may be zero: IEEE-754 keeps the sign of a zero, SQL cannot tell -0.0 from 0.0, and thus the sign of the Infinity is unknown. Divide by a constant, or keep this shape out of the policy.",
+    "eq-list": "eq cannot take a collection operand (a relation)",
+    "eq-map": "Unsupported operator: set-field. Supply an operator override if the database can express it faithfully.",
+    "eq-map-null": "Unsupported operator: set-field. Supply an operator override if the database can express it faithfully.",
+    "except-eq": "Unsupported operator: except. Supply an operator override if the database can express it faithfully.",
+    "except-root": "Unsupported operator: except. Supply an operator override if the database can express it faithfully.",
+    "except-size": "Unsupported operator: except. Supply an operator override if the database can express it faithfully.",
+    "hasint-map-element": "Unsupported operator: set-field. Supply an operator override if the database can express it faithfully.",
+    "hier-empty-delim": "hierarchy() delimiter must be a non-empty string",
+    "in-list-element": "in requires scalar elements; SQL scalar membership cannot compare a list or map element",
+    "in-nested-list": "in requires scalar elements; SQL scalar membership cannot compare a list or map element",
+    "index-bool-list": "Unsupported operator: index. Supply an operator override if the database can express it faithfully.",
+    "index-bool-list-not-eq": "Unsupported operator: index. Supply an operator override if the database can express it faithfully.",
+    "index-bool-list-vs-number": "Unsupported operator: index. Supply an operator override if the database can express it faithfully.",
+    "index-fractional": "Unsupported operator: index. Supply an operator override if the database can express it faithfully.",
+    "index-negative": "Unsupported operator: index. Supply an operator override if the database can express it faithfully.",
+    "index-not-oob": "Unsupported operator: index. Supply an operator override if the database can express it faithfully.",
+    "index-number-list": "Unsupported operator: index. Supply an operator override if the database can express it faithfully.",
+    "index-number-list-not-eq": "Unsupported operator: index. Supply an operator override if the database can express it faithfully.",
+    "index-number-list-vs-bool": "Unsupported operator: index. Supply an operator override if the database can express it faithfully.",
+    "index-scalar-list": "Unsupported operator: index",
+    "index-scalar-list-not-eq": "Unsupported operator: index",
+    "index-scalar-list-null": "Unsupported operator: index",
+    "map-eq-list": "eq cannot take a collection operand (a projected relation)",
+    "ne-list": "ne cannot take a collection operand (a relation)",
+    "ne-map": "Unsupported operator: set-field. Supply an operator override if the database can express it faithfully.",
+    "pv-except": "Unsupported operator: except. Supply an operator override if the database can express it faithfully.",
+    "pv-filter": "filter over a list of constants is not supported: only exists, all and exists_one have a translation for that shape",
+    "pv-map": "map over a list of constants is not supported: only exists, all and exists_one have a translation for that shape",
+    "pv-structs": "Unsupported operator: set-field. Supply an operator override if the database can express it faithfully.",
+    "pv-structs-null": "Unsupported operator: set-field. Supply an operator override if the database can express it faithfully.",
+    "regex-alternation": "Unsupported operator: matches. Supply an operator override if the database can express it faithfully.",
+    "regex-brace": "Unsupported operator: matches. Supply an operator override if the database can express it faithfully.",
+    "regex-case": "Unsupported operator: matches. Supply an operator override if the database can express it faithfully.",
+    "regex-digit": "Unsupported operator: matches. Supply an operator override if the database can express it faithfully.",
+    "regex-dot": "Unsupported operator: matches. Supply an operator override if the database can express it faithfully.",
+    "regex-eq-true": "Unsupported operator: matches. Supply an operator override if the database can express it faithfully.",
+    "regex-final-newline": "Unsupported operator: matches. Supply an operator override if the database can express it faithfully.",
+    "regex-grouped": "Unsupported operator: matches. Supply an operator override if the database can express it faithfully.",
+    "regex-lookahead": "Unsupported operator: matches. Supply an operator override if the database can express it faithfully.",
+    "regex-optional-operators": "Unsupported operator: matches. Supply an operator override if the database can express it faithfully.",
+    "regex-posix": "Unsupported operator: matches. Supply an operator override if the database can express it faithfully.",
+    "regex-repetition": "Unsupported operator: matches. Supply an operator override if the database can express it faithfully.",
+    "regex-unanchored": "Unsupported operator: matches. Supply an operator override if the database can express it faithfully.",
+    "temporal-raw-eq": "Raw temporal column comparison loses RFC-3339 string spelling; wrap both operands in timestamp()",
+    "ts-vf": "carries sub-microsecond precision, which ActiveRecord truncates when binding a Time into SQL",
+    "ts-window": "carries sub-microsecond precision, which ActiveRecord truncates when binding a Time into SQL",
+    "type-needle-contains": "contains requires a string operand, got integer",
+    "type-needle-endswith": "endsWith requires a string operand, got integer",
+    "type-needle-startswith": "startsWith requires a string operand, got integer",
+    "type-number-contains": "contains requires a string operand, got integer",
+    "type-number-endswith": "endsWith requires a string operand, got integer",
+    "type-number-startswith": "startsWith requires a string operand, got integer",
+    "type-size-bool": "size requires a string operand, got boolean",
+    "type-size-number": "size requires a string operand, got integer"
+  }
+}

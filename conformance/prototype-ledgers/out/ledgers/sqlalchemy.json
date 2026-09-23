@@ -1,0 +1,145 @@
+{
+  "adapter": "sqlalchemy",
+  "generatedBy": "ledger:update (PROTOTYPE: split verbatim from actions.json)",
+  "expectedUnsupportedMessages": {
+    "null-value-f2f-mixed": "between two columns under mixed null conventions",
+    "p-timestamp": "timestamp() requires an RFC-3339 literal or a SQLAlchemy DateTime column",
+    "p-matches": "Unrecognised operator: matches",
+    "matches-alt": "Unrecognised operator: matches",
+    "p-index": "Indexed values support only direct eq/ne comparisons with scalar literals",
+    "cast-int-string": "'int()' cannot be lowered to SQL CAST: CAST reads a numeric prefix where CEL requires the whole string and raises otherwise, and PostgreSQL and MySQL round where CEL truncates toward zero",
+    "cast-double-string": "'double()' cannot be lowered to SQL CAST: CAST reads a numeric prefix where CEL requires the whole string and raises otherwise, and PostgreSQL and MySQL round where CEL truncates toward zero",
+    "cast-int-double": "'int()' cannot be lowered to SQL CAST: CAST reads a numeric prefix where CEL requires the whole string and raises otherwise, and PostgreSQL and MySQL round where CEL truncates toward zero",
+    "filter-as-condition": "the plan's condition translated to 'tuple', which is not a boolean SQL expression. filter() and map() return a list, so they cannot be a condition on their own (only size(filter(...)) has a boolean meaning), and an operator override returning an intermediate value must be consumed by an enclosing override before the root",
+    "filter-as-conjunct": "the plan's 'and' operand translated to 'tuple', which is not a boolean SQL expression. filter() and map() return a list, so they cannot be a condition on their own",
+    "map-as-condition": "the plan's condition translated to 'tuple', which is not a boolean SQL expression. filter() and map() return a list, so they cannot be a condition on their own (only size(filter(...)) has a boolean meaning), and an operator override returning an intermediate value must be consumed by an enclosing override before the root"
+  },
+  "nullRepresentationOmittedMessages": {
+    "null-eq-missing": "missing-attribute error"
+  },
+  "adapterSupportedExpected": [],
+  "reasons": {
+    "except over a literal collection value is not supported. Only exists() and all() can be folded into a flat filter.": [
+      "The literal-list fold accepts only exists/all; a principal-list difference with a resource-dependent second list has no SQL lowering."
+    ],
+    "Unrecognised operator: matches": [
+      "Regex matches() has no lowering: CEL uses RE2 and SQL regex dialects do not preserve its matching/error semantics, including through boolean equality.",
+      "No matches lowering is provided: SQL regex engines do not share CEL RE2 semantics.",
+      "The operator has no scalar SQL lowering in this translator."
+    ],
+    "Index access requires a constant non-negative 32-bit integer position": [
+      "tagNames is declared as ordered JSON storage through collection_columns, which accepts only a constant non-negative 32-bit integer position; CEL raises for this one, so it must not be coerced into a valid element read."
+    ],
+    "'int()' cannot be lowered to SQL CAST": [
+      "Negated int() remains unsupported: SQL CAST accepts numeric prefixes where CEL requires the whole string and errors otherwise; negation must not turn those errors into matches."
+    ],
+    "timestamp() requires an RFC-3339 literal or a SQLAlchemy DateTime column": [
+      "timestamp() cannot lower an arbitrary string column: malformed strings must remain CEL evaluation errors under negation; only a typed timestamp column or valid literal is supported."
+    ],
+    "'double()' cannot be lowered to SQL CAST": [
+      "Negated double() remains unsupported: SQL CAST accepts numeric prefixes where CEL requires the whole string and errors otherwise; negation must not turn those errors into matches."
+    ],
+    "Membership with a structured element has no scalar SQL lowering": [
+      "A relation member is scalar; a list-valued membership needle cannot be bound as one SQL value."
+    ],
+    "Attribute 'request.resource.attr.tagNames' must be handled by an operator override or map to a SQLAlchemy column": [
+      "Two-list except has no operator override or built-in SQL list-difference lowering.",
+      "Whole-list equality requires resolving a relation as a scalar; the configured relation mapping exposes member rows only."
+    ],
+    "Unrecognised operator: except": [
+      "Two-list except has no operator override or built-in SQL list-difference lowering."
+    ],
+    "Unrecognised unary operator: struct": [
+      "The planner emits list/struct/set-field constructors for principal objects; this fold accepts literal value lists rather than constructor expressions.",
+      "The constructor expression has no scalar SQL lowering in this translator."
+    ],
+    "exists_one over a literal collection value is not supported. Only exists() and all() can be folded into a flat filter.": [
+      "Only exists/all have a literal-list fold; this collection-valued macro has no scalar SQL lowering."
+    ],
+    "filter over a literal collection value is not supported. Only exists() and all() can be folded into a flat filter.": [
+      "Only exists/all have a literal-list fold; this collection-valued macro has no scalar SQL lowering."
+    ],
+    "map over a literal collection value is not supported. Only exists() and all() can be folded into a flat filter.": [
+      "Only exists/all have a literal-list fold; this collection-valued macro has no scalar SQL lowering."
+    ],
+    "arithmetic combines a non-finite value with a column, which SQL cannot carry": [
+      "arithmetic combines a non-finite value with a column, which SQL cannot carry"
+    ],
+    "Bare temporal attributes compare RFC 3339 strings in CEL; stored timestamps lose the original spelling; use timestamp() on both operands": [
+      "Bare temporal attributes compare RFC 3339 strings in CEL; stored timestamps lose the original spelling; use timestamp() on both operands"
+    ],
+    "Unrecognised operator: list": [
+      "The constructor expression has no scalar SQL lowering in this translator.",
+      "The operator has no scalar SQL lowering in this translator.",
+      "The descendant path is CONSTRUCTED by list() from a constant segment and the primary key. `list` has no entry in the operator table \u2014 it has never reached the wire from this corpus \u2014 so the walk refuses it before the hierarchy operators around it are considered"
+    ],
+    "Unrecognised unary operator: list": [
+      "The constructor expression has no scalar SQL lowering in this translator."
+    ],
+    "Timestamp literal precision exceeds the exact microsecond range": [
+      "The planner emits a nanosecond-precision now() literal that Python/SQLAlchemy DateTime cannot represent without changing the CEL instant",
+      "Same nanosecond-precision now() limitation in value-first form"
+    ],
+    "division by a constant zero whose sign is indeterminate: the HTTP transport renders -0.0 as `-0`, which JSON decodes to the integer 0, so the adapter cannot tell +Infinity from -Infinity. Use the gRPC client, which preserves the sign bit, or avoid a literal zero denominator": [
+      "IEEE keeps the sign of a zero, but Cerbos's HTTP transport renders the double -0.0 as `-0` and Python's json.loads returns the INTEGER 0 for it, discarding the sign bit \u2014 so the adapter cannot tell +Infinity from -Infinity and rejects a constant zero denominator instead of guessing. The gRPC client preserves the sign \u2014 a protobuf double keeps it through MessageToDict \u2014 so this is a transport limitation rather than a SQL one: the harness's gRPC leg translates this action and compares it against the check() oracle (#321)",
+      "Same indeterminate-signed-zero rejection as cr-div-neg-zero: the 1.0/0.0 and -1.0/0.0 branches also arrive with an integer-zero denominator over HTTP, and the adapter cannot distinguish that from -0.0. Over gRPC the sign survives, and the harness's gRPC leg translates this action and compares it against the check() oracle (#321)"
+    ],
+    "'int()' cannot be lowered to SQL CAST: CAST reads a numeric prefix where CEL requires the whole string and raises otherwise, and PostgreSQL and MySQL round where CEL truncates toward zero": [
+      "int() is what gives `%` an integer operand and has no faithful SQL lowering \u2014 CAST rounds where CEL truncates toward zero \u2014 so the cast is refused before the modulo is reached, exactly as for cast-int-double"
+    ],
+    "`eq` received an operand of type 'tuple', which is not a SQL expression or a plan literal: an operator override returning an intermediate value must be consumed by an enclosing override, and no default handler can lower one": [
+      "The map() override returns a deferred collection for an enclosing hasIntersection or size to consume. Comparing it directly to a literal list leaves that intermediate unconsumed at a default equality handler, which has no way to lower a collection"
+    ],
+    "hierarchy() delimiter must be a non-empty string": [
+      "An empty delimiter is refused when the hierarchy operand is parsed, before the descendant LIKE is built: the adapter emits `prefix + delimiter + '%'`, which with an empty delimiter is a bare string-prefix LIKE that also matches the path itself (a2, never its own descendant)"
+    ]
+  },
+  "refuses": {
+    "arith-mod": "'int()' cannot be lowered to SQL CAST: CAST reads a numeric prefix where CEL requires the whole string and raises otherwise, and PostgreSQL and MySQL round where CEL truncates toward zero",
+    "cast-not-double": "'double()' cannot be lowered to SQL CAST",
+    "cast-not-int": "'int()' cannot be lowered to SQL CAST",
+    "cast-not-timestamp": "timestamp() requires an RFC-3339 literal or a SQLAlchemy DateTime column",
+    "cr-div-neg-zero": "division by a constant zero whose sign is indeterminate: the HTTP transport renders -0.0 as `-0`, which JSON decodes to the integer 0, so the adapter cannot tell +Infinity from -Infinity. Use the gRPC client, which preserves the sign bit, or avoid a literal zero denominator",
+    "div-by-division": "arithmetic combines a non-finite value with a column, which SQL cannot carry",
+    "eq-list": "Attribute 'request.resource.attr.tagNames' must be handled by an operator override or map to a SQLAlchemy column",
+    "eq-map": "Unrecognised unary operator: struct",
+    "eq-map-null": "Unrecognised unary operator: struct",
+    "except-eq": "Attribute 'request.resource.attr.tagNames' must be handled by an operator override or map to a SQLAlchemy column",
+    "except-root": "Attribute 'request.resource.attr.tagNames' must be handled by an operator override or map to a SQLAlchemy column",
+    "except-size": "Unrecognised operator: except",
+    "hasint-map-element": "Unrecognised unary operator: list",
+    "hier-empty-delim": "hierarchy() delimiter must be a non-empty string",
+    "hier-list-id": "Unrecognised operator: list",
+    "hier-overlaps-list-prefix": "Unrecognised operator: list",
+    "in-list-element": "Membership with a structured element has no scalar SQL lowering",
+    "in-nested-list": "Unrecognised operator: list",
+    "index-fractional": "Index access requires a constant non-negative 32-bit integer position",
+    "index-negative": "Index access requires a constant non-negative 32-bit integer position",
+    "map-eq-list": "`eq` received an operand of type 'tuple', which is not a SQL expression or a plan literal: an operator override returning an intermediate value must be consumed by an enclosing override, and no default handler can lower one",
+    "nan-ord-inf": "division by a constant zero whose sign is indeterminate: the HTTP transport renders -0.0 as `-0`, which JSON decodes to the integer 0, so the adapter cannot tell +Infinity from -Infinity. Use the gRPC client, which preserves the sign bit, or avoid a literal zero denominator",
+    "ne-list": "Attribute 'request.resource.attr.tagNames' must be handled by an operator override or map to a SQLAlchemy column",
+    "ne-map": "Unrecognised unary operator: struct",
+    "pv-except": "except over a literal collection value is not supported. Only exists() and all() can be folded into a flat filter.",
+    "pv-exists-one": "exists_one over a literal collection value is not supported. Only exists() and all() can be folded into a flat filter.",
+    "pv-filter": "filter over a literal collection value is not supported. Only exists() and all() can be folded into a flat filter.",
+    "pv-map": "map over a literal collection value is not supported. Only exists() and all() can be folded into a flat filter.",
+    "pv-structs": "Unrecognised unary operator: struct",
+    "pv-structs-null": "Unrecognised unary operator: struct",
+    "regex-alternation": "Unrecognised operator: matches",
+    "regex-brace": "Unrecognised operator: matches",
+    "regex-case": "Unrecognised operator: matches",
+    "regex-digit": "Unrecognised operator: matches",
+    "regex-dot": "Unrecognised operator: matches",
+    "regex-eq-true": "Unrecognised operator: matches",
+    "regex-final-newline": "Unrecognised operator: matches",
+    "regex-grouped": "Unrecognised operator: matches",
+    "regex-lookahead": "Unrecognised operator: matches",
+    "regex-optional-operators": "Unrecognised operator: matches",
+    "regex-posix": "Unrecognised operator: matches",
+    "regex-repetition": "Unrecognised operator: matches",
+    "regex-unanchored": "Unrecognised operator: matches",
+    "temporal-raw-eq": "Bare temporal attributes compare RFC 3339 strings in CEL; stored timestamps lose the original spelling; use timestamp() on both operands",
+    "ts-vf": "Timestamp literal precision exceeds the exact microsecond range",
+    "ts-window": "Timestamp literal precision exceeds the exact microsecond range"
+  }
+}

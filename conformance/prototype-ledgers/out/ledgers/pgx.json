@@ -1,0 +1,143 @@
+{
+  "adapter": "pgx",
+  "generatedBy": "ledger:update (PROTOTYPE: split verbatim from actions.json)",
+  "expectedUnsupportedMessages": {
+    "null-value-f2f-mixed": "under mixed null conventions",
+    "p-timestamp": "timestamp() over a column requires that column to be mapped with a timestamp value type",
+    "p-matches": "unsupported operator: matches. CEL's regex dialect (RE2) is not the dialect any SQL engine implements, so a translated pattern would accept or reject different strings than the PDP",
+    "matches-alt": "unsupported operator: matches. CEL's regex dialect (RE2) is not the dialect any SQL engine implements, so a translated pattern would accept or reject different strings than the PDP",
+    "p-index": "unsupported operator: get-field",
+    "cast-int-string": "'int()' cannot be lowered to SQL CAST: CAST reads a numeric prefix where CEL requires the whole string and raises otherwise, and PostgreSQL and MySQL round where CEL truncates toward zero",
+    "cast-double-string": "'double()' cannot be lowered to SQL CAST: CAST reads a numeric prefix where CEL requires the whole string and raises otherwise, and PostgreSQL and MySQL round where CEL truncates toward zero",
+    "cast-int-double": "'int()' cannot be lowered to SQL CAST: CAST reads a numeric prefix where CEL requires the whole string and raises otherwise, and PostgreSQL and MySQL round where CEL truncates toward zero",
+    "filter-as-condition": "'filter' produces a collection rather than a boolean; it only translates inside size() or hasIntersection(), which give the collection a scalar meaning",
+    "filter-as-conjunct": "'filter' produces a collection rather than a boolean; it only translates inside size() or hasIntersection(), which give the collection a scalar meaning",
+    "map-as-condition": "'map' produces a collection rather than a boolean; it only translates inside size() or hasIntersection(), which give the collection a scalar meaning"
+  },
+  "nullRepresentationOmittedMessages": {
+    "null-eq-missing": "missing-attribute error"
+  },
+  "adapterSupportedExpected": [],
+  "reasons": {
+    "unsupported operator: except": [
+      "The two-list except function has no list-difference lowering in this translator."
+    ],
+    "unsupported operator: matches": [
+      "Regex matches() has no lowering: CEL uses RE2 and SQL regex dialects do not preserve its matching/error semantics, including through boolean equality."
+    ],
+    "unsupported operator: index": [
+      "Ordered list indexing has no SQL relation lowering; a relation has no positional order or CEL out-of-bounds/error semantics.",
+      "Same missing `index` case as the ent module, for the same undefined-row-order reason",
+      "Same missing `index` case as the ent module: the two share a byte-identical vendored translator. PostgreSQL's arrays and jsonb are ordered, but the mapper has no column kind for either, so the operator is refused before any mapping is resolved"
+    ],
+    "'int()' cannot be lowered to SQL CAST": [
+      "Negated int() remains unsupported: SQL CAST accepts numeric prefixes where CEL requires the whole string and errors otherwise; negation must not turn those errors into matches."
+    ],
+    "timestamp() over a column requires that column to be mapped with a timestamp value type": [
+      "timestamp() cannot lower an arbitrary string column: malformed strings must remain CEL evaluation errors under negation; only a typed timestamp column or valid literal is supported."
+    ],
+    "'double()' cannot be lowered to SQL CAST": [
+      "Negated double() remains unsupported: SQL CAST accepts numeric prefixes where CEL requires the whole string and errors otherwise; negation must not turn those errors into matches."
+    ],
+    "unsupported operator: matches. CEL's regex dialect (RE2) is not the dialect any SQL engine implements, so a translated pattern would accept or reject different strings than the PDP": [
+      "The translator has no matches lowering: the SQL engines do not share CEL RE2 semantics."
+    ],
+    "'exists' requires a collection attribute or a literal list": [
+      "The planner emits list/struct/set-field constructors for principal objects; the macro fold accepts literal value lists or mapped relations, not constructor expressions."
+    ],
+    "exists_one over a literal collection value is not supported; only exists() and all() can be folded into a flat filter": [
+      "This macro has no value-list lowering; only exists/all can use the translator\u2019s literal-list fold."
+    ],
+    "'filter' requires a collection attribute": [
+      "This macro has no value-list lowering; only exists/all can use the translator\u2019s literal-list fold."
+    ],
+    "'map' requires a collection attribute": [
+      "This macro has no value-list lowering; only exists/all can use the translator\u2019s literal-list fold."
+    ],
+    "unsupported operator: list": [
+      "The computed list constructor has no SQL scalar lowering in this translator.",
+      "Same missing list() constructor as the ent module: the two share a byte-identical vendored translator, so a plan operand neither can build a path from fails closed in both"
+    ],
+    "conditional value used where a plain expression is required": [
+      "The divisor resolves to a conditional IEEE value; division requires a plain SQL expression and cannot bind the symbolic branches."
+    ],
+    "bare temporal attributes compare RFC 3339 strings in CEL; stored timestamps lose the original spelling; use timestamp() on both operands": [
+      "Native timestamp storage discards the original RFC 3339 spelling, so instant equality cannot reproduce CEL string equality without timestamp() wrappers."
+    ],
+    "attribute \"request.resource.attr.tagNames\" maps to a collection and cannot be used as a scalar value": [
+      "The mapped relation stores individual members, and cannot be resolved as one scalar comparison operand for whole-list equality."
+    ],
+    "unsupported operator: struct": [
+      "A struct constructor is not a scalar SQL operand and has no lowering in this translator."
+    ],
+    "membership with a list-valued element cannot be represented by scalar SQL equality": [
+      "A nested list element cannot be bound as a scalar member of this relation."
+    ],
+    "hasIntersection between two stored collections requires a set-valued join that SQL cannot express as a row filter; one side must be a literal list": [
+      "The computed list constructor has no SQL scalar lowering in this translator."
+    ],
+    "'int()' cannot be lowered to SQL CAST: CAST reads a numeric prefix where CEL requires the whole string and raises otherwise, and PostgreSQL and MySQL round where CEL truncates toward zero": [
+      "Same unlowerable int() cast as the ent module: the two share a byte-identical vendored translator"
+    ],
+    "'map' produces a collection rather than a plain value; it only translates inside size() or hasIntersection(), which give the collection a scalar meaning": [
+      "Same deferred-collection refusal as the ent module: a held projection reaching a plain value position has no scalar meaning to lower"
+    ],
+    "hierarchy() delimiter must be a non-empty string": [
+      "Same empty-delimiter refusal as the ent module: the two share a byte-identical vendored translator"
+    ]
+  },
+  "refuses": {
+    "arith-mod": "'int()' cannot be lowered to SQL CAST: CAST reads a numeric prefix where CEL requires the whole string and raises otherwise, and PostgreSQL and MySQL round where CEL truncates toward zero",
+    "cast-not-double": "'double()' cannot be lowered to SQL CAST",
+    "cast-not-int": "'int()' cannot be lowered to SQL CAST",
+    "cast-not-timestamp": "timestamp() over a column requires that column to be mapped with a timestamp value type",
+    "div-by-division": "conditional value used where a plain expression is required",
+    "eq-list": "attribute \"request.resource.attr.tagNames\" maps to a collection and cannot be used as a scalar value",
+    "eq-map": "unsupported operator: struct",
+    "eq-map-null": "unsupported operator: struct",
+    "except-eq": "unsupported operator: except",
+    "except-root": "unsupported operator: except",
+    "except-size": "unsupported operator: except",
+    "hasint-map-element": "hasIntersection between two stored collections requires a set-valued join that SQL cannot express as a row filter; one side must be a literal list",
+    "hier-empty-delim": "hierarchy() delimiter must be a non-empty string",
+    "hier-list-id": "unsupported operator: list",
+    "hier-overlaps-list-prefix": "unsupported operator: list",
+    "in-list-element": "membership with a list-valued element cannot be represented by scalar SQL equality",
+    "in-nested-list": "unsupported operator: list",
+    "index-bool-list": "unsupported operator: index",
+    "index-bool-list-not-eq": "unsupported operator: index",
+    "index-bool-list-vs-number": "unsupported operator: index",
+    "index-fractional": "unsupported operator: index",
+    "index-negative": "unsupported operator: index",
+    "index-not-oob": "unsupported operator: index",
+    "index-number-list": "unsupported operator: index",
+    "index-number-list-not-eq": "unsupported operator: index",
+    "index-number-list-vs-bool": "unsupported operator: index",
+    "index-scalar-list": "unsupported operator: index",
+    "index-scalar-list-not-eq": "unsupported operator: index",
+    "index-scalar-list-null": "unsupported operator: index",
+    "map-eq-list": "'map' produces a collection rather than a plain value; it only translates inside size() or hasIntersection(), which give the collection a scalar meaning",
+    "ne-list": "attribute \"request.resource.attr.tagNames\" maps to a collection and cannot be used as a scalar value",
+    "ne-map": "unsupported operator: struct",
+    "pv-except": "unsupported operator: except",
+    "pv-exists-one": "exists_one over a literal collection value is not supported; only exists() and all() can be folded into a flat filter",
+    "pv-filter": "'filter' requires a collection attribute",
+    "pv-map": "'map' requires a collection attribute",
+    "pv-structs": "'exists' requires a collection attribute or a literal list",
+    "pv-structs-null": "'exists' requires a collection attribute or a literal list",
+    "regex-alternation": "unsupported operator: matches. CEL's regex dialect (RE2) is not the dialect any SQL engine implements, so a translated pattern would accept or reject different strings than the PDP",
+    "regex-brace": "unsupported operator: matches. CEL's regex dialect (RE2) is not the dialect any SQL engine implements, so a translated pattern would accept or reject different strings than the PDP",
+    "regex-case": "unsupported operator: matches. CEL's regex dialect (RE2) is not the dialect any SQL engine implements, so a translated pattern would accept or reject different strings than the PDP",
+    "regex-digit": "unsupported operator: matches. CEL's regex dialect (RE2) is not the dialect any SQL engine implements, so a translated pattern would accept or reject different strings than the PDP",
+    "regex-dot": "unsupported operator: matches. CEL's regex dialect (RE2) is not the dialect any SQL engine implements, so a translated pattern would accept or reject different strings than the PDP",
+    "regex-eq-true": "unsupported operator: matches",
+    "regex-final-newline": "unsupported operator: matches",
+    "regex-grouped": "unsupported operator: matches. CEL's regex dialect (RE2) is not the dialect any SQL engine implements, so a translated pattern would accept or reject different strings than the PDP",
+    "regex-lookahead": "unsupported operator: matches",
+    "regex-optional-operators": "unsupported operator: matches. CEL's regex dialect (RE2) is not the dialect any SQL engine implements, so a translated pattern would accept or reject different strings than the PDP",
+    "regex-posix": "unsupported operator: matches. CEL's regex dialect (RE2) is not the dialect any SQL engine implements, so a translated pattern would accept or reject different strings than the PDP",
+    "regex-repetition": "unsupported operator: matches. CEL's regex dialect (RE2) is not the dialect any SQL engine implements, so a translated pattern would accept or reject different strings than the PDP",
+    "regex-unanchored": "unsupported operator: matches. CEL's regex dialect (RE2) is not the dialect any SQL engine implements, so a translated pattern would accept or reject different strings than the PDP",
+    "temporal-raw-eq": "bare temporal attributes compare RFC 3339 strings in CEL; stored timestamps lose the original spelling; use timestamp() on both operands"
+  }
+}

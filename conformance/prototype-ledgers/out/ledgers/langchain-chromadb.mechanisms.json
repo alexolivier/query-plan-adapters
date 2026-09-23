@@ -1,0 +1,208 @@
+{
+  "adapter": "langchain-chromadb",
+  "mechanisms": [
+    {
+      "message": "Nested expressions are not supported by ChromaDB filters",
+      "when": [
+        "cmp-exprarg"
+      ],
+      "reason": "Chroma metadata filters cannot evaluate the retained ternary and arithmetic operands of this comparison.",
+      "matchesToday": 106
+    },
+    {
+      "message": "Nested expressions are not supported by ChromaDB filters",
+      "when": [
+        "op:lambda"
+      ],
+      "reason": "Chroma metadata filters cannot evaluate the retained ternary and arithmetic operands of this comparison.",
+      "matchesToday": 52
+    },
+    {
+      "message": "Nested expressions are not supported by ChromaDB filters",
+      "when": [
+        "op:hierarchy"
+      ],
+      "reason": "Chroma metadata filters cannot evaluate the retained ternary and arithmetic operands of this comparison.",
+      "matchesToday": 15
+    },
+    {
+      "message": "Variable-to-variable comparisons are not supported by ChromaDB filters",
+      "when": [
+        "f2f"
+      ],
+      "reason": "Chroma metadata filters cannot compare two metadata fields; this shape retains a field on both sides.",
+      "matchesToday": 46
+    },
+    {
+      "message": "Unsupported operator matches",
+      "when": [
+        "op:matches"
+      ],
+      "reason": "Chroma metadata filters expose neither computed scalar expressions nor regex matching. ",
+      "matchesToday": 13
+    },
+    {
+      "message": "ne is unsafe for optional Chroma metadata because missing fields match the filter",
+      "when": [
+        "attr:R.owner"
+      ],
+      "reason": "A missing parent is stored as an absent metadata key, and Chroma $ne matches absent keys. Negated equality cannot exclude the parentless rows that CEL denies.",
+      "matchesToday": 16
+    },
+    {
+      "message": "ne is unsafe for optional Chroma metadata because missing fields match the filter",
+      "when": [
+        "opattr:ne:R.aOptionalString"
+      ],
+      "reason": "A missing parent is stored as an absent metadata key, and Chroma $ne matches absent keys. Negated equality cannot exclude the parentless rows that CEL denies.",
+      "matchesToday": 5
+    },
+    {
+      "message": "ne is unsafe for optional Chroma metadata because missing fields match the filter",
+      "when": [
+        "hop",
+        "root:not"
+      ],
+      "reason": "A missing parent is stored as an absent metadata key, and Chroma $ne matches absent keys. Negated equality cannot exclude the parentless rows that CEL denies.",
+      "matchesToday": 10
+    },
+    {
+      "message": "ChromaDB filters cannot test whether a literal is contained in a metadata field",
+      "when": [
+        "valfirst:in"
+      ],
+      "reason": "ChromaDB filters cannot test whether a literal is contained in a metadata field.",
+      "matchesToday": 12
+    },
+    {
+      "message": "Unsupported operator startsWith",
+      "when": [
+        "root:startsWith"
+      ],
+      "reason": "Chroma metadata filters have no startsWith operator; the adapter refuses that operation.",
+      "matchesToday": 10
+    },
+    {
+      "message": "Cannot negate operator exists",
+      "when": [
+        "nest:not>exists"
+      ],
+      "reason": "Chroma metadata filters cannot negate the retained exists expression; there is no equivalent scalar metadata predicate.",
+      "matchesToday": 7
+    },
+    {
+      "message": "Unsupported operator contains",
+      "when": [
+        "op:contains"
+      ],
+      "reason": "Chroma metadata filters have no contains operator; the adapter refuses that operation.",
+      "matchesToday": 12
+    },
+    {
+      "message": "Unsupported operator hasIntersection",
+      "when": [
+        "var-under:hasIntersection"
+      ],
+      "reason": "Chroma metadata filters have no hasIntersection operator; the adapter refuses that operation.",
+      "matchesToday": 8
+    },
+    {
+      "message": "Unsupported operator endsWith",
+      "when": [
+        "op:endsWith"
+      ],
+      "reason": "Chroma metadata filters have no endsWith operator; the adapter refuses that operation.",
+      "matchesToday": 7
+    },
+    {
+      "message": "eq requires a finite number, string, or boolean literal",
+      "when": [
+        "sig:eq(var,val:null)"
+      ],
+      "reason": "eq requires a finite number, string, or boolean literal.",
+      "matchesToday": 4
+    },
+    {
+      "message": "Cannot negate operator all",
+      "when": [
+        "nest:not>all"
+      ],
+      "reason": "Chroma metadata filters cannot negate the retained all expression; there is no equivalent scalar metadata predicate.",
+      "matchesToday": 3
+    },
+    {
+      "message": "Cannot negate operator contains",
+      "when": [
+        "nest:not>contains"
+      ],
+      "reason": "Chroma metadata filters have no string-contains predicate or its negation; the raw contains operator is rejected before field resolution.",
+      "matchesToday": 2
+    },
+    {
+      "message": "Cannot negate operator hasIntersection",
+      "when": [
+        "nest:not>hasIntersection"
+      ],
+      "reason": "Chroma metadata filters cannot negate the retained hasIntersection expression; there is no equivalent scalar metadata predicate.",
+      "matchesToday": 2
+    },
+    {
+      "message": "Expected exactly two operands",
+      "when": [
+        "root:if"
+      ],
+      "reason": "The bare ternary plans as a three-operand conditional at the top of the filter; Chroma's Where model only takes two-operand field-vs-literal comparisons",
+      "matchesToday": 2
+    },
+    {
+      "message": "nin is unsafe for optional Chroma metadata because missing fields match the filter",
+      "when": [
+        "opattr:in:R.owner"
+      ],
+      "reason": "Chroma $nin matches records whose metadata key is absent, unlike Cerbos missing-attribute error semantics, and this field is not declared required",
+      "matchesToday": 5
+    }
+  ],
+  "pins": [
+    {
+      "action": "double-threshold",
+      "message": "ge cannot safely compare a fractional threshold unless the mapped Chroma metadata field declares numericType: \"float\""
+    },
+    {
+      "action": "eq-list",
+      "message": "eq requires a finite number, string, or boolean literal"
+    },
+    {
+      "action": "except-root",
+      "message": "Unsupported operator except"
+    },
+    {
+      "action": "hasint-map-element",
+      "message": "Nested expressions are not supported by ChromaDB filters"
+    },
+    {
+      "action": "in-null-elem-mixed",
+      "message": "in requires a list containing only finite numbers, strings, or booleans"
+    },
+    {
+      "action": "n-not-exists-one-null",
+      "message": "Cannot negate operator exists_one"
+    },
+    {
+      "action": "ne-list",
+      "message": "ne is unsafe for optional Chroma metadata because missing fields match the filter"
+    },
+    {
+      "action": "not-startswith",
+      "message": "Cannot negate operator startsWith"
+    },
+    {
+      "action": "rel-ne-null-hop",
+      "message": "ne is unsafe for optional Chroma metadata because missing fields match the filter"
+    },
+    {
+      "action": "rel-not-hierarchy-hop",
+      "message": "Cannot negate operator overlaps"
+    }
+  ]
+}

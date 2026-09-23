@@ -1,0 +1,83 @@
+{
+  "adapter": "convex",
+  "mechanisms": [
+    {
+      "message": "Unsupported operator: list",
+      "when": [
+        "op:list"
+      ],
+      "reason": "The Convex adapter refuses this shape during structural validation: Unsupported operator: list.",
+      "matchesToday": 7
+    },
+    {
+      "message": "Unsupported operator: except",
+      "when": [
+        "op:except"
+      ],
+      "reason": "The Convex adapter refuses this shape during structural validation: Unsupported operator: except.",
+      "matchesToday": 4
+    },
+    {
+      "message": "Unsupported operator: struct",
+      "when": [
+        "exprarg:struct"
+      ],
+      "reason": "The Convex adapter refuses this shape during structural validation: Unsupported operator: struct.",
+      "matchesToday": 6
+    }
+  ],
+  "pins": [
+    {
+      "action": "cr-div-neg-zero",
+      "message": "division by a constant zero whose sign is indeterminate: a query plan is JSON-encoded on its way into a Convex function and JSON has no -0, so the adapter cannot tell +Infinity from -Infinity"
+    },
+    {
+      "action": "div-by-division",
+      "message": "division requires a constant denominator: the plan does not preserve numeric types needed to distinguish integer errors from floating-point infinity"
+    },
+    {
+      "action": "nan-ord-inf",
+      "message": "division by a constant zero whose sign is indeterminate: a query plan is JSON-encoded on its way into a Convex function and JSON has no -0, so the adapter cannot tell +Infinity from -Infinity"
+    },
+    {
+      "action": "regex-alternation",
+      "message": "matches requires a constant RE2-compatible pattern in the supported literal, anchor, and trailing .* subset"
+    },
+    {
+      "action": "regex-brace",
+      "message": "matches requires a constant RE2-compatible pattern in the supported literal, anchor, and trailing .* subset"
+    },
+    {
+      "action": "regex-case",
+      "message": "matches requires a constant RE2-compatible pattern in the supported literal, anchor, and trailing .* subset"
+    },
+    {
+      "action": "regex-digit",
+      "message": "matches requires a constant RE2-compatible pattern in the supported literal, anchor, and trailing .* subset"
+    },
+    {
+      "action": "regex-dot",
+      "message": "matches requires a constant RE2-compatible pattern in the supported literal, anchor, and trailing .* subset"
+    },
+    {
+      "action": "regex-grouped",
+      "message": "matches requires a constant RE2-compatible pattern in the supported literal, anchor, and trailing .* subset"
+    },
+    {
+      "action": "regex-lookahead",
+      "message": "matches requires a constant RE2-compatible pattern in the supported literal, anchor, and trailing .* subset"
+    },
+    {
+      "action": "regex-optional-operators",
+      "message": "matches requires a constant RE2-compatible pattern in the supported literal, anchor, and trailing .* subset"
+    },
+    {
+      "action": "regex-posix",
+      "message": "matches requires a constant RE2-compatible pattern in the supported literal, anchor, and trailing .* subset"
+    },
+    {
+      "action": "regex-repetition",
+      "message": "matches requires a constant RE2-compatible pattern in the supported literal, anchor, and trailing .* subset"
+    }
+  ]
+}

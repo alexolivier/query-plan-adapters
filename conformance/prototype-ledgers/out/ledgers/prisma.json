@@ -1,0 +1,395 @@
+{
+  "adapter": "prisma",
+  "generatedBy": "ledger:update (PROTOTYPE: split verbatim from actions.json)",
+  "expectedUnsupportedMessages": {
+    "null-value-f2f-mixed": "between two columns under mixed null conventions",
+    "p-timestamp": "timestamp() field request.resource.attr.createdBy must be mapped with valueType: \"dateTime\"",
+    "p-matches": "Unsupported operator: matches",
+    "matches-alt": "Unsupported operator: matches",
+    "p-index": "Unsupported operator: get-field",
+    "cast-int-string": "Unsupported operator: int",
+    "cast-double-string": "Unsupported operator: double",
+    "cast-int-double": "Unsupported operator: int",
+    "filter-as-condition": "The filter() collection operator returns a list, not a boolean. It cannot be used as a standalone condition. Use exists() or combine filter() with size() instead.",
+    "filter-as-conjunct": "The filter() collection operator returns a list, not a boolean. It cannot be used as a standalone condition. Use exists() or combine filter() with size() instead.",
+    "map-as-condition": "map() returns a list, not a boolean, so it cannot be a condition on its own; only comparisons or size() over its result have a boolean meaning"
+  },
+  "nullRepresentationOmittedMessages": {
+    "null-eq-missing": "missing-attribute error"
+  },
+  "adapterSupportedExpected": [],
+  "reasons": {
+    "le value type does not match mapped string field": [
+      "The finite ternary branch compares a numeric value with a mapped string field; Prisma scalar filters cannot encode the CEL type-error result required for that branch and the adapter rejects the mismatched operand type."
+    ],
+    "size operator requires a named collection operand": [
+      "The prisma adapter refuses this planner shape at its existing lowering boundary: size operator requires a named collection operand.",
+      "The count is taken over filter(tags, ...) rather than a named relation, and a Prisma where-filter can only count a relation it can name; the underlying relation-count limitation is size-threshold's, but this operand shape is rejected one step earlier"
+    ],
+    "Unsupported operator: double": [
+      "Prisma where filters expose no scalar cast, positional array index, or RE2 expression for this planner shape."
+    ],
+    "Unsupported operator: int": [
+      "Prisma where filters expose no scalar cast, positional array index, or RE2 expression for this planner shape."
+    ],
+    "Unsupported operator: string": [
+      "Prisma where filters expose no scalar cast, positional array index, or RE2 expression for this planner shape.",
+      "Prisma filters have no cast: a where clause compares a column against a value, and there is no form that applies string() to the column first. The rendering would also have to be provider-specific \u2014 CAST(x AS TEXT) formats a double differently across the providers one Prisma client targets",
+      "Same missing cast as cast-string-double, and the one where lowering it would be wrong rather than merely absent: SQLite and MySQL store a boolean as 1/0, so CAST(a_bool AS TEXT) never equals CEL's \"true\" and the filter would return nothing"
+    ],
+    "timestamp() field request.resource.attr.createdBy must be mapped with valueType: \"dateTime\"": [
+      "Prisma where filters expose no scalar cast, positional array index, or RE2 expression for this planner shape."
+    ],
+    "Unsupported operator: index": [
+      "Prisma where filters expose no scalar cast, positional array index, or RE2 expression for this planner shape.",
+      "Indexing a scalar list needs a positional read of an array column, which Prisma's filter API cannot express. The refusal arrives one node earlier than p-index's, because there is no get-field projection wrapping this index",
+      "A positional read of a number list has no Prisma filter form: Prisma's scalar-list filters (has, hasSome, hasEvery, isEmpty, equals) test membership or the whole list, never one position, and exist only where the provider has array columns, which SQLite and MySQL do not. `index` has no case in the translator's operator switch, so the walk throws at the index node itself, before the list is resolved against the mapper or the element's type meets the literal \u2014 the same site as index-scalar-list",
+      "A positional read of a boolean list has no Prisma filter form: Prisma's scalar-list filters (has, hasSome, hasEvery, isEmpty, equals) test membership or the whole list, never one position, and exist only where the provider has array columns, which SQLite and MySQL do not. `index` has no case in the translator's operator switch, so the walk throws at the index node itself, before the list is resolved against the mapper or the element's type meets the literal \u2014 the same site as index-scalar-list",
+      "Same missing positional read as index-bool-list, and the throw lands before the cross-type question this probe asks can arise: the index node is refused before its boolean element meets the number literal, so neither CEL's heterogeneous equality nor a store that reads a JSON true as 1 is ever consulted. The throw propagates out of the `or`, so the aNumber == 5 branch, which the adapter translates on its own, is not emitted either",
+      "Same missing positional read as index-number-list, and the throw lands before the cross-type question this probe asks can arise: the index node is refused before its number element meets the boolean literal, so neither CEL's heterogeneous equality nor a store that reads a JSON true as 1 is ever consulted. The throw propagates out of the `or`, so the aNumber == 5 branch, which the adapter translates on its own, is not emitted either"
+    ],
+    "Unsupported operator: matches": [
+      "Prisma where filters expose no scalar cast, positional array index, or RE2 expression for this planner shape.",
+      "The prisma adapter refuses this planner shape at its existing lowering boundary: Unsupported operator: matches."
+    ],
+    "eq value type does not match mapped string field": [
+      "The declared Prisma field type is incompatible with the CEL operand; translating would yield an invalid Prisma filter or datastore coercion.",
+      "aString is mapped with valueType string, CEL answers `aString == 0` false, and MySQL reads a non-numeric string as 0 when comparing it to a number, while h4's \"0\" matches on any store that coerces. The scalar comparison refuses the number literal against the mapped valueType before a filter exists; the throw propagates out of the `or`, so the aNumber == 5 branch is not emitted either",
+      "The lambda body becomes a filter inside the tags relation's `some`, and its field `name` is mapped with valueType string; CEL answers `t.name == 0` false for every tag. The element comparison refuses the number literal against the mapped valueType before a filter exists rather than bind it for a store to coerce; the throw propagates out of the `or`, so the aNumber == 5 branch is not emitted either"
+    ],
+    "eq value type does not match mapped number field": [
+      "The declared Prisma field type is incompatible with the CEL operand; translating would yield an invalid Prisma filter or datastore coercion.",
+      "aNumber is mapped with valueType number, and CEL's heterogeneous equality answers `aNumber == \"5\"` false for every row. Prisma has no filter form for a comparison that is false by type: binding \"5\" against the Int column hands it to Prisma's validator or to a store that coerces (SQLite and MySQL compare '5' = 5 as true, which would add a1), so the scalar comparison refuses the literal against the mapped valueType before a filter exists. The throw propagates out of the `or`, so the aNumber == 2 branch, which the adapter translates on its own, is not emitted either"
+    ],
+    "Cannot compare fields with different mapped value types": [
+      "The declared Prisma field type is incompatible with the CEL operand; translating would yield an invalid Prisma filter or datastore coercion."
+    ],
+    "descendentOf requires a string field, got number": [
+      "The declared Prisma field type is incompatible with the CEL operand; translating would yield an invalid Prisma filter or datastore coercion."
+    ],
+    "contains requires a string field, got number": [
+      "The declared Prisma field type is incompatible with the CEL operand; translating would yield an invalid Prisma filter or datastore coercion."
+    ],
+    "startsWith requires a string field, got number": [
+      "The declared Prisma field type is incompatible with the CEL operand; translating would yield an invalid Prisma filter or datastore coercion."
+    ],
+    "endsWith requires a string field, got number": [
+      "The declared Prisma field type is incompatible with the CEL operand; translating would yield an invalid Prisma filter or datastore coercion."
+    ],
+    "Raw temporal column comparison loses RFC-3339 string spelling; wrap both operands in timestamp()": [
+      "Prisma DateTime values retain instants but discard RFC-3339 lexical spelling; raw field equality cannot reproduce CEL string equality, so both operands require timestamp wrappers."
+    ],
+    "eq requires scalar values: Prisma cannot compare list or map elements": [
+      "Prisma scalar comparison and membership inputs cannot bind list or map elements; the translator refuses before constructing a filter."
+    ],
+    "ne requires scalar values: Prisma cannot compare list or map elements": [
+      "Prisma scalar comparison and membership inputs cannot bind list or map elements; the translator refuses before constructing a filter."
+    ],
+    "in requires scalar values: Prisma cannot compare list or map elements": [
+      "Prisma scalar comparison and membership inputs cannot bind list or map elements; the translator refuses before constructing a filter."
+    ],
+    "Unsupported operator: div": [
+      "The prisma adapter refuses this planner shape at its existing lowering boundary: Unsupported operator: div.",
+      "Arithmetic composed on a column division is doubly inexpressible: Prisma has no column arithmetic, and the algebraic solve has no reciprocal for a denominator that may be zero",
+      "Same composed column-division limitation as cr-div-then-add, reached through an inequality"
+    ],
+    "Unsupported operator: struct": [
+      "The prisma adapter refuses this planner shape at its existing lowering boundary: Unsupported operator: struct."
+    ],
+    "Second operand of except must be a lambda expression": [
+      "The prisma adapter refuses this planner shape at its existing lowering boundary: Second operand of except must be a lambda expression."
+    ],
+    "Second operand of hasIntersection must be a value": [
+      "The prisma adapter refuses this planner shape at its existing lowering boundary: Second operand of hasIntersection must be a value."
+    ],
+    "in requires a field member and literal list, or a literal member and field collection": [
+      "The prisma adapter refuses this planner shape at its existing lowering boundary: in requires a field member and literal list, or a literal member and field collection."
+    ],
+    "Membership between two database attributes is not supported: Prisma cannot compare a related element column with an outer scalar column": [
+      "The prisma adapter refuses this planner shape at its existing lowering boundary: Membership between two database attributes is not supported: Prisma cannot compare a related element column with an outer scalar column.",
+      "Comparing a related element column with an outer scalar column is cross-model, while Prisma field references are same-model only",
+      "Same cross-model correlated comparison limitation as in-var-var, under negation"
+    ],
+    "exists_one over a literal collection value is not supported. Only exists() and all() can be folded into a flat filter.": [
+      "The prisma adapter refuses this planner shape at its existing lowering boundary: exists_one over a literal collection value is not supported. Only exists() and all() can be folded into a flat filter.."
+    ],
+    "First operand of exists must be a collection reference": [
+      "The prisma adapter refuses this planner shape at its existing lowering boundary: First operand of exists must be a collection reference."
+    ],
+    "size operator requires a relation mapping": [
+      "The prisma adapter refuses this planner shape at its existing lowering boundary: size operator requires a relation mapping.",
+      "Prisma has no string-length filter, and the adapter lowers size() only over a NAMED relation (none/some for emptiness); aString is a scalar column with no relation mapping, so the emptiness spelling is refused one step before the threshold is examined \u2014 the same gap as string-size, reached through the `> 0` form a collection fast path would otherwise claim"
+    ],
+    "Cannot translate startsWith with a needle containing LIKE metacharacters (%, _ or \\): Prisma does not escape wildcards in string filters, and \\ is the default LIKE escape character on PostgreSQL and MySQL": [
+      "Prisma emits LIKE without an ESCAPE clause and does not escape wildcards, so a needle containing % or _ cannot be matched literally; the adapter throws instead of filtering wrong",
+      "The folded needle is '100%', hitting the same LIKE-wildcard limitation as like-percent",
+      "Two independent limitations sit in this predicate, and the adapter reports the one its walk reaches first: startsWith(aString, '100%') in the left branch hits the same LIKE-metacharacter limitation as like-percent, before the right branch's cross-model element-vs-outer column comparison (t.name == R.attr.aString) \u2014 which lambda-field-to-field covers on its own \u2014 is ever visited"
+    ],
+    "Cannot translate contains with a needle containing LIKE metacharacters (%, _ or \\): Prisma does not escape wildcards in string filters, and \\ is the default LIKE escape character on PostgreSQL and MySQL": [
+      "Same LIKE-wildcard limitation as like-percent"
+    ],
+    "Cannot translate endsWith with a needle containing LIKE metacharacters (%, _ or \\): Prisma does not escape wildcards in string filters, and \\ is the default LIKE escape character on PostgreSQL and MySQL": [
+      "A backslash is a LIKE metacharacter on some providers and not others, so the same needle cannot mean the same thing on all of them: SQLite's LIKE has no escape character and matches a backslash literally, while PostgreSQL and MySQL treat it as the DEFAULT escape character with no ESCAPE clause present. endsWith('\\\\') is then a pattern ending in an escape character, which PostgreSQL rejects outright (SQLSTATE 22025), and a backslash anywhere inside a needle silently escapes the next character so contains('a\\\\b') would match 'ab' \u2014 a row the PDP denies. Prisma emits no ESCAPE clause and cannot escape the backslash, so the adapter throws instead of filtering differently per provider"
+    ],
+    "Cannot translate contains between two columns: Prisma cannot escape LIKE wildcards held in a column": [
+      "A column-valued needle would need per-row LIKE escaping, which Prisma filters cannot express; the adapter throws",
+      "Cross-model comparison plus the column-needle LIKE limitation",
+      "The needle is a COLUMN, so its LIKE metacharacters would have to be escaped per row. Prisma's filters cannot do that, and the negation reaches the same refusal as the positive f2f-contains \u2014 the rejection is decided by the column needle before three-valued logic under the NOT is ever considered"
+    ],
+    "Cannot translate startsWith between two columns: Prisma cannot escape LIKE wildcards held in a column": [
+      "Same column-needle LIKE limitation as f2f-contains",
+      "Same column-valued needle as not-contains: escaping per row is what Prisma cannot express, and the negation never gets far enough for the NULL-needle question to arise"
+    ],
+    "Cannot translate endsWith between two columns: Prisma cannot escape LIKE wildcards held in a column": [
+      "Same column-needle LIKE limitation as f2f-contains"
+    ],
+    "Cannot compare a collection element column with an outer column (t.name vs request.resource.attr.aString): Prisma field references only work between fields of the same model": [
+      "Prisma field references only work between fields of the same model; comparing an element column with an outer column is cross-model, so the adapter throws"
+    ],
+    "Arithmetic on both sides of a comparison is not supported: the expression cannot be solved to a plain column filter": [
+      "Arithmetic on both sides of a comparison cannot be solved to a plain column filter; Prisma filters cannot express column arithmetic"
+    ],
+    "div operator requires exactly one field reference and one value, or two values": [
+      "Division by a column cannot be solved to a plain column filter",
+      "Same column-division limitation as cr-div-zero, reached through an inequality",
+      "Same column-division limitation as cr-div-zero, reached through a negated equality",
+      "A denominator that is a second column leaves the comparison with two field references and no constant to solve against, which a Prisma where-filter cannot express"
+    ],
+    "Division by a constant zero is not supported": [
+      "Prisma filters have no column arithmetic, so the division must be solved algebraically into a plain column predicate \u2014 and a zero denominator has no reciprocal to solve with; the adapter throws rather than guessing the sign of the resulting infinity"
+    ],
+    "all() over a multi-hop relation chain is not supported": [
+      "every() applies to a single relation; a multi-hop chain would need the universal to be evaluated against the flattened tail while still requiring the intermediate hop, which nested every/some cannot express \u2014 the adapter throws"
+    ],
+    "Unsupported size comparison: size(...) ge 0": [
+      "Prisma where-filters express only empty/non-empty via none/some, so a >= 0 relation-count threshold \u2014 which is TRUE exactly when the to-one parent exists \u2014 has no equivalent; same limitation as size-threshold"
+    ],
+    "Unsupported size comparison: size(...) gt 1": [
+      "Prisma where-filters cannot express relation-count thresholds (only empty/non-empty via none/some)"
+    ],
+    "Unsupported size comparison: size(...) gt 4": [
+      "Prisma has no string-length filter"
+    ],
+    "Unsupported size comparison: size(...) eq 1": [
+      "Same relation-count limitation as size-threshold",
+      "Embeds a size(...) == 1 count threshold; same limitation as size-threshold"
+    ],
+    "Unsupported size comparison: size(...) ge 1.5": [
+      "Same relation-count limitation as size-threshold",
+      "Same relation-count limitation as w1-size-nonneg-chain, reached through a fractional threshold: >= 1.5 rounds up to >= 2, and none/some express only emptiness"
+    ],
+    "Unsupported size comparison: size(...) le 1.5": [
+      "Same relation-count limitation as w1-size-frac-chain under the opposite ordering: <= 1.5 rounds down to <= 1, still an arbitrary count threshold none/some cannot express"
+    ],
+    "exists_one requires counting matching elements, which Prisma where-filters cannot express": [
+      "exists_one requires counting matching elements, which Prisma where-filters cannot express; the adapter throws instead of silently degrading to exists",
+      "Same exists_one counting limitation"
+    ],
+    "Fractional addition equality cannot be translated safely: solving IEEE-754 addition into a plain Prisma column comparison is not reversible": [
+      "Prisma filters cannot express column arithmetic, and algebraically solving fractional IEEE-754 addition is not reversible for every row",
+      "Same fractional column-arithmetic limitation as arith-add-eq-frac",
+      "An exact corpus witness does not make the general column-addition predicate expressible; Prisma has no column arithmetic"
+    ],
+    "Unsupported size comparison: size(...) gt 4294967296": [
+      "Prisma has no string-length filter, so a giant size threshold remains inexpressible"
+    ],
+    "Unsupported size comparison: size(...) lt 4294967296": [
+      "Same string-length limitation as size-huge-gt"
+    ],
+    "Unsupported size comparison: size(...) lt 5000000000": [
+      "Same string-length limitation as size-huge-gt, under a negation"
+    ],
+    "Unsupported size comparison: size(...) gt -5000000000": [
+      "Same string-length limitation as size-huge-gt, under a negation"
+    ],
+    "Unsupported size comparison: size(...) ne 1.5": [
+      "Same string-length limitation as size-huge-gt, under a negation"
+    ],
+    "Unsupported size comparison: size(...) eq 1.5": [
+      "Same string-length limitation as size-huge-gt, under a negation"
+    ],
+    "Unsupported size comparison: size(...) gt 5000000000": [
+      "Same string-length limitation as size-huge-gt, under a negation"
+    ],
+    "Unsupported size comparison: size(...) lt -5000000000": [
+      "Same string-length limitation as size-huge-gt, under a negation"
+    ],
+    "Cannot translate hierarchy prefix matching with LIKE metacharacters (%, _, \\ or [): Prisma emits LIKE without an ESCAPE clause, \\ is the default escape character on PostgreSQL and MySQL, and [ opens a character class on SQL Server even with one": [
+      "Hierarchy descendant prefixes require literal LIKE matching, but Prisma string filters cannot escape % or _; the adapter throws instead of treating them as wildcards",
+      "The inclusive overlap union ends in a descendant prefix LIKE on '50%:a_b:'; Prisma emits LIKE without an ESCAPE clause, so % and _ in that prefix stay wildcards and would wrongly admit 50x:a_b:y and 50%:aXb:y \u2014 the adapter throws instead",
+      "Hierarchy prefixes containing [ cannot be matched literally: Prisma emits LIKE without an ESCAPE clause, and [ opens a character class on SQL Server even when one is declared"
+    ],
+    "Timestamp value exceeds millisecond precision": [
+      "The planner emits a sub-millisecond now() literal that Prisma DateTime cannot represent without changing the CEL instant",
+      "Same sub-millisecond now() limitation in value-first form"
+    ],
+    "add operator with field references requires a value on the other side of the comparison": [
+      "Both operands carry a column: a_optional_string is compared against a concatenation of a constant with the primary key. Prisma's arithmetic solving inverts the constant off the VALUE side to reach a plain column filter, which requires the other side to be a value; a concatenation involving a second column has no Prisma filter form"
+    ],
+    "add operator requires exactly one field reference and one value, or two values": [
+      "The same missing form reached from the other direction: here BOTH operands of the `+` are columns, so there is no constant to invert off either side and nothing to solve the comparison back into a plain column filter"
+    ],
+    "Unsupported operator: mod": [
+      "Prisma filters have no column arithmetic at all, and `mod` is not in the translator's operator set \u2014 the same gap the whole cr-* division group hits, reached here through the modulo operator"
+    ],
+    "in value type does not match mapped number field": [
+      "The list is mapped as a relation whose valueType is number, and CEL's heterogeneous equality answers a string member false against every number element. Prisma has no filter form for a comparison that is false by type: binding \"2\" against the element column hands it to Prisma's validator or to a store that coerces (SQLite and MySQL compare '2' = 2 as true), so the membership walk refuses the literal before a filter exists. The throw propagates out of the `or`, so the aNumber == 5 branch, which the adapter translates on its own, is not emitted either",
+      "hasIntersection over a relation-backed list lowers to the same membership walk as `in`, which checks every literal against the mapped valueType and refuses the whole list on the first mismatch. Dropping \"2\" and keeping 3 would agree with CEL, which answers the string false against every number, but the walk does not partition a mixed list; it refuses rather than bind \"2\" against a number column",
+      "Membership of a scalar Int column in a literal list lowers to Prisma's `in`, and the walk checks every literal against the mapped valueType number. Dropping \"5\" and keeping 2 would agree with CEL, which answers the string false against every number, but the walk does not partition a mixed list; it refuses the whole list rather than bind \"5\" for SQLite or MySQL to coerce"
+    ],
+    "in value type does not match mapped boolean field": [
+      "The boolean mirror of in-number-list-vs-string: the list is mapped with valueType boolean, CEL answers \"true\" == true false, and SQLite and MySQL store a boolean as the integer 1, so the membership walk refuses the string literal before a filter exists rather than binding it for the store to coerce. The throw propagates out of the `or`, so the aNumber == 5 branch is not emitted either",
+      "Same membership walk as hasint-number-list-vs-string: the only literal is a string against a list mapped with valueType boolean, which CEL answers false for every element and SQLite and MySQL would coerce, so the walk refuses it before a filter exists. The throw propagates out of the `or`, so the aNumber == 5 branch is not emitted either"
+    ],
+    "ne value type does not match mapped number field": [
+      "The `!=` mirror of eq-number-vs-string: CEL answers `aNumber != \"5\"` TRUE for every row, and a store that coerced '5' = 5 would drop a1, an under-grant rather than an over-grant but a wrong filter all the same. The same valueType check refuses the string literal before a filter exists, taking the well-typed aNumber > 3 conjunct with it"
+    ],
+    "eq value type does not match mapped boolean field": [
+      "aBool is mapped with valueType boolean, CEL answers `aBool == \"true\"` false, and SQLite and MySQL store a boolean as the integer 1 and would coerce the string, adding every aBool-true row. The scalar comparison refuses the string literal against the mapped valueType before a filter exists; the throw propagates out of the `or`, so the aNumber == 5 branch is not emitted either"
+    ],
+    "in value type does not match mapped string field": [
+      "hasIntersection over a map() projection lowers to the tags relation's `some` with `name in [...]`, and the walk checks every literal against the projected field's valueType string. Dropping 0 and keeping \"public\" would agree with CEL, but the walk does not partition a mixed list; it refuses the whole list rather than bind 0 against a string column"
+    ],
+    "Direct comparison of map(...) to a value is not supported (operator: eq). Wrap the map() expression in hasIntersection(map(...), [...]) instead.": [
+      "Prisma can feed a map() projection into hasIntersection, which becomes a relation `some` filter, but list EQUALITY needs the whole ordered projection materialised and compared \u2014 there is no Prisma filter that compares a relation projection to a literal list"
+    ],
+    "hierarchy delimiter must be a non-empty string: an empty delimiter splits the path per character, and the startsWith prefix this adapter emits would also match the path itself": [
+      "Cerbos splits a path on an empty delimiter into one segment per character, so the relation is a strict string-prefix test; the adapter lowers descendentOf as `startsWith(prefix + delimiter)`, which with an empty delimiter also matches the path itself (a2, never its own descendant). The empty delimiter is refused when the hierarchy operand is parsed, before that filter is built"
+    ]
+  },
+  "refuses": {
+    "arith-add-eq-frac": "Fractional addition equality cannot be translated safely: solving IEEE-754 addition into a plain Prisma column comparison is not reversible",
+    "arith-add-eq-frac-exact": "Fractional addition equality cannot be translated safely: solving IEEE-754 addition into a plain Prisma column comparison is not reversible",
+    "arith-add-ne-frac": "Fractional addition equality cannot be translated safely: solving IEEE-754 addition into a plain Prisma column comparison is not reversible",
+    "arith-both": "Arithmetic on both sides of a comparison is not supported: the expression cannot be solved to a plain column filter",
+    "arith-mod": "Unsupported operator: mod",
+    "cast-not-double": "Unsupported operator: double",
+    "cast-not-int": "Unsupported operator: int",
+    "cast-not-string-missing": "Unsupported operator: string",
+    "cast-not-string-null": "Unsupported operator: string",
+    "cast-not-timestamp": "timestamp() field request.resource.attr.createdBy must be mapped with valueType: \"dateTime\"",
+    "cast-string-bool": "Unsupported operator: string",
+    "cast-string-double": "Unsupported operator: string",
+    "concat-f2f": "add operator requires exactly one field reference and one value, or two values",
+    "cr-div-neg-zero": "Division by a constant zero is not supported",
+    "cr-div-other-column": "div operator requires exactly one field reference and one value, or two values",
+    "cr-div-then-add": "Unsupported operator: div",
+    "cr-div-then-add-ne": "Unsupported operator: div",
+    "cr-div-zero": "div operator requires exactly one field reference and one value, or two values",
+    "cr-div-zero-eq-neg": "div operator requires exactly one field reference and one value, or two values",
+    "cr-div-zero-ne": "div operator requires exactly one field reference and one value, or two values",
+    "cr-size-frac-ge": "Unsupported size comparison: size(...) ge 1.5",
+    "div-by-division": "Unsupported operator: div",
+    "eq-bool-vs-string": "eq value type does not match mapped boolean field",
+    "eq-list": "eq requires scalar values: Prisma cannot compare list or map elements",
+    "eq-map": "Unsupported operator: struct",
+    "eq-map-null": "Unsupported operator: struct",
+    "eq-number-vs-string": "eq value type does not match mapped number field",
+    "eq-string-vs-number": "eq value type does not match mapped string field",
+    "except-eq": "Second operand of except must be a lambda expression",
+    "except-root": "Second operand of except must be a lambda expression",
+    "except-size": "size operator requires a named collection operand",
+    "exists-one-multi": "exists_one requires counting matching elements, which Prisma where-filters cannot express",
+    "exists-tag-name-vs-number": "eq value type does not match mapped string field",
+    "f2f-contains": "Cannot translate contains between two columns: Prisma cannot escape LIKE wildcards held in a column",
+    "f2f-endswith": "Cannot translate endsWith between two columns: Prisma cannot escape LIKE wildcards held in a column",
+    "f2f-startswith": "Cannot translate startsWith between two columns: Prisma cannot escape LIKE wildcards held in a column",
+    "hasint-bool-list-vs-string": "in value type does not match mapped boolean field",
+    "hasint-map-element": "Second operand of hasIntersection must be a value",
+    "hasint-map-vs-number": "in value type does not match mapped string field",
+    "hasint-number-list-vs-string": "in value type does not match mapped number field",
+    "hier-bracket": "Cannot translate hierarchy prefix matching with LIKE metacharacters (%, _, \\ or [): Prisma emits LIKE without an ESCAPE clause, \\ is the default escape character on PostgreSQL and MySQL, and [ opens a character class on SQL Server even with one",
+    "hier-empty-delim": "hierarchy delimiter must be a non-empty string: an empty delimiter splits the path per character, and the startsWith prefix this adapter emits would also match the path itself",
+    "hier-meta-like": "Cannot translate hierarchy prefix matching with LIKE metacharacters (%, _, \\ or [): Prisma emits LIKE without an ESCAPE clause, \\ is the default escape character on PostgreSQL and MySQL, and [ opens a character class on SQL Server even with one",
+    "hier-overlaps-meta": "Cannot translate hierarchy prefix matching with LIKE metacharacters (%, _, \\ or [): Prisma emits LIKE without an ESCAPE clause, \\ is the default escape character on PostgreSQL and MySQL, and [ opens a character class on SQL Server even with one",
+    "id-concat": "add operator with field references requires a value on the other side of the comparison",
+    "in-bool-list-vs-string": "in value type does not match mapped boolean field",
+    "in-list-element": "in requires scalar values: Prisma cannot compare list or map elements",
+    "in-nested-list": "in requires a field member and literal list, or a literal member and field collection",
+    "in-number-list-vs-string": "in value type does not match mapped number field",
+    "in-scalar-number-vs-string": "in value type does not match mapped number field",
+    "in-var-var": "Membership between two database attributes is not supported: Prisma cannot compare a related element column with an outer scalar column",
+    "in-var-var-neg": "Membership between two database attributes is not supported: Prisma cannot compare a related element column with an outer scalar column",
+    "in-var-var-omitted": "Membership between two database attributes is not supported: Prisma cannot compare a related element column with an outer scalar column",
+    "in-var-var-omitted-neg": "Membership between two database attributes is not supported: Prisma cannot compare a related element column with an outer scalar column",
+    "index-bool-list": "Unsupported operator: index",
+    "index-bool-list-not-eq": "Unsupported operator: index",
+    "index-bool-list-vs-number": "Unsupported operator: index",
+    "index-fractional": "Unsupported operator: index",
+    "index-negative": "Unsupported operator: index",
+    "index-not-oob": "Unsupported operator: index",
+    "index-number-list": "Unsupported operator: index",
+    "index-number-list-not-eq": "Unsupported operator: index",
+    "index-number-list-vs-bool": "Unsupported operator: index",
+    "index-scalar-list": "Unsupported operator: index",
+    "index-scalar-list-not-eq": "Unsupported operator: index",
+    "index-scalar-list-null": "Unsupported operator: index",
+    "lambda-field-to-field": "Cannot compare a collection element column with an outer column (t.name vs request.resource.attr.aString): Prisma field references only work between fields of the same model",
+    "like-backslash": "Cannot translate endsWith with a needle containing LIKE metacharacters (%, _ or \\): Prisma does not escape wildcards in string filters, and \\ is the default LIKE escape character on PostgreSQL and MySQL",
+    "like-percent": "Cannot translate startsWith with a needle containing LIKE metacharacters (%, _ or \\): Prisma does not escape wildcards in string filters, and \\ is the default LIKE escape character on PostgreSQL and MySQL",
+    "like-underscore": "Cannot translate contains with a needle containing LIKE metacharacters (%, _ or \\): Prisma does not escape wildcards in string filters, and \\ is the default LIKE escape character on PostgreSQL and MySQL",
+    "map-eq-list": "Direct comparison of map(...) to a value is not supported (operator: eq). Wrap the map() expression in hasIntersection(map(...), [...]) instead.",
+    "n-not-exists-one-null": "exists_one requires counting matching elements, which Prisma where-filters cannot express",
+    "ne-list": "ne requires scalar values: Prisma cannot compare list or map elements",
+    "ne-map": "Unsupported operator: struct",
+    "ne-number-vs-string": "ne value type does not match mapped number field",
+    "not-contains": "Cannot translate contains between two columns: Prisma cannot escape LIKE wildcards held in a column",
+    "not-nan-order-string": "le value type does not match mapped string field",
+    "not-startswith": "Cannot translate startsWith between two columns: Prisma cannot escape LIKE wildcards held in a column",
+    "p-deep-nest": "Cannot translate startsWith with a needle containing LIKE metacharacters (%, _ or \\): Prisma does not escape wildcards in string filters, and \\ is the default LIKE escape character on PostgreSQL and MySQL",
+    "p-lambda-f2f-like": "Cannot translate contains between two columns: Prisma cannot escape LIKE wildcards held in a column",
+    "p-size-nested": "Unsupported size comparison: size(...) eq 1",
+    "p-startswith-concat": "Cannot translate startsWith with a needle containing LIKE metacharacters (%, _ or \\): Prisma does not escape wildcards in string filters, and \\ is the default LIKE escape character on PostgreSQL and MySQL",
+    "pv-except": "size operator requires a named collection operand",
+    "pv-exists-one": "exists_one over a literal collection value is not supported. Only exists() and all() can be folded into a flat filter.",
+    "pv-filter": "size operator requires a named collection operand",
+    "pv-map": "in requires a field member and literal list, or a literal member and field collection",
+    "pv-structs": "First operand of exists must be a collection reference",
+    "pv-structs-null": "First operand of exists must be a collection reference",
+    "regex-alternation": "Unsupported operator: matches",
+    "regex-brace": "Unsupported operator: matches",
+    "regex-case": "Unsupported operator: matches",
+    "regex-digit": "Unsupported operator: matches",
+    "regex-dot": "Unsupported operator: matches",
+    "regex-eq-true": "Unsupported operator: matches",
+    "regex-final-newline": "Unsupported operator: matches",
+    "regex-grouped": "Unsupported operator: matches",
+    "regex-lookahead": "Unsupported operator: matches",
+    "regex-optional-operators": "Unsupported operator: matches",
+    "regex-posix": "Unsupported operator: matches",
+    "regex-repetition": "Unsupported operator: matches",
+    "regex-unanchored": "Unsupported operator: matches",
+    "size-filter-count": "size operator requires a named collection operand",
+    "size-frac-eq-not": "Unsupported size comparison: size(...) eq 1.5",
+    "size-frac-ne-not": "Unsupported size comparison: size(...) ne 1.5",
+    "size-huge-gt": "Unsupported size comparison: size(...) gt 4294967296",
+    "size-huge-gt-not": "Unsupported size comparison: size(...) gt 5000000000",
+    "size-huge-lt": "Unsupported size comparison: size(...) lt 4294967296",
+    "size-huge-lt-not": "Unsupported size comparison: size(...) lt 5000000000",
+    "size-huge-neg-gt-not": "Unsupported size comparison: size(...) gt -5000000000",
+    "size-huge-neg-lt-not": "Unsupported size comparison: size(...) lt -5000000000",
+    "size-threshold": "Unsupported size comparison: size(...) gt 1",
+    "string-size": "Unsupported size comparison: size(...) gt 4",
+    "string-size-gt0": "size operator requires a relation mapping",
+    "temporal-raw-eq": "Raw temporal column comparison loses RFC-3339 string spelling; wrap both operands in timestamp()",
+    "ts-vf": "Timestamp value exceeds millisecond precision",
+    "ts-window": "Timestamp value exceeds millisecond precision",
+    "type-columns": "Cannot compare fields with different mapped value types",
+    "type-hierarchy-number": "descendentOf requires a string field, got number",
+    "type-needle-contains": "contains requires a string field, got number",
+    "type-needle-endswith": "endsWith requires a string field, got number",
+    "type-needle-startswith": "startsWith requires a string field, got number",
+    "type-number-contains": "contains requires a string field, got number",
+    "type-number-endswith": "endsWith requires a string field, got number",
+    "type-number-startswith": "startsWith requires a string field, got number",
+    "type-number-string": "eq value type does not match mapped number field",
+    "type-size-bool": "size operator requires a relation mapping",
+    "type-size-number": "size operator requires a relation mapping",
+    "type-string-number": "eq value type does not match mapped string field",
+    "w1-all-chain": "all() over a multi-hop relation chain is not supported",
+    "w1-size-frac-chain": "Unsupported size comparison: size(...) ge 1.5",
+    "w1-size-frac-le-chain": "Unsupported size comparison: size(...) le 1.5",
+    "w1-size-nonneg-chain": "Unsupported size comparison: size(...) ge 0",
+    "w2-outer-relation": "Unsupported size comparison: size(...) eq 1"
+  }
+}

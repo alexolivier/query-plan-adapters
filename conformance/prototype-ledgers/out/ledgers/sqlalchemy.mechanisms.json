@@ -1,0 +1,132 @@
+{
+  "adapter": "sqlalchemy",
+  "mechanisms": [
+    {
+      "message": "Unrecognised operator: matches",
+      "when": [
+        "op:matches"
+      ],
+      "reason": "Regex matches() has no lowering: CEL uses RE2 and SQL regex dialects do not preserve its matching/error semantics, including through boolean equality.",
+      "matchesToday": 13
+    },
+    {
+      "message": "Unrecognised unary operator: struct",
+      "when": [
+        "exprarg:struct"
+      ],
+      "reason": "The planner emits list/struct/set-field constructors for principal objects; this fold accepts literal value lists rather than constructor expressions.",
+      "matchesToday": 6
+    },
+    {
+      "message": "Attribute 'request.resource.attr.tagNames' must be handled by an operator override or map to a SQLAlchemy column",
+      "when": [
+        "opattr:except:R.tagNames"
+      ],
+      "reason": "Two-list except has no operator override or built-in SQL list-difference lowering.",
+      "matchesToday": 3
+    },
+    {
+      "message": "Unrecognised operator: list",
+      "when": [
+        "op:list"
+      ],
+      "reason": "The constructor expression has no scalar SQL lowering in this translator.",
+      "matchesToday": 7
+    },
+    {
+      "message": "Index access requires a constant non-negative 32-bit integer position",
+      "when": [
+        "attr:R.aNumber",
+        "attr:R.tagNames"
+      ],
+      "reason": "tagNames is declared as ordered JSON storage through collection_columns, which accepts only a constant non-negative 32-bit integer position; CEL raises for this one, so it must not be coerced into a valid element read.",
+      "matchesToday": 2
+    }
+  ],
+  "pins": [
+    {
+      "action": "arith-mod",
+      "message": "'int()' cannot be lowered to SQL CAST: CAST reads a numeric prefix where CEL requires the whole string and raises otherwise, and PostgreSQL and MySQL round where CEL truncates toward zero"
+    },
+    {
+      "action": "cast-not-double",
+      "message": "'double()' cannot be lowered to SQL CAST"
+    },
+    {
+      "action": "cast-not-int",
+      "message": "'int()' cannot be lowered to SQL CAST"
+    },
+    {
+      "action": "cast-not-timestamp",
+      "message": "timestamp() requires an RFC-3339 literal or a SQLAlchemy DateTime column"
+    },
+    {
+      "action": "cr-div-neg-zero",
+      "message": "division by a constant zero whose sign is indeterminate: the HTTP transport renders -0.0 as `-0`, which JSON decodes to the integer 0, so the adapter cannot tell +Infinity from -Infinity. Use the gRPC client, which preserves the sign bit, or avoid a literal zero denominator"
+    },
+    {
+      "action": "div-by-division",
+      "message": "arithmetic combines a non-finite value with a column, which SQL cannot carry"
+    },
+    {
+      "action": "eq-list",
+      "message": "Attribute 'request.resource.attr.tagNames' must be handled by an operator override or map to a SQLAlchemy column"
+    },
+    {
+      "action": "except-size",
+      "message": "Unrecognised operator: except"
+    },
+    {
+      "action": "hasint-map-element",
+      "message": "Unrecognised unary operator: list"
+    },
+    {
+      "action": "hier-empty-delim",
+      "message": "hierarchy() delimiter must be a non-empty string"
+    },
+    {
+      "action": "in-list-element",
+      "message": "Membership with a structured element has no scalar SQL lowering"
+    },
+    {
+      "action": "map-eq-list",
+      "message": "`eq` received an operand of type 'tuple', which is not a SQL expression or a plan literal: an operator override returning an intermediate value must be consumed by an enclosing override, and no default handler can lower one"
+    },
+    {
+      "action": "nan-ord-inf",
+      "message": "division by a constant zero whose sign is indeterminate: the HTTP transport renders -0.0 as `-0`, which JSON decodes to the integer 0, so the adapter cannot tell +Infinity from -Infinity. Use the gRPC client, which preserves the sign bit, or avoid a literal zero denominator"
+    },
+    {
+      "action": "ne-list",
+      "message": "Attribute 'request.resource.attr.tagNames' must be handled by an operator override or map to a SQLAlchemy column"
+    },
+    {
+      "action": "pv-except",
+      "message": "except over a literal collection value is not supported. Only exists() and all() can be folded into a flat filter."
+    },
+    {
+      "action": "pv-exists-one",
+      "message": "exists_one over a literal collection value is not supported. Only exists() and all() can be folded into a flat filter."
+    },
+    {
+      "action": "pv-filter",
+      "message": "filter over a literal collection value is not supported. Only exists() and all() can be folded into a flat filter."
+    },
+    {
+      "action": "pv-map",
+      "message": "map over a literal collection value is not supported. Only exists() and all() can be folded into a flat filter."
+    },
+    {
+      "action": "temporal-raw-eq",
+      "message": "Bare temporal attributes compare RFC 3339 strings in CEL; stored timestamps lose the original spelling; use timestamp() on both operands"
+    },
+    {
+      "action": "ts-vf",
+      "message": "Timestamp literal precision exceeds the exact microsecond range"
+    },
+    {
+      "action": "ts-window",
+      "message": "Timestamp literal precision exceeds the exact microsecond range"
+    }
+  ]
+}

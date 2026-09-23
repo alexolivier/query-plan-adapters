@@ -1,0 +1,151 @@
+{
+  "adapter": "activerecord",
+  "mechanisms": [
+    {
+      "message": "Unsupported operator: matches. Supply an operator override if the database can express it faithfully.",
+      "when": [
+        "op:matches"
+      ],
+      "reason": "ActiveRecord has no portable RE2 predicate; matches is refused even inside equality or disjunction.",
+      "matchesToday": 13
+    },
+    {
+      "message": "Unsupported operator: index. Supply an operator override if the database can express it faithfully.",
+      "when": [
+        "nest:eq>index"
+      ],
+      "reason": "Relational associations do not expose CEL positional scalar-list indexing; the adapter refuses index before building a query.",
+      "matchesToday": 12
+    },
+    {
+      "message": "Unsupported operator: set-field. Supply an operator override if the database can express it faithfully.",
+      "when": [
+        "exprarg:struct"
+      ],
+      "reason": "The planner emits a struct through set-field; this translator has no structured literal value and refuses that operator.",
+      "matchesToday": 6
+    },
+    {
+      "message": "Unsupported operator: except. Supply an operator override if the database can express it faithfully.",
+      "when": [
+        "op:except"
+      ],
+      "reason": "The SQL translator has no two-list difference value; the walk refuses except in each arrival position.",
+      "matchesToday": 4
+    },
+    {
+      "message": "Unsupported operator: index",
+      "when": [
+        "opattr:index:R.tagNames"
+      ],
+      "reason": "Positional access into a scalar list. `index` has no case in the translator's operator dispatch at all, so the walk falls through to the generic unsupported-operator refusal rather than to a leaf-operand guard \u2014 which is why the message names the operator and offers an override. No case was written because row order in a SQL relation is not defined without an ORDER BY the plan does not carry: `tagNames` is a has_many association, and `tagNames[0]` names whichever row the engine happens to return first. A caller whose table has a deterministic ordering column can express it faithfully, and the override the message offers is that escape hatch",
+      "matchesToday": 6
+    },
+    {
+      "message": "contains requires a string operand, got integer",
+      "when": [
+        "opattr:contains:R.aNumber"
+      ],
+      "reason": "CEL requires a string for this operation; the mapped ActiveRecord column is numeric or boolean, so SQL coercion would over-grant.",
+      "matchesToday": 2
+    },
+    {
+      "message": "startsWith requires a string operand, got integer",
+      "when": [
+        "opattr:startsWith:R.aNumber"
+      ],
+      "reason": "CEL requires a string for this operation; the mapped ActiveRecord column is numeric or boolean, so SQL coercion would over-grant.",
+      "matchesToday": 2
+    },
+    {
+      "message": "endsWith requires a string operand, got integer",
+      "when": [
+        "opattr:endsWith:R.aNumber"
+      ],
+      "reason": "CEL requires a string for this operation; the mapped ActiveRecord column is numeric or boolean, so SQL coercion would over-grant.",
+      "matchesToday": 2
+    },
+    {
+      "message": "add cannot take an operand that may be NaN or Infinity",
+      "when": [
+        "exprarg:add"
+      ],
+      "reason": "CEL carries a NaN or a signed Infinity out of the division and through the arithmetic composed on top of it; SQL has no value that does, because the NULLIF divide-by-zero guard turns the whole sum into NULL. The adapter resolves a non-finite division only where the division IS the comparison operand, so a division nested under further arithmetic fails closed instead of emitting the under-granting filter",
+      "matchesToday": 2
+    }
+  ],
+  "pins": [
+    {
+      "action": "cast-not-double",
+      "message": "double() needs a numeric column. CEL makes an error for a string that is not a number, and Cerbos denies the row, but SQL gives 0.0 and the filter would keep it. Compare the column directly, or give an operator override."
+    },
+    {
+      "action": "cast-not-int",
+      "message": "int() applied to a :string column: CEL reads the WHOLE string or makes an error, and Cerbos then denies the row, but SQL reads the digits at the front and gives a number, so the filter would keep the row. Compare the column directly, or give an operator override."
+    },
+    {
+      "action": "cast-not-timestamp",
+      "message": "timestamp() applied to a :string column: this adapter compares instants using the database's own temporal type, so the attribute must map to a datetime column rather than to a column holding a formatted timestamp string"
+    },
+    {
+      "action": "cr-div-other-column",
+      "message": "Cannot divide by a column that may be zero"
+    },
+    {
+      "action": "div-by-division",
+      "message": "Cannot divide by a column that may be zero: IEEE-754 keeps the sign of a zero, SQL cannot tell -0.0 from 0.0, and thus the sign of the Infinity is unknown. Divide by a constant, or keep this shape out of the policy."
+    },
+    {
+      "action": "eq-list",
+      "message": "eq cannot take a collection operand (a relation)"
+    },
+    {
+      "action": "hier-empty-delim",
+      "message": "hierarchy() delimiter must be a non-empty string"
+    },
+    {
+      "action": "in-list-element",
+      "message": "in requires scalar elements; SQL scalar membership cannot compare a list or map element"
+    },
+    {
+      "action": "in-nested-list",
+      "message": "in requires scalar elements; SQL scalar membership cannot compare a list or map element"
+    },
+    {
+      "action": "map-eq-list",
+      "message": "eq cannot take a collection operand (a projected relation)"
+    },
+    {
+      "action": "ne-list",
+      "message": "ne cannot take a collection operand (a relation)"
+    },
+    {
+      "action": "pv-filter",
+      "message": "filter over a list of constants is not supported: only exists, all and exists_one have a translation for that shape"
+    },
+    {
+      "action": "pv-map",
+      "message": "map over a list of constants is not supported: only exists, all and exists_one have a translation for that shape"
+    },
+    {
+      "action": "temporal-raw-eq",
+      "message": "Raw temporal column comparison loses RFC-3339 string spelling; wrap both operands in timestamp()"
+    },
+    {
+      "action": "ts-vf",
+      "message": "carries sub-microsecond precision, which ActiveRecord truncates when binding a Time into SQL"
+    },
+    {
+      "action": "ts-window",
+      "message": "carries sub-microsecond precision, which ActiveRecord truncates when binding a Time into SQL"
+    },
+    {
+      "action": "type-size-bool",
+      "message": "size requires a string operand, got boolean"
+    },
+    {
+      "action": "type-size-number",
+      "message": "size requires a string operand, got integer"
+    }
+  ]
+}

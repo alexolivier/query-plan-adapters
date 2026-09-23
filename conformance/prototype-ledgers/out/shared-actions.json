@@ -1,0 +1,615 @@
+{
+  "description": "Every action defined in policies/adversarial.yaml, grouped against the Spring Data reference harness. 'conformance' actions must match the check() oracle. 'adapterUnsupported' lists conformance actions an adapter cannot express and must reject loudly. 'expectedUnsupported' lists shapes rejected by the reference; 'adapterSupportedExpected' records adapters that intentionally translate one of those shapes. 'nullRepresentationOmitted' lists actions that probe a `== null` comparison against an attribute the oracle OMITS for NULL columns; every adapter must translate these with its null representation set to 'omitted' and reject them. 'knownDivergences' records upstream planner behavior that prevents an oracle comparison. 'adapters' is the canonical adapter roster: every key of 'adapterUnsupported' and 'adapterSupportedExpected', and every key of an 'expectedUnsupported' entry's 'messages' map, must name one of these. Every throwing classification carries the substring that adapter's error must contain \u2014 'message' on an 'adapterUnsupported' entry, 'messages.<adapter>' on an 'expectedUnsupported' one \u2014 so a harness proves the throw is the declared mechanism rather than a mapper typo or an unrelated validation. 'degenerateOracles' lists every action whose check() oracle is empty or total BY CONSTRUCTION, with the reason: every harness asserts a non-empty, non-total oracle for each action it oracle-compares that this list does not name, and asserts each listed action's oracle is exactly the one declared.",
+  "adapters": [
+    "prisma",
+    "mongoose",
+    "drizzle",
+    "convex",
+    "langchain-chromadb",
+    "sqlalchemy",
+    "ent",
+    "pgx",
+    "elasticsearch-java",
+    "spring-data",
+    "activerecord"
+  ],
+  "conformance": [
+    "compose-allow-deny",
+    "compose-multi-allow",
+    "compose-multi-allow-deny",
+    "compose-or-not",
+    "compose-deny-only",
+    "compose-two-deny",
+    "compose-derived-role",
+    "compose-derived-deny",
+    "compose-variable",
+    "not-nan-order-string",
+    "not-ternary-parent",
+    "regex-final-newline",
+    "regex-eq-true",
+    "regex-lookahead",
+    "index-negative",
+    "index-fractional",
+    "index-not-oob",
+    "cast-not-int",
+    "cast-not-string-missing",
+    "cast-not-string-null",
+    "cast-not-timestamp",
+    "cast-not-double",
+    "projection-exists-eq",
+    "projection-exists-not-eq",
+    "rel-not-eq-hop",
+    "rel-not-contains-hop",
+    "rel-not-hierarchy-hop",
+    "pv-in",
+    "pv-in-unrolled",
+    "wildcard-contains",
+    "wildcard-endswith",
+    "regex-digit",
+    "regex-case",
+    "regex-posix",
+    "regex-unanchored",
+    "regex-dot",
+    "regex-alternation",
+    "regex-grouped",
+    "regex-brace",
+    "regex-repetition",
+    "regex-optional-operators",
+    "except-root",
+    "except-size",
+    "except-eq",
+    "size-ge-one",
+    "in-numbers",
+    "pv-empty-exists",
+    "pv-empty-not-exists",
+    "pv-empty-all",
+    "pv-empty-not-all",
+    "pv-structs",
+    "pv-structs-null",
+    "pv-structs-missing",
+    "pv-shadow",
+    "pv-not-exists",
+    "pv-not-all",
+    "pv-exists-one",
+    "pv-except",
+    "pv-filter",
+    "pv-map",
+    "root-not-bool",
+    "lambda-in-literal",
+    "lambda-in-literal-neg",
+    "lambda-ternary",
+    "type-string-number",
+    "type-number-string",
+    "type-columns",
+    "type-size-bool",
+    "type-size-number",
+    "type-hierarchy-number",
+    "type-number-contains",
+    "type-needle-contains",
+    "type-number-startswith",
+    "type-needle-startswith",
+    "type-number-endswith",
+    "type-needle-endswith",
+    "in-var-var-omitted",
+    "in-var-var-omitted-neg",
+    "not-concat-unsolvable",
+    "not-concat-unsolvable-ne",
+    "hier-overlaps-list-prefix",
+    "not-hasint-empty-chain",
+    "div-by-division",
+    "temporal-raw-eq",
+    "not-nan-ord-le",
+    "hasint-null-vf",
+    "hasint-map-vf",
+    "hasint-map-null",
+    "hasint-map-null-vf",
+    "eq-list",
+    "ne-list",
+    "eq-map",
+    "ne-map",
+    "eq-map-null",
+    "in-nested-list",
+    "in-list-element",
+    "hasint-map-element",
+    "vf-le",
+    "vf-ge",
+    "vf-ne",
+    "in-single",
+    "in-empty",
+    "like-percent",
+    "like-underscore",
+    "like-backslash",
+    "unicode-eq",
+    "empty-string-eq",
+    "neg-number",
+    "double-threshold",
+    "all-on-empty",
+    "exists-on-empty",
+    "exists-one-multi",
+    "not-exists",
+    "outer-attr-depth2",
+    "lambda-in-principal",
+    "nary-and",
+    "double-negation",
+    "triple-negation",
+    "not-empty",
+    "optional-ne",
+    "lambda-field-to-field",
+    "field-to-field",
+    "size-threshold",
+    "size-filter-count",
+    "string-size",
+    "ternary-cmp",
+    "ternary-expr-cond",
+    "ternary-nested",
+    "ternary-negated",
+    "ternary-bare",
+    "ternary-value-first",
+    "ternary-null-cond",
+    "f2f-contains",
+    "f2f-startswith",
+    "f2f-endswith",
+    "arith-add",
+    "arith-vf",
+    "arith-sub",
+    "arith-mult-neg",
+    "arith-div",
+    "arith-div-frac",
+    "arith-both",
+    "p-ternary-in-exists",
+    "p-arith-in-lambda",
+    "p-lambda-inner-f2f",
+    "p-lambda-f2f-like",
+    "p-size-nested",
+    "p-ternary-of-ternaries",
+    "p-ternary-vs-ternary",
+    "p-ternary-under-all",
+    "p-hasintersection-map",
+    "p-deep-nest",
+    "p-in-null-single",
+    "p-in-null-multi",
+    "p-startswith-concat",
+    "p-struct",
+    "p-not-exists-empty",
+    "p-not-ternary-null",
+    "p-double-frac",
+    "n-not-exists-one-null",
+    "n-all-mixed-null",
+    "n-not-all-null",
+    "n-not-all-absorb",
+    "cr-contains",
+    "cr-startswith",
+    "cr-endswith",
+    "cr-startswith-concat",
+    "cr-div-zero",
+    "cr-div-zero-ne",
+    "cr-div-zero-eq-neg",
+    "cr-size-frac-ge",
+    "cr-div-neg-zero",
+    "cr-div-other-column",
+    "cr-div-then-add",
+    "cr-div-then-add-ne",
+    "w1-exists-chain",
+    "w1-size-chain",
+    "w1-in-chain",
+    "w2-outer-relation",
+    "w1-all-chain",
+    "w1-not-exists-chain",
+    "w1-size-zero-chain",
+    "w1-size-nonneg-chain",
+    "w1-not-in-chain",
+    "w1-not-hasint-chain",
+    "w1-not-size-chain",
+    "w1-ternary-chain-cond",
+    "w1-size-frac-chain",
+    "w1-size-frac-le-chain",
+    "rel-eq-hop",
+    "rel-eq-num-hop",
+    "rel-lt-hop",
+    "rel-le-hop",
+    "rel-gt-hop",
+    "rel-ge-hop",
+    "rel-range-hop",
+    "rel-bool-hop",
+    "rel-not-bool-hop",
+    "rel-contains-hop",
+    "rel-ne-null-hop",
+    "rel-bool-hop2",
+    "rel-startswith-hop2",
+    "rel-hop-and-root",
+    "rel-hop2-or-exists",
+    "like-bracket",
+    "cs-eq",
+    "cs-contains",
+    "cs-startswith",
+    "cs-endswith",
+    "arith-add-eq-frac",
+    "arith-add-ne-frac",
+    "arith-add-eq-frac-exact",
+    "concat-f2f",
+    "size-huge-gt",
+    "size-huge-lt",
+    "size-huge-lt-not",
+    "size-huge-neg-gt-not",
+    "size-frac-ne-not",
+    "size-frac-eq-not",
+    "size-huge-gt-not",
+    "size-huge-neg-lt-not",
+    "nan-ord-ternary",
+    "nan-ord-ternary-vf",
+    "nan-ord-le",
+    "nan-ord-inf",
+    "macro-depth3-exists",
+    "macro-depth3-not-exists",
+    "macro-depth3-all",
+    "pv-exists",
+    "pv-all",
+    "hier-ancestor-ff",
+    "hier-ancestor-cf",
+    "hier-descendent-ff",
+    "hier-descendent-cf",
+    "hier-overlaps-ff",
+    "hier-overlaps-cf",
+    "hier-meta-like",
+    "hier-meta-in",
+    "hier-overlaps-meta",
+    "hier-bracket",
+    "cast-string-double",
+    "cast-string-bool",
+    "id-eq-const",
+    "id-f2f",
+    "id-f2f-ne",
+    "id-concat",
+    "id-concat-vf",
+    "hier-list-id",
+    "ts-window",
+    "ts-vf",
+    "ts-eq",
+    "ts-eq-offset",
+    "ts-ne",
+    "in-null-elem-mixed",
+    "in-null-elem-neg",
+    "in-null-elem-only",
+    "in-null-elem-only-neg",
+    "in-null-elem-rel",
+    "in-null-elem-rel-neg",
+    "in-null-elem-hasint",
+    "in-var-var",
+    "in-var-var-neg",
+    "null-eq",
+    "null-ne",
+    "vf-null-ne",
+    "null-not-eq",
+    "null-value-ne-const",
+    "null-value-not-eq-const",
+    "null-value-not-in-const",
+    "null-value-f2f",
+    "null-value-pv-not-exists",
+    "not-lt",
+    "not-gt",
+    "gt-bare",
+    "le-bare",
+    "root-bare-bool",
+    "root-or",
+    "or-eq-exists",
+    "or-eq-in",
+    "not-and",
+    "not-contains",
+    "not-startswith",
+    "arith-mod",
+    "index-scalar-list",
+    "index-scalar-list-not-eq",
+    "index-scalar-list-null",
+    "map-eq-list",
+    "vf-lt",
+    "vf-size",
+    "vf-hasint",
+    "pv-exists-unrolled",
+    "pv-all-unrolled",
+    "string-size-gt0",
+    "in-map-keys",
+    "double-huge-lt",
+    "double-huge-gt",
+    "hier-empty-delim",
+    "index-number-list",
+    "index-number-list-not-eq",
+    "index-bool-list",
+    "index-bool-list-not-eq",
+    "index-bool-list-vs-number",
+    "index-number-list-vs-bool",
+    "in-number-list",
+    "in-number-list-vs-string",
+    "in-bool-list-vs-string",
+    "hasint-number-list-vs-string",
+    "hasint-bool-list-vs-string",
+    "eq-number-vs-string",
+    "ne-number-vs-string",
+    "eq-bool-vs-string",
+    "eq-string-vs-number",
+    "in-scalar-number-vs-string",
+    "exists-tag-name-vs-number",
+    "hasint-map-vs-number",
+    "null-in-number-list",
+    "not-null-in-number-list"
+  ],
+  "expectedUnsupported": [
+    {
+      "action": "null-value-f2f-mixed",
+      "shape": "field-to-field equality where one side declares the explicit-null convention and the other does not",
+      "reason": "The declared side needs a definite answer for its NULL \u2014 CEL holds a null VALUE there. The undeclared side needs UNKNOWN for its NULL \u2014 that is a missing attribute, which CEL denies under BOTH polarities. A definite predicate returns rows the PDP refuses (e1, both columns NULL); a plain one drops rows the PDP allows (a2/a4/a8/c2). No single predicate is both, so every adapter refuses the shape rather than picking a direction. Declaring the convention on both attributes, or on neither, is expressible; mixing them across one comparison is not (cerbos/query-plan-adapters#308)"
+    },
+    {
+      "action": "p-timestamp",
+      "shape": "timestamp() comparison over an ISO-date string column"
+    },
+    {
+      "action": "p-matches",
+      "shape": "matches() regex"
+    },
+    {
+      "action": "matches-alt",
+      "shape": "matches() with an anchored top-level alternation (^o|e$)"
+    },
+    {
+      "action": "p-index",
+      "shape": "list indexing (tags[0].name)"
+    },
+    {
+      "action": "cast-int-string",
+      "shape": "int() cast over a string column \u2014 CEL reads a whole string or raises, SQL reads the leading digits"
+    },
+    {
+      "action": "cast-double-string",
+      "shape": "double() cast over a string column \u2014 same whole-string-versus-leading-digits divergence as cast-int-string"
+    },
+    {
+      "action": "cast-int-double",
+      "shape": "int() cast over a numeric column \u2014 CEL truncates toward zero, PostgreSQL and MySQL CAST round to nearest"
+    },
+    {
+      "action": "filter-as-condition",
+      "shape": "filter() used as the whole condition \u2014 it returns a list, not a boolean"
+    },
+    {
+      "action": "filter-as-conjunct",
+      "shape": "filter() as a CONJUNCT rather than the whole condition \u2014 the same non-boolean, one level down"
+    },
+    {
+      "action": "map-as-condition",
+      "shape": "map() used as the whole condition \u2014 it returns a list, not a boolean"
+    }
+  ],
+  "nullRepresentationOmitted": [
+    {
+      "action": "null-eq-missing",
+      "reason": "`aOptionalString` follows the corpus default: a NULL column sends NO attribute, so `R.attr.aOptionalString == null` is a CEL missing-attribute error and check() denies all 22 seeds. The planner emits the same `eq(var, null)` node as `null-eq` (explicit null, 5 rows allowed), so the wire cannot tell the two conventions apart. Every adapter must be told which one the caller uses. Harnesses translate this action with the adapter's null representation set to `omitted` and assert a throw; under the default `explicit` the adapter would emit IS NULL and return the 5 rows the PDP denies (#302).",
+      "relatedIssue": "https://github.com/cerbos/query-plan-adapters/issues/302"
+    }
+  ],
+  "knownDivergences": [
+    {
+      "action": "p-has",
+      "adapters": [
+        "spring-data",
+        "prisma",
+        "drizzle",
+        "sqlalchemy",
+        "mongoose",
+        "langchain-chromadb",
+        "elasticsearch-java",
+        "convex",
+        "ent",
+        "pgx",
+        "activerecord"
+      ],
+      "reason": "The planner folds has(unknown attr) to KIND_ALWAYS_ALLOWED (a Cerbos planner bug, not an adapter bug), so the adapter returns all rows while check() denies rows where the attribute is missing. Excluded from the oracle run rather than asserted against."
+    }
+  ],
+  "degenerateOracles": [
+    {
+      "action": "arith-add-eq-frac",
+      "oracle": "empty",
+      "reason": "`R.attr.aDouble + 0.7 == 0.1` holds for no double in IEEE arithmetic \u2014 a1 holds -0.6, exactly what solving the equation yields, and -0.6 + 0.7 is 0.09999999999999998. An algebraic pre-solve would return a1; `arith-add-ne-frac` is the mirrored half with the discriminating oracle."
+    },
+    {
+      "action": "cast-double-string",
+      "oracle": "empty",
+      "reason": "No seed's aString converts to a number, so `double(R.attr.aString)` is a conversion error for every seed and denies."
+    },
+    {
+      "action": "cast-int-string",
+      "oracle": "empty",
+      "reason": "No seed's aString converts to an integer, so `int(R.attr.aString)` is a conversion error for every seed and denies."
+    },
+    {
+      "action": "double-huge-lt",
+      "oracle": "empty",
+      "reason": "No seed lies below -1e19 (g1, at -9.5e18, is the closest). A translator that narrows the literal to the int64 minimum would return g1; the mirrored `double-huge-gt` carries the discriminating oracle."
+    },
+    {
+      "action": "eq-map",
+      "oracle": "empty",
+      "reason": "A string never equals a map literal: CEL denies every seed."
+    },
+    {
+      "action": "eq-map-null",
+      "oracle": "empty",
+      "reason": "A string never equals a map literal, null-valued entry or not: CEL denies every seed."
+    },
+    {
+      "action": "except-root",
+      "oracle": "empty",
+      "reason": "`except()` returns a list, not a boolean, so the condition is not evaluable and CEL denies every seed."
+    },
+    {
+      "action": "filter-as-condition",
+      "oracle": "empty",
+      "reason": "`filter()` returns a list, not a boolean, so the condition is not evaluable and CEL denies every seed."
+    },
+    {
+      "action": "filter-as-conjunct",
+      "oracle": "empty",
+      "reason": "The `filter()` conjunct returns a list, not a boolean, so the conjunction is not evaluable and CEL denies every seed. Dropping that conjunct leaves `root-bare-bool`, which returns rows: the harnesses pin that over-grant separately."
+    },
+    {
+      "action": "hasint-map-element",
+      "oracle": "empty",
+      "reason": "The literal's only element is a map, which no string in `tagNames` equals: CEL denies every seed."
+    },
+    {
+      "action": "in-empty",
+      "oracle": "empty",
+      "reason": "Nothing is a member of the empty list: the planner folds the plan to ALWAYS_DENIED. An adapter emitting an empty IN list that the store matches against nothing agrees by accident, which is why it stays compared."
+    },
+    {
+      "action": "in-list-element",
+      "oracle": "empty",
+      "reason": "The needle is a list, and `tagNames` holds only strings: CEL denies every seed."
+    },
+    {
+      "action": "in-nested-list",
+      "oracle": "empty",
+      "reason": "The haystack holds only lists, and aString is a string: CEL denies every seed."
+    },
+    {
+      "action": "map-as-condition",
+      "oracle": "empty",
+      "reason": "`map()` returns a list, not a boolean, so the condition is not evaluable and CEL denies every seed."
+    },
+    {
+      "action": "nan-ord-le",
+      "oracle": "empty",
+      "reason": "The true arm compares 1.0 <= 0.5 and the false arm orders against NaN: both are false for every seed. A total-order comparison ranks NaN above every number and would return every aBool=false seed."
+    },
+    {
+      "action": "ne-map",
+      "oracle": "total",
+      "reason": "A string is never equal to a map literal, so `!=` holds for every seed. A store that errors or compares by coercion would drop rows."
+    },
+    {
+      "action": "null-eq-missing",
+      "oracle": "empty",
+      "reason": "`aOptionalString` follows the omitted convention, so `== null` is a missing-attribute error for every NULL row and false for every other: CEL denies every seed. Every adapter rejects it under that representation; see `nullRepresentationOmitted`."
+    },
+    {
+      "action": "p-double-frac",
+      "oracle": "empty",
+      "reason": "`3 * 0.1` is not 0.3 in IEEE double, so the equation holds for no seed. Exact-decimal arithmetic on the store (MySQL) would return the aNumber=3 seeds."
+    },
+    {
+      "action": "pv-empty-all",
+      "oracle": "total",
+      "reason": "`P.attr.emptyTeams` is an empty list: an exists() over it is false and an all() over it is true for every seed, so the planner folds the plan and the oracle is {}. The action pins that macro identity and the fold."
+    },
+    {
+      "action": "pv-empty-exists",
+      "oracle": "empty",
+      "reason": "`P.attr.emptyTeams` is an empty list: an exists() over it is false and an all() over it is true for every seed, so the planner folds the plan and the oracle is {}. The action pins that macro identity and the fold."
+    },
+    {
+      "action": "pv-empty-not-all",
+      "oracle": "empty",
+      "reason": "`P.attr.emptyTeams` is an empty list: an exists() over it is false and an all() over it is true for every seed, so the planner folds the plan and the oracle is {}. The action pins that macro identity and the fold."
+    },
+    {
+      "action": "pv-empty-not-exists",
+      "oracle": "total",
+      "reason": "`P.attr.emptyTeams` is an empty list: an exists() over it is false and an all() over it is true for every seed, so the planner folds the plan and the oracle is {}. The action pins that macro identity and the fold."
+    },
+    {
+      "action": "pv-structs-missing",
+      "oracle": "empty",
+      "reason": "Every element of `P.attr.missingStructs` lacks `name`, so every comparison is a missing-field error: the planner folds the plan to ALWAYS_DENIED."
+    },
+    {
+      "action": "pv-structs-null",
+      "oracle": "empty",
+      "reason": "Every element of `P.attr.nullableStructs` carries a null `name`, which equals no seed's aOptionalString where one is set, and a NULL aOptionalString is a missing attribute: CEL denies every seed."
+    },
+    {
+      "action": "size-huge-gt",
+      "oracle": "empty",
+      "reason": "No string's length exceeds 2^32. An unguarded int narrowing that wraps the threshold to 0 would return every non-empty aString; `size-huge-lt` is the other half."
+    },
+    {
+      "action": "size-huge-lt",
+      "oracle": "total",
+      "reason": "Every seed carries a non-null aString shorter than 2^32. An unguarded int narrowing that wraps the threshold to 0 would return nothing; `size-huge-gt` is the other half."
+    },
+    {
+      "action": "type-columns",
+      "oracle": "empty",
+      "reason": "Heterogeneous operands: CEL has no cross-type equality and denies every seed, where a store's implicit coercion would compare them and return rows."
+    },
+    {
+      "action": "type-hierarchy-number",
+      "oracle": "empty",
+      "reason": "`hierarchy()` over a number is a CEL type error that denies every seed, where a store coercing the number to a path would return rows."
+    },
+    {
+      "action": "type-needle-contains",
+      "oracle": "empty",
+      "reason": "A string function over a non-string operand is a CEL type error that denies every seed, where a store coercing the number to text would return rows."
+    },
+    {
+      "action": "type-needle-endswith",
+      "oracle": "empty",
+      "reason": "A string function over a non-string operand is a CEL type error that denies every seed, where a store coercing the number to text would return rows."
+    },
+    {
+      "action": "type-needle-startswith",
+      "oracle": "empty",
+      "reason": "A string function over a non-string operand is a CEL type error that denies every seed, where a store coercing the number to text would return rows."
+    },
+    {
+      "action": "type-number-contains",
+      "oracle": "empty",
+      "reason": "A string function over a non-string operand is a CEL type error that denies every seed, where a store coercing the number to text would return rows."
+    },
+    {
+      "action": "type-number-endswith",
+      "oracle": "empty",
+      "reason": "A string function over a non-string operand is a CEL type error that denies every seed, where a store coercing the number to text would return rows."
+    },
+    {
+      "action": "type-number-startswith",
+      "oracle": "empty",
+      "reason": "A string function over a non-string operand is a CEL type error that denies every seed, where a store coercing the number to text would return rows."
+    },
+    {
+      "action": "type-number-string",
+      "oracle": "empty",
+      "reason": "Heterogeneous operands: CEL has no cross-type equality and denies every seed, where a store's implicit coercion would compare them and return rows."
+    },
+    {
+      "action": "type-size-bool",
+      "oracle": "empty",
+      "reason": "size() is not defined on this type, so every seed is a CEL error and denies, where a store that measures the stored value would return rows."
+    },
+    {
+      "action": "type-size-number",
+      "oracle": "empty",
+      "reason": "size() is not defined on this type, so every seed is a CEL error and denies, where a store that measures the stored value would return rows."
+    },
+    {
+      "action": "type-string-number",
+      "oracle": "empty",
+      "reason": "Heterogeneous operands: CEL has no cross-type equality and denies every seed, where a store's implicit coercion would compare them and return rows."
+    },
+    {
+      "action": "w1-not-size-chain",
+      "oracle": "empty",
+      "reason": "Every seed that holds a mainCategory holds exactly one subCategory, so the negated count is false for it, and every seed without one is a missing-path error. A two-valued absent-parent guard would readmit the parentless rows under the negation; `w1-size-nonneg-chain` carries the discriminating oracle for the same chain."
+    },
+    {
+      "action": "w1-size-frac-chain",
+      "oracle": "empty",
+      "reason": "No seed holds a mainCategory with two or more subCategories, so a count of 1.5 or more holds for none, and every seed without one is a missing-path error. `w1-size-frac-le-chain` carries the discriminating oracle for the same chain."
+    },
+    {
+      "action": "w1-size-zero-chain",
+      "oracle": "empty",
+      "reason": "No seed holds a mainCategory with zero subCategories, and every seed without one is a missing-path error. `w1-size-nonneg-chain` carries the discriminating oracle for the same chain."
+    }
+  ]
+}

@@ -1,0 +1,278 @@
+{
+  "adapter": "mongoose",
+  "mechanisms": [
+    {
+      "message": "not over nullable fields or collection macros cannot preserve Cerbos error semantics",
+      "when": [
+        "depth>=4",
+        "root:not"
+      ],
+      "reason": "The negated conditional reaches a nullable parent attribute; the filter lowering refuses NOT because it cannot preserve selected-branch missing-attribute errors.",
+      "matchesToday": 15
+    },
+    {
+      "message": "not over nullable fields or collection macros cannot preserve Cerbos error semantics",
+      "when": [
+        "opattr:size:R.aOptionalString"
+      ],
+      "reason": "The negated conditional reaches a nullable parent attribute; the filter lowering refuses NOT because it cannot preserve selected-branch missing-attribute errors.",
+      "matchesToday": 6
+    },
+    {
+      "message": "not over nullable fields or collection macros cannot preserve Cerbos error semantics",
+      "when": [
+        "attr:R.aOptionalString",
+        "root:not"
+      ],
+      "reason": "The negated conditional reaches a nullable parent attribute; the filter lowering refuses NOT because it cannot preserve selected-branch missing-attribute errors.",
+      "matchesToday": 8
+    },
+    {
+      "message": "div operator requires a non-zero constant denominator",
+      "when": [
+        "depth>=3",
+        "op:div"
+      ],
+      "reason": "The numeric expression lowering refuses the zero denominator before it can compare the NaN arm; MongoDB arithmetic does not reproduce CEL floating-point division by zero.",
+      "matchesToday": 10
+    },
+    {
+      "message": "div operator requires a non-zero constant denominator",
+      "when": [
+        "nest:gt>div"
+      ],
+      "reason": "The numeric expression lowering refuses the zero denominator before it can compare the NaN arm; MongoDB arithmetic does not reproduce CEL floating-point division by zero.",
+      "matchesToday": 4
+    },
+    {
+      "message": "eq aggregation expressions inside collection predicates are unsupported",
+      "when": [
+        "cmp-exprarg",
+        "exprarg:exists"
+      ],
+      "reason": "MongoDB $expr cannot be safely scoped inside the adapter's $elemMatch predicates",
+      "matchesToday": 5
+    },
+    {
+      "message": "eq aggregation expressions inside collection predicates are unsupported",
+      "when": [
+        "attr:R.tags",
+        "f2f:eq"
+      ],
+      "reason": "MongoDB $expr cannot be safely scoped inside the adapter's $elemMatch predicates",
+      "matchesToday": 3
+    },
+    {
+      "message": "in supports only field-in-value-list or value-in-mapped-collection shapes",
+      "when": [
+        "f2f",
+        "op:in"
+      ],
+      "reason": "The mongoose adapter refuses this planner shape at its existing lowering boundary: in supports only field-in-value-list or value-in-mapped-collection shapes.",
+      "matchesToday": 5
+    },
+    {
+      "message": "Unsupported operator inside aggregation expression: except",
+      "when": [
+        "op:except"
+      ],
+      "reason": "The mongoose adapter refuses this planner shape at its existing lowering boundary: Unsupported operator inside aggregation expression: except.",
+      "matchesToday": 4
+    },
+    {
+      "message": "Unsupported operator inside aggregation expression: struct",
+      "when": [
+        "exprarg:struct"
+      ],
+      "reason": "The mongoose adapter refuses this planner shape at its existing lowering boundary: Unsupported operator inside aggregation expression: struct.",
+      "matchesToday": 6
+    },
+    {
+      "message": "Mongoose cannot cast comparisons between two conditional expressions",
+      "when": [
+        "nest:le>if"
+      ],
+      "reason": "The mongoose adapter refuses this planner shape at its existing lowering boundary: Mongoose cannot cast comparisons between two conditional expressions.",
+      "matchesToday": 2
+    },
+    {
+      "message": "'int()' cannot be translated: $convert parses a numeric prefix where CEL requires the whole string and raises otherwise, and rounds where CEL truncates toward zero",
+      "when": [
+        "op:int"
+      ],
+      "reason": "The translator unconditionally refuses numeric casts; it has no implemented lowering that proves CEL conversion and error semantics under negation. MongoDB $convert rejects malformed prefixes, so the existing refusal message does not accurately describe that store behavior.",
+      "matchesToday": 2
+    },
+    {
+      "message": "index operator requires a non-negative integer constant",
+      "when": [
+        "attr:R.aNumber",
+        "attr:R.tagNames"
+      ],
+      "reason": "MongoDB array indexing does not preserve CEL errors for a negative or fractional index, so the translator accepts only non-negative integer constants.",
+      "matchesToday": 2
+    },
+    {
+      "message": "hierarchy path must be a field or string value",
+      "when": [
+        "exprarg:hierarchy"
+      ],
+      "reason": "The mongoose adapter refuses this planner shape at its existing lowering boundary: hierarchy path must be a field or string value.",
+      "matchesToday": 2
+    },
+    {
+      "message": "Unsupported operator inside aggregation expression: filter",
+      "when": [
+        "exprarg:filter"
+      ],
+      "reason": "The mongoose adapter refuses this planner shape at its existing lowering boundary: Unsupported operator inside aggregation expression: filter.",
+      "matchesToday": 2
+    },
+    {
+      "message": "Invalid operands for collection operation",
+      "when": [
+        "nest:exists>list"
+      ],
+      "reason": "The mongoose adapter refuses this planner shape at its existing lowering boundary: Invalid operands for collection operation.",
+      "matchesToday": 2
+    }
+  ],
+  "pins": [
+    {
+      "action": "cast-not-double",
+      "message": "'double()' cannot be translated: $convert parses a numeric prefix where CEL requires the whole string and raises otherwise, and rounds where CEL truncates toward zero"
+    },
+    {
+      "action": "concat-f2f",
+      "message": "Cannot tell numeric addition from string concatenation in '+' between two fields"
+    },
+    {
+      "action": "cr-div-zero-ne",
+      "message": "div operator requires a non-zero constant denominator"
+    },
+    {
+      "action": "eq-list",
+      "message": "Whole-list comparison is not supported: a relation mapping exposes scalar element fields, not an ordered list value"
+    },
+    {
+      "action": "except-root",
+      "message": "Unsupported operator: except"
+    },
+    {
+      "action": "exists-one-multi",
+      "message": "exists_one requires exact match cardinality and is unsupported"
+    },
+    {
+      "action": "hasint-map-element",
+      "message": "Invalid operands for hasIntersection"
+    },
+    {
+      "action": "hier-empty-delim",
+      "message": "hierarchy separator must be a non-empty string"
+    },
+    {
+      "action": "in-list-element",
+      "message": "List-element membership is not supported: a scalar relation mapping cannot compare a list value with one element"
+    },
+    {
+      "action": "in-nested-list",
+      "message": "in supports only field-in-value-list or value-in-mapped-collection shapes"
+    },
+    {
+      "action": "lambda-ternary",
+      "message": "if aggregation expressions inside collection predicates are unsupported"
+    },
+    {
+      "action": "map-eq-list",
+      "message": "Unsupported operator inside aggregation expression: map"
+    },
+    {
+      "action": "ne-list",
+      "message": "Whole-list comparison is not supported: a relation mapping exposes scalar element fields, not an ordered list value"
+    },
+    {
+      "action": "not-ternary-parent",
+      "message": "not over nullable fields or collection macros cannot preserve Cerbos error semantics"
+    },
+    {
+      "action": "outer-attr-depth2",
+      "message": "Outer reference request.resource.attr.aBool inside a collection predicate is unsupported"
+    },
+    {
+      "action": "p-arith-in-lambda",
+      "message": "gt aggregation expressions inside collection predicates are unsupported"
+    },
+    {
+      "action": "p-lambda-f2f-like",
+      "message": "contains aggregation expressions inside collection predicates are unsupported"
+    },
+    {
+      "action": "p-ternary-under-all",
+      "message": "ne aggregation expressions inside collection predicates are unsupported"
+    },
+    {
+      "action": "p-ternary-vs-ternary",
+      "message": "Mongoose cannot cast comparisons between two conditional expressions"
+    },
+    {
+      "action": "pv-exists-one",
+      "message": "exists_one over a literal collection value is not supported. Only exists() and all() can be folded into a flat filter."
+    },
+    {
+      "action": "regex-alternation",
+      "message": "matches pattern is outside the supported common RE2/PCRE2 subset"
+    },
+    {
+      "action": "regex-brace",
+      "message": "matches pattern is outside the supported common RE2/PCRE2 subset"
+    },
+    {
+      "action": "regex-case",
+      "message": "matches pattern is outside the supported common RE2/PCRE2 subset"
+    },
+    {
+      "action": "regex-digit",
+      "message": "matches supports only literal escapes in the common RE2/PCRE2 subset"
+    },
+    {
+      "action": "regex-grouped",
+      "message": "matches pattern is outside the supported common RE2/PCRE2 subset"
+    },
+    {
+      "action": "regex-lookahead",
+      "message": "matches pattern is outside the supported common RE2/PCRE2 subset"
+    },
+    {
+      "action": "regex-optional-operators",
+      "message": "matches pattern is outside the supported common RE2/PCRE2 subset"
+    },
+    {
+      "action": "regex-posix",
+      "message": "matches pattern is outside the supported common RE2/PCRE2 subset"
+    },
+    {
+      "action": "regex-repetition",
+      "message": "matches pattern is outside the supported common RE2/PCRE2 subset"
+    },
+    {
+      "action": "temporal-raw-eq",
+      "message": "Bare temporal field comparison cannot preserve CEL string equality: stored Dates discard the original lexical spelling; compare timestamp(...) values instead"
+    },
+    {
+      "action": "ts-vf",
+      "message": "timestamp value must be a millisecond-exact RFC 3339 instant in the CEL range"
+    },
+    {
+      "action": "ts-window",
+      "message": "timestamp value must be a millisecond-exact RFC 3339 instant in the CEL range"
+    },
+    {
+      "action": "type-hierarchy-number",
+      "message": "hierarchy requires a string field: the declared scalar type cannot be compared with a path prefix"
+    },
+    {
+      "action": "w1-ternary-chain-cond",
+      "message": "Unsupported operator inside aggregation expression: in"
+    }
+  ]
+}

@@ -1,0 +1,163 @@
+{
+  "adapter": "drizzle",
+  "generatedBy": "ledger:update (PROTOTYPE: split verbatim from actions.json)",
+  "expectedUnsupportedMessages": {
+    "null-value-f2f-mixed": "between two columns under mixed null conventions",
+    "p-timestamp": "'timestamp' field 'request.resource.attr.createdBy' requires a mapping with valueType: \"timestamp\"",
+    "p-matches": "'matches' is not supported because SQL regex dialects do not guarantee CEL/RE2 semantics",
+    "matches-alt": "'matches' is not supported because SQL regex dialects do not guarantee CEL/RE2 semantics",
+    "p-index": "Unsupported value-expression operator: get-field",
+    "cast-int-string": "Cannot translate int(): SQL CAST does not reproduce CEL conversion semantics \u2014 it reads a numeric prefix where CEL requires the whole string and raises otherwise, and PostgreSQL and MySQL round where CEL truncates toward zero. The adapter rejects the shape instead of returning rows the PDP denies",
+    "cast-double-string": "Cannot translate double(): SQL CAST does not reproduce CEL conversion semantics \u2014 it reads a numeric prefix where CEL requires the whole string and raises otherwise, and PostgreSQL and MySQL round where CEL truncates toward zero. The adapter rejects the shape instead of returning rows the PDP denies",
+    "cast-int-double": "Cannot translate int(): SQL CAST does not reproduce CEL conversion semantics \u2014 it reads a numeric prefix where CEL requires the whole string and raises otherwise, and PostgreSQL and MySQL round where CEL truncates toward zero. The adapter rejects the shape instead of returning rows the PDP denies",
+    "filter-as-condition": "Cannot translate 'filter' as a condition: filter() returns a list, not a boolean. Only size(filter(...)) has a boolean meaning",
+    "filter-as-conjunct": "Cannot translate 'filter' as a condition: filter() returns a list, not a boolean. Only size(filter(...)) has a boolean meaning",
+    "map-as-condition": "Unsupported operator: map"
+  },
+  "nullRepresentationOmittedMessages": {
+    "null-eq-missing": "missing-attribute error"
+  },
+  "adapterSupportedExpected": [],
+  "reasons": {
+    "'size' operator requires a field reference or filter expression": [
+      "The drizzle adapter refuses this planner shape at its existing lowering boundary: 'size' operator requires a field reference or filter expression."
+    ],
+    "Cannot translate double(): SQL CAST does not reproduce CEL conversion semantics \u2014 it reads a numeric prefix where CEL requires the whole string and raises otherwise, and PostgreSQL and MySQL round where CEL truncates toward zero. The adapter rejects the shape instead of returning rows the PDP denies": [
+      "SQL filters cannot preserve CEL semantics for this expression; the translator rejects it at this boundary: Cannot translate double(): SQL CAST does not reproduce CEL conversion semantics \u2014 it reads a numeric prefix where CEL requires the whole string and raises otherwise, and PostgreSQL and MySQL round where CEL truncates toward zero. The adapter rejects the shape instead of returning rows the PDP denies"
+    ],
+    "Cannot translate int(): SQL CAST does not reproduce CEL conversion semantics \u2014 it reads a numeric prefix where CEL requires the whole string and raises otherwise, and PostgreSQL and MySQL round where CEL truncates toward zero. The adapter rejects the shape instead of returning rows the PDP denies": [
+      "SQL filters cannot preserve CEL semantics for this expression; the translator rejects it at this boundary: Cannot translate int(): SQL CAST does not reproduce CEL conversion semantics \u2014 it reads a numeric prefix where CEL requires the whole string and raises otherwise, and PostgreSQL and MySQL round where CEL truncates toward zero. The adapter rejects the shape instead of returning rows the PDP denies"
+    ],
+    "Cannot translate string(): no SQL CAST target spells it on every store this adapter supports \u2014 TEXT and VARCHAR are syntax errors on MySQL, which spells it CHAR, and CHAR is character(1) on PostgreSQL, where the cast would silently match nothing. The adapter does not know its dialect by design, so it rejects the shape instead of emitting a filter that is correct on one store only": [
+      "SQL filters cannot preserve CEL semantics for this expression; the translator rejects it at this boundary: Cannot translate string(): no SQL CAST target spells it on every store this adapter supports \u2014 TEXT and VARCHAR are syntax errors on MySQL, which spells it CHAR, and CHAR is character(1) on PostgreSQL, where the cast would silently match nothing. The adapter does not know its dialect by design, so it rejects the shape instead of emitting a filter that is correct on one store only"
+    ],
+    "'timestamp' field 'request.resource.attr.createdBy' requires a mapping with valueType: \"timestamp\"": [
+      "SQL filters cannot preserve CEL semantics for this expression; the translator rejects it at this boundary: 'timestamp' field 'request.resource.attr.createdBy' requires a mapping with valueType: \"timestamp\""
+    ],
+    "Index access requires a constant non-negative 32-bit integer position": [
+      "Declared indexed storage only accepts constant non-negative 32-bit integer positions; this position is invalid and must not be coerced into a valid array access."
+    ],
+    "Unsupported value-expression operator: matches": [
+      "SQL filters cannot preserve CEL semantics for this expression; the translator rejects it at this boundary: Unsupported value-expression operator: matches"
+    ],
+    "'matches' is not supported because SQL regex dialects do not guarantee CEL/RE2 semantics": [
+      "SQL filters cannot preserve CEL semantics for this expression; the translator rejects it at this boundary: 'matches' is not supported because SQL regex dialects do not guarantee CEL/RE2 semantics",
+      "The drizzle adapter refuses this planner shape at its existing lowering boundary: 'matches' is not supported because SQL regex dialects do not guarantee CEL/RE2 semantics."
+    ],
+    "Nested division cannot be lowered safely: SQL may evaluate an inner zero divisor before the outer non-finite comparison guards": [
+      "Nested division cannot be lowered safely: SQL may evaluate an inner zero divisor before the outer non-finite comparison guards."
+    ],
+    "Whole-list comparison is not supported: a relation mapping exposes element rows, not an ordered list value": [
+      "Whole-list comparison is not supported: a relation mapping exposes element rows, not an ordered list value."
+    ],
+    "List-element membership is not supported: a scalar relation mapping cannot compare a list value with one element": [
+      "List-element membership is not supported: a scalar relation mapping cannot compare a list value with one element."
+    ],
+    "Bare temporal field comparison cannot preserve CEL string equality: SQL timestamp columns discard the original lexical spelling; compare timestamp(...) values instead": [
+      "Bare temporal field comparison cannot preserve CEL string equality: SQL timestamp columns discard the original lexical spelling; compare timestamp(...) values instead."
+    ],
+    "Unsupported value-expression operator: struct": [
+      "The drizzle adapter refuses this planner shape at its existing lowering boundary: Unsupported value-expression operator: struct."
+    ],
+    "Unsupported value-expression operator: except": [
+      "The drizzle adapter refuses this planner shape at its existing lowering boundary: Unsupported value-expression operator: except."
+    ],
+    "'except' lambda operand must be a lambda expression": [
+      "The drizzle adapter refuses this planner shape at its existing lowering boundary: 'except' lambda operand must be a lambda expression."
+    ],
+    "'hasIntersection' requires a literal list as one of its operands": [
+      "The drizzle adapter refuses this planner shape at its existing lowering boundary: 'hasIntersection' requires a literal list as one of its operands."
+    ],
+    "Segmented hierarchy expressions are not supported by the Drizzle adapter": [
+      "The drizzle adapter refuses this planner shape at its existing lowering boundary: Segmented hierarchy expressions are not supported by the Drizzle adapter.",
+      "The descendant path is CONSTRUCTED by list() from a constant segment and the primary key rather than read from a column, and the adapter's hierarchy support resolves a segmented path only from a mapped column or a plan constant"
+    ],
+    "Comparison operator missing value operand": [
+      "The drizzle adapter refuses this planner shape at its existing lowering boundary: Comparison operator missing value operand."
+    ],
+    "Cannot translate string concatenation: CEL's + over strings has no dialect-independent SQL spelling \u2014 || concatenates on SQLite and PostgreSQL but is logical OR on MySQL, which spells it CONCAT() \u2014 and the numeric + this adapter emits for arithmetic would coerce the operands to 0 rather than fail": [
+      "The drizzle adapter refuses this planner shape at its existing lowering boundary: Cannot translate string concatenation: CEL's + over strings has no dialect-independent SQL spelling \u2014 || concatenates on SQLite and PostgreSQL but is logical OR on MySQL, which spells it CONCAT() \u2014 and the numeric + this adapter emits for arithmetic would coerce the operands to 0 rather than fail."
+    ],
+    "'exists_one' over a literal collection value is not supported. Only exists() and all() can be folded into a flat filter.": [
+      "The drizzle adapter refuses this planner shape at its existing lowering boundary: 'exists_one' over a literal collection value is not supported. Only exists() and all() can be folded into a flat filter.."
+    ],
+    "Collection operand must be a field reference": [
+      "The drizzle adapter refuses this planner shape at its existing lowering boundary: Collection operand must be a field reference."
+    ],
+    "Timestamp value exceeds millisecond precision": [
+      "The planner emits a sub-millisecond now() literal that the documented Drizzle timestamp contract cannot represent without changing the CEL instant",
+      "Same sub-millisecond now() limitation in value-first form"
+    ],
+    "Cannot translate string(): no SQL CAST target spells it on every store this adapter supports": [
+      "No SQL CAST TARGET spells string() on every store this adapter is executed against. TEXT and VARCHAR are both syntax errors on MySQL (ERROR 1064 on MySQL 8.4), which spells the conversion CHAR; CHAR is character(1) on PostgreSQL, where CAST(a_double AS CHAR) is '-' for -0.6 and the filter silently matches nothing. The adapter does not know its dialect by design \u2014 it renders through whichever Drizzle dialect the caller hands the query to, which is what lets one translation serve all three stores \u2014 so it cannot pick per store the way ent's WithDialect-driven render.go does. Reclassified from oracle-compared when the MySQL leg first executed the emitted cast (cerbos/query-plan-adapters#340): it was proved on SQLite and PostgreSQL only, and the numeric rendering claim had been measured against two of the three pinned images"
+    ],
+    "Cannot translate string concatenation": [
+      "CEL's + over strings has no dialect-independent SQL spelling: || concatenates on SQLite and PostgreSQL but is logical OR on MySQL, which spells it CONCAT(). The numeric + the adapter emits for arithmetic is silently wrong rather than a syntax error \u2014 SQLite and MySQL coerce 'prefix:' to 0, so the comparison matched nothing",
+      "Same missing dialect-independent concatenation as id-concat, in value-first form",
+      "Same missing dialect-independent concatenation, between two columns rather than against a constant. This adapter refuses every string `+`, so the two-column case needs no extra type information to be rejected"
+    ],
+    "Cannot translate int(): SQL CAST does not reproduce CEL conversion semantics": [
+      "int() is required to give `%` an integer operand and has no faithful SQL lowering \u2014 CAST rounds where CEL truncates toward zero. The cast is refused before the modulo operator is reached, exactly as for cast-int-double"
+    ],
+    "Unsupported value-expression operator: map": [
+      "map() translates only inside hasIntersection, where the projection becomes the inner column of an EXISTS. Comparing the ordered projection itself to a literal list has no SQL form the adapter builds"
+    ],
+    "Hierarchy delimiter must be a non-empty string: an empty delimiter splits the path per character, and the prefix LIKE this adapter emits would also match the path itself": [
+      "Cerbos splits a path on an empty delimiter into one segment per character, so the relation is a strict string-prefix test; the adapter lowers descendentOf as `LIKE prefix || delimiter || '%'`, which with an empty delimiter also matches the path itself (a2, never its own descendant). The empty delimiter is refused when the hierarchy operand is parsed, before that LIKE is built"
+    ]
+  },
+  "refuses": {
+    "arith-mod": "Cannot translate int(): SQL CAST does not reproduce CEL conversion semantics",
+    "cast-not-double": "Cannot translate double(): SQL CAST does not reproduce CEL conversion semantics \u2014 it reads a numeric prefix where CEL requires the whole string and raises otherwise, and PostgreSQL and MySQL round where CEL truncates toward zero. The adapter rejects the shape instead of returning rows the PDP denies",
+    "cast-not-int": "Cannot translate int(): SQL CAST does not reproduce CEL conversion semantics \u2014 it reads a numeric prefix where CEL requires the whole string and raises otherwise, and PostgreSQL and MySQL round where CEL truncates toward zero. The adapter rejects the shape instead of returning rows the PDP denies",
+    "cast-not-string-missing": "Cannot translate string(): no SQL CAST target spells it on every store this adapter supports \u2014 TEXT and VARCHAR are syntax errors on MySQL, which spells it CHAR, and CHAR is character(1) on PostgreSQL, where the cast would silently match nothing. The adapter does not know its dialect by design, so it rejects the shape instead of emitting a filter that is correct on one store only",
+    "cast-not-string-null": "Cannot translate string(): no SQL CAST target spells it on every store this adapter supports \u2014 TEXT and VARCHAR are syntax errors on MySQL, which spells it CHAR, and CHAR is character(1) on PostgreSQL, where the cast would silently match nothing. The adapter does not know its dialect by design, so it rejects the shape instead of emitting a filter that is correct on one store only",
+    "cast-not-timestamp": "'timestamp' field 'request.resource.attr.createdBy' requires a mapping with valueType: \"timestamp\"",
+    "cast-string-double": "Cannot translate string(): no SQL CAST target spells it on every store this adapter supports",
+    "concat-f2f": "Cannot translate string concatenation",
+    "div-by-division": "Nested division cannot be lowered safely: SQL may evaluate an inner zero divisor before the outer non-finite comparison guards",
+    "eq-list": "Whole-list comparison is not supported: a relation mapping exposes element rows, not an ordered list value",
+    "eq-map": "Unsupported value-expression operator: struct",
+    "eq-map-null": "Unsupported value-expression operator: struct",
+    "except-eq": "Unsupported value-expression operator: except",
+    "except-root": "'except' lambda operand must be a lambda expression",
+    "except-size": "'size' operator requires a field reference or filter expression",
+    "hasint-map-element": "'hasIntersection' requires a literal list as one of its operands",
+    "hier-empty-delim": "Hierarchy delimiter must be a non-empty string: an empty delimiter splits the path per character, and the prefix LIKE this adapter emits would also match the path itself",
+    "hier-list-id": "Segmented hierarchy expressions are not supported by the Drizzle adapter",
+    "hier-overlaps-list-prefix": "Segmented hierarchy expressions are not supported by the Drizzle adapter",
+    "id-concat": "Cannot translate string concatenation",
+    "id-concat-vf": "Cannot translate string concatenation",
+    "in-list-element": "List-element membership is not supported: a scalar relation mapping cannot compare a list value with one element",
+    "in-nested-list": "Comparison operator missing value operand",
+    "index-fractional": "Index access requires a constant non-negative 32-bit integer position",
+    "index-negative": "Index access requires a constant non-negative 32-bit integer position",
+    "map-eq-list": "Unsupported value-expression operator: map",
+    "ne-list": "Whole-list comparison is not supported: a relation mapping exposes element rows, not an ordered list value",
+    "ne-map": "Unsupported value-expression operator: struct",
+    "not-concat-unsolvable": "Cannot translate string concatenation: CEL's + over strings has no dialect-independent SQL spelling \u2014 || concatenates on SQLite and PostgreSQL but is logical OR on MySQL, which spells it CONCAT() \u2014 and the numeric + this adapter emits for arithmetic would coerce the operands to 0 rather than fail",
+    "not-concat-unsolvable-ne": "Cannot translate string concatenation: CEL's + over strings has no dialect-independent SQL spelling \u2014 || concatenates on SQLite and PostgreSQL but is logical OR on MySQL, which spells it CONCAT() \u2014 and the numeric + this adapter emits for arithmetic would coerce the operands to 0 rather than fail",
+    "pv-except": "'size' operator requires a field reference or filter expression",
+    "pv-exists-one": "'exists_one' over a literal collection value is not supported. Only exists() and all() can be folded into a flat filter.",
+    "pv-filter": "Collection operand must be a field reference",
+    "pv-map": "Comparison operator missing value operand",
+    "pv-structs": "Collection operand must be a field reference",
+    "pv-structs-null": "Collection operand must be a field reference",
+    "regex-alternation": "'matches' is not supported because SQL regex dialects do not guarantee CEL/RE2 semantics",
+    "regex-brace": "'matches' is not supported because SQL regex dialects do not guarantee CEL/RE2 semantics",
+    "regex-case": "'matches' is not supported because SQL regex dialects do not guarantee CEL/RE2 semantics",
+    "regex-digit": "'matches' is not supported because SQL regex dialects do not guarantee CEL/RE2 semantics",
+    "regex-dot": "'matches' is not supported because SQL regex dialects do not guarantee CEL/RE2 semantics",
+    "regex-eq-true": "Unsupported value-expression operator: matches",
+    "regex-final-newline": "'matches' is not supported because SQL regex dialects do not guarantee CEL/RE2 semantics",
+    "regex-grouped": "'matches' is not supported because SQL regex dialects do not guarantee CEL/RE2 semantics",
+    "regex-lookahead": "'matches' is not supported because SQL regex dialects do not guarantee CEL/RE2 semantics",
+    "regex-optional-operators": "'matches' is not supported because SQL regex dialects do not guarantee CEL/RE2 semantics",
+    "regex-posix": "'matches' is not supported because SQL regex dialects do not guarantee CEL/RE2 semantics",
+    "regex-repetition": "'matches' is not supported because SQL regex dialects do not guarantee CEL/RE2 semantics",
+    "regex-unanchored": "'matches' is not supported because SQL regex dialects do not guarantee CEL/RE2 semantics",
+    "temporal-raw-eq": "Bare temporal field comparison cannot preserve CEL string equality: SQL timestamp columns discard the original lexical spelling; compare timestamp(...) values instead",
+    "ts-vf": "Timestamp value exceeds millisecond precision",
+    "ts-window": "Timestamp value exceeds millisecond precision"
+  }
+}

@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Refusal Mechanisms Prototype</title>
+<style>
+:root{--bg:#fbfaf8;--fg:#1d1c1a;--muted:#6b6862;--line:#e3e0da;--card:#fff;--accent:#2f5bd3;--ok:#1f7a4a;--warn:#a1620c;--bad:#b3261e;--chip:#f1efeb}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#161615;--fg:#ecebe8;--muted:#a09c95;--line:#33312e;--card:#1f1e1c;--accent:#7b9cff;--ok:#5cc58c;--warn:#e0a643;--bad:#ff7d73;--chip:#2a2826}}
+:root[data-theme="dark"]{--bg:#161615;--fg:#ecebe8;--muted:#a09c95;--line:#33312e;--card:#1f1e1c;--accent:#7b9cff;--ok:#5cc58c;--warn:#e0a643;--bad:#ff7d73;--chip:#2a2826}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:24px 16px 64px}h1{font-size:24px;margin:0 0 4px}h2{font-size:17px;margin:32px 0 8px}
+p.lead{color:var(--muted);margin:0 0 16px;max-width:75ch}.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:10px 0}
+table{border-collapse:collapse;width:100%;font-size:13px}th,td{text-align:right;padding:5px 8px;border-bottom:1px solid var(--line);white-space:nowrap}th:first-child,td:first-child{text-align:left}th{color:var(--muted);font-weight:600}
+.scroll{overflow-x:auto}.row{display:flex;gap:16px;flex-wrap:wrap}.col{flex:1 1 320px;min-width:0}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}.stat{border:1px solid var(--line);border-radius:8px;padding:8px 10px}.stat b{display:block;font-size:22px}.stat span{color:var(--muted);font-size:12px}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.chip{display:inline-block;background:var(--chip);border-radius:4px;padding:0 6px;margin:1px 2px;font:12px ui-monospace,monospace}
+button,select{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:6px;padding:5px 10px;cursor:pointer}button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.mech{display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px}.mech:last-child{border:0}.mech small{color:var(--muted)}
+.list{max-height:340px;overflow:auto;font-size:13px}.list div{padding:3px 0;border-bottom:1px dashed var(--line);overflow-wrap:anywhere}
+.tabs{display:flex;gap:4px;flex-wrap:wrap}.tabs button.on{border-color:var(--accent);color:var(--accent)}.steps{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.steps button[disabled]{opacity:.45;cursor:default}
+.changed{outline:2px solid var(--warn);outline-offset:2px;border-radius:6px}.note{font-size:13px;color:var(--muted)}
+</style></head><body><main>
+<h1>Refusal mechanisms: a prototype</h1>
+<p class="lead"><b>Throwaway prototype.</b> The question: if each adapter's classification were stored as a short list of <i>refusal mechanisms</i> (for example, "refuses any comparison whose operand is a computation"), each keyed on features read mechanically from the planner's wire fixtures, would joining the two reproduce today's hand-written <code>actions.json</code>? And would a <i>new</i> corpus action come out classified correctly? The mechanisms here were induced automatically from today's data, so they approximate what an adapter author would write.</p>
+
+<h2>Headline</h2>
+<div class="card"><div class="stats" id="headline"></div><p class="note" id="headnote"></p></div>
+<div class="card scroll"><table id="summary"></table>
+<p class="note"><b>New action?</b> 5-fold cross-validation: mechanisms are induced from 4/5 of the actions and the held-out fifth is treated as brand new. <b>False refusal</b>: derived as refused, but the adapter translates it. <b>Missed</b>: derived as translated, but the adapter refuses it. Both mistakes are loud: the harness fails the run, just as it does today on a wrong hand classification.</p></div>
+
+<h2>Explore one adapter</h2>
+<div class="card">
+<div class="row" style="align-items:center"><label>Adapter <select id="adapter"></select></label>
+<button id="reset">Reset: enable every mechanism</button></div>
+<div class="stats" style="margin-top:10px" id="state"></div>
+<p class="note" id="changed"></p>
+<div class="row">
+<div class="col"><h3 style="font-size:14px">Mechanisms (untick one to see what depends on it)</h3><div class="list" id="mechs" style="max-height:420px"></div></div>
+<div class="col"><h3 style="font-size:14px">Where the join disagrees with today's ledger</h3><div class="list" id="diffs"></div>
+<h3 style="font-size:14px">Pins: refusals that no rule of up to two features explains</h3><div class="list" id="pins"></div></div>
+</div></div>
+
+<h2>Look up one action</h2>
+<div class="card"><label>Action <select id="action"></select></label>
+<div id="actionView" style="margin-top:8px"></div></div>
+
+<h2>Guided walkthroughs</h2>
+<div class="card"><div class="tabs" id="tabs"></div><p id="wdesc"></p><div class="steps" id="wsteps"></div></div>
+</main>
+<script>
+// ---- the pure module: the only part worth lifting into a real harness ----
+const Mechanisms = {
+  matches(mech, feats) { return mech.when.every(f => feats.has(f)); },
+  // The join. `pins` override; otherwise every enabled mechanism whose features all hold is a hit.
+  classify(doc, actionFeatures, enabled) {
+    const pins = Object.fromEntries(doc.pins.map(p => [p.action, p.message]));
+    const out = {};
+    for (const [action, feats] of Object.entries(actionFeatures)) {
+      const fs = new Set(feats);
+      if (pins[action]) { out[action] = { derived: pins[action], hits: [pins[action]], pinned: true }; continue; }
+      const hits = doc.mechanisms.filter((m, i) => enabled.has(i) && Mechanisms.matches(m, fs)).map(m => m.message);
+      out[action] = { derived: hits[0] ?? null, hits: [...new Set(hits)], pinned: false };
+    }
+    return out;
+  },
+  compare(classified, refusedToday) {
+    const r = { agree: 0, falseRefuse: [], missed: [], msgAmbiguous: [] };
+    for (const [a, c] of Object.entries(classified)) {
+      const want = refusedToday[a] ?? null;
+      if (!want && !c.derived) r.agree++;
+      else if (!want) r.falseRefuse.push(a);
+      else if (!c.derived) r.missed.push(a);
+      else if (c.derived === want) r.agree++;
+      else if (c.hits.includes(want)) { r.agree++; r.msgAmbiguous.push(a); }
+      else r.missed.push(a);
+    }
+    return r;
+  },
+};
+// ---- page shell ----
+const DATA = /*DATA*/null;
+const $ = id => document.getElementById(id), esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+let S = { adapter: null, enabled: new Set(), prev: null };
+function headline() {
+  const t = DATA.totals;
+  $('headline').innerHTML = [
+    [DATA.sizes['actions.json'].toLocaleString()+' B','actions.json today'],
+    [DATA.sizes['shared-actions.json'].toLocaleString()+' B','shared part left after the split'],
+    [t.entries,'per-action refusal entries today'],[t.mechs+' + '+t.pins,'mechanisms + pins that replace them'],
+    [t.autoPct+'%','new-action decisions auto-correct'],[t.basePct+'%','baseline: "always translate"'],
+  ].map(([b,s])=>`<div class="stat"><b>${b}</b><span>${s}</span></div>`).join('');
+  $('headnote').innerHTML = `For refusals alone: ${t.refExact} of ${t.refTotal} came out exactly right on a held-out action, ${t.refSet} if the harness accepts any matching mechanism's message. ${t.novel} refusals carry a message seen only once in the corpus, so no derivation could predict them: they are new mechanisms, and a person writes those.`;
+  $('summary').innerHTML = '<tr><th>adapter</th><th>entries today</th><th>distinct messages</th><th>mechanisms</th><th>pins</th><th>ledger bytes</th><th>mechanism bytes</th><th>new action: right</th><th>false refusal</th><th>missed</th><th>wrong msg</th></tr>' +
+    Object.entries(DATA.adapters).map(([a,r])=>{const c=r.newActionCV;const ok=(c.exact||0)+(c['exact-translate']||0)+(c['message-in-matching-set']||0);
+      return `<tr><td>${a}</td><td>${r.entriesToday}</td><td>${r.messages}</td><td>${r.mechanisms}</td><td>${r.pins}</td><td>${r.ledgerBytes.toLocaleString()}</td><td>${r.mechanismBytes.toLocaleString()}</td><td class="ok">${ok}</td><td class="${c['false-refuse']?'bad':''}">${c['false-refuse']||0}</td><td class="warn">${c['missed-refusal']||0}</td><td>${c['wrong-message']||0}</td></tr>`}).join('');
+}
+function render(changedNote) {
+  const doc = DATA.adapters[S.adapter].mechanismsDoc, today = DATA.refusedToday[S.adapter];
+  const cls = Mechanisms.classify(doc, DATA.actionFeatures, S.enabled), cmp = Mechanisms.compare(cls, today);
+  const cur = { agree: cmp.agree, fr: cmp.falseRefuse.length, mi: cmp.missed.length, amb: cmp.msgAmbiguous.length };
+  const d = k => S.prev && S.prev[k] !== cur[k] ? ' changed' : '';
+  $('state').innerHTML = [['agree','ok',cur.agree,'actions classified as today'],['fr','bad',cur.fr,'refused by the join, translated today'],['mi','warn',cur.mi,'refused today, missed by the join'],['amb','',cur.amb,'right only because any matching message is accepted']]
+    .map(([k,c,v,s])=>`<div class="stat${d(k)}"><b class="${c}">${v}</b><span>${s}</span></div>`).join('');
+  $('changed').textContent = changedNote || '';
+  S.prev = cur;
+  $('mechs').innerHTML = doc.mechanisms.map((m,i)=>`<div class="mech"><input type="checkbox" data-i="${i}" ${S.enabled.has(i)?'checked':''}><div>${m.when.map(f=>`<span class="chip">${esc(f)}</span>`).join(' ∧ ')} <small>→ ${m.matchesToday} actions</small><br><small>throws “${esc(m.message)}”</small></div></div>`).join('') || '<div class="note">none</div>';
+  $('mechs').querySelectorAll('input').forEach(el => el.onchange = () => toggle(+el.dataset.i));
+  const line = (a, tag, cl) => `<div><span class="${cl}">${tag}</span> <a href="#" data-a="${a}">${a}</a></div>`;
+  $('diffs').innerHTML = [...cmp.falseRefuse.map(a=>line(a,'false refusal','bad')),...cmp.missed.map(a=>line(a,'missed','warn')),...cmp.msgAmbiguous.map(a=>line(a,'ambiguous message',''))].join('') || '<div class="ok">None: the join reproduces this adapter exactly.</div>';
+  $('pins').innerHTML = doc.pins.map(p=>`<div><a href="#" data-a="${p.action}">${p.action}</a>: <small>${esc(p.message)}</small></div>`).join('') || '<div class="note">none</div>';
+  document.querySelectorAll('a[data-a]').forEach(el => el.onclick = e => { e.preventDefault(); showAction(el.dataset.a); $('action').scrollIntoView({block:'center'}); });
+  showAction($('action').value, cls);
+}
+function showAction(a, cls) {
+  $('action').value = a;
+  cls = cls || Mechanisms.classify(DATA.adapters[S.adapter].mechanismsDoc, DATA.actionFeatures, S.enabled);
+  const c = cls[a], today = DATA.refusedToday[S.adapter][a] ?? null;
+  $('actionView').innerHTML = `<div><b>${S.adapter}</b> today: ${today?`<span class="warn">refuses</span>, “${esc(today)}”`:'<span class="ok">translates</span>'}</div>
+  <div>Join: ${c.derived?`refuses (${c.pinned?'pinned':c.hits.length+' mechanism'+(c.hits.length>1?'s':'')+' match'}), “${esc(c.derived)}”`:'translates'}</div>
+  <div style="margin-top:6px">Features: ${DATA.actionFeatures[a].map(f=>`<span class="chip">${esc(f)}</span>`).join('')}</div>`;
+}
+function setAdapter(a, note) { S.adapter = a; $('adapter').value = a; S.enabled = new Set(DATA.adapters[a].mechanismsDoc.mechanisms.map((_,i)=>i)); S.prev = null; render(note); }
+function toggle(i, note) { const m = DATA.adapters[S.adapter].mechanismsDoc.mechanisms[i];
+  S.enabled.has(i) ? S.enabled.delete(i) : S.enabled.add(i);
+  render(note || `${S.enabled.has(i)?'Enabled':'Disabled'} mechanism [${m.when.join(' ∧ ')}].`); }
+const WALKS = [
+ {t:'One mechanism, 100 actions', d:'langchain-chromadb has 249 entries in actions.json today. As mechanisms it is 20 rules and 10 pins, and one rule, "an operand of a comparison is itself an expression", accounts for 100 of those entries. Disable that rule and watch every action it covered turn into a missed refusal. The harness would catch each of those loudly, because the adapter throws where the ledger says it translates.',
+  steps:[['Open langchain-chromadb',()=>setAdapter('langchain-chromadb','Every mechanism enabled: this is the derived ledger.')],['Disable the cmp-exprarg rule',()=>{const i=DATA.adapters['langchain-chromadb'].mechanismsDoc.mechanisms.findIndex(m=>m.when.join()==='cmp-exprarg');toggle(i,'cmp-exprarg disabled: see how many actions this one rule was covering.')}],['Look at one action it covered',()=>showAction('compose-allow-deny')]]},
+ {t:'An over-broad rule', d:'The induction only accepts rules that match no action the adapter translates. Under cross-validation, some rules learned from 4/5 of the corpus still over-reach on the held-out fifth. elasticsearch-java has the most of these false refusals. In a real ledger the harness fails the run when the adapter translates an action the ledger says it refuses, so an over-broad mechanism can cost coverage but can never go unnoticed.',
+  steps:[['Open elasticsearch-java',()=>setAdapter('elasticsearch-java')],['Scroll to its row in the summary',()=>$('summary').scrollIntoView({block:'center'})]]},
+ {t:'Which message wins?', d:'An action can match two mechanisms: for Chroma, a field-to-field comparison inside a nested expression. The message the adapter actually throws depends on the order its walk visits the nodes, and a flat join of features cannot see that order. Either an author orders the mechanisms, or the harness accepts any matching mechanism\'s message. The "ambiguous message" count is how often this matters.',
+  steps:[['Open langchain-chromadb',()=>setAdapter('langchain-chromadb')],['Show the ambiguous-message list',()=>$('diffs').scrollIntoView({block:'center'})]]},
+ {t:'Pins are the honest remainder', d:'A refusal whose message appears once in the corpus is a single-action mechanism, a pin. Prisma has 43. Many are real one-off limitations ("div operator requires exactly one field reference…"), so the derivation does not remove the human decision there. It moves that decision to the point where a new mechanism appears, rather than every time an action is added.',
+  steps:[['Open prisma',()=>setAdapter('prisma')],['Show its pins',()=>$('pins').scrollIntoView({block:'center'})]]},
+];
+let W = 0, step = 0;
+function renderWalk() { $('tabs').innerHTML = WALKS.map((w,i)=>`<button class="${i===W?'on':''}" data-w="${i}">${w.t}</button>`).join('');
+  $('tabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{W=+b.dataset.w;step=0;renderWalk();});
+  $('wdesc').textContent = WALKS[W].d;
+  $('wsteps').innerHTML = WALKS[W].steps.map(([l],i)=>`<button class="${i===step?'primary':''}" ${i!==step?'disabled':''} data-s="${i}">${i+1}. ${l}</button>`).join('') + ` <button id="wre">Restart</button>`;
+  $('wsteps').querySelectorAll('button[data-s]').forEach(b=>b.onclick=()=>{WALKS[W].steps[step][1]();step=Math.min(step+1,WALKS[W].steps.length-1);if(+b.dataset.s===WALKS[W].steps.length-1)step=WALKS[W].steps.length;renderWalk();});
+  $('wre').onclick=()=>{step=0;setAdapter(Object.keys(DATA.adapters)[0]);renderWalk();}; }
+$('adapter').innerHTML = Object.keys(DATA.adapters).map(a=>`<option>${a}</option>`).join('');
+$('action').innerHTML = Object.keys(DATA.actionFeatures).map(a=>`<option>${a}</option>`).join('');
+$('adapter').onchange = e => setAdapter(e.target.value); $('action').onchange = e => showAction(e.target.value);
+$('reset').onclick = () => setAdapter(S.adapter, 'Every mechanism re-enabled.');
+headline(); setAdapter('langchain-chromadb'); renderWalk();
+</script></body></html>

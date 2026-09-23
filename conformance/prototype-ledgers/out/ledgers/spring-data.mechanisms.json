@@ -1,0 +1,140 @@
+{
+  "adapter": "spring-data",
+  "mechanisms": [
+    {
+      "message": "Unsupported operator: matches",
+      "when": [
+        "op:matches"
+      ],
+      "reason": "The Criteria API has no portable RE2 regular expression predicate.",
+      "matchesToday": 13
+    },
+    {
+      "message": "Unexpected index() expression in leaf operand of eq",
+      "when": [
+        "nest:eq>index"
+      ],
+      "reason": "A relational collection has no declared order for positional indexing.",
+      "matchesToday": 12
+    },
+    {
+      "message": "except is not supported: Cerbos except(list, list) computes a list difference, which has no JPA Criteria translation. Rewrite the policy with a collection macro instead \u2014 e.g. size(R.attr.tags.except([\"x\"])) > 0 is equivalent to R.attr.tags.exists(t, !(t in [\"x\"])).",
+      "when": [
+        "op:except"
+      ],
+      "reason": "except is not supported: Cerbos except(list, list) computes a list difference, which has no JPA Criteria translation. Rewrite the policy with a collection macro instead \u2014 e.g. size(R.attr.tags.except([\"x\"])) > 0 is equivalent to R.attr.tags.exists(t, !(t in [\"x\"])).",
+      "matchesToday": 4
+    },
+    {
+      "message": "Unexpected string() expression in leaf operand of eq",
+      "when": [
+        "depth>=3",
+        "nest:eq>string"
+      ],
+      "reason": "The Criteria API has no portable CEL string conversion expression that preserves conversion errors under negation.",
+      "matchesToday": 2
+    },
+    {
+      "message": "exists first operand must be a variable",
+      "when": [
+        "nest:exists>list"
+      ],
+      "reason": "exists first operand must be a variable",
+      "matchesToday": 2
+    },
+    {
+      "message": "Unexpected struct() expression in leaf operand of eq",
+      "when": [
+        "nest:eq>struct"
+      ],
+      "reason": "Unexpected struct() expression in leaf operand of eq",
+      "matchesToday": 2
+    },
+    {
+      "message": "arithmetic composed on a division whose denominator may be zero is not supported: CEL carries the resulting NaN or infinity through the surrounding arithmetic and SQL has no value that does",
+      "when": [
+        "exprarg:add"
+      ],
+      "reason": "CEL carries a NaN or signed infinity through the arithmetic composed on top of a division, and SQL has no value that does \u2014 the NULLIF divide-by-zero guard turns the whole sum into NULL. The reference's non-finite rewrite only reaches a division that IS the comparison operand, so a division nested inside further arithmetic fails closed rather than emitting the under-granting filter",
+      "matchesToday": 2
+    }
+  ],
+  "pins": [
+    {
+      "action": "arith-mod",
+      "message": "mod is not supported in comparisons: CEL % is integer-only while attribute values are always doubles at check time, so a satisfiable policy must cast with int() first"
+    },
+    {
+      "action": "cast-not-double",
+      "message": "Unexpected double() expression in leaf operand of gt"
+    },
+    {
+      "action": "cast-not-int",
+      "message": "Unexpected int() expression in leaf operand of gt"
+    },
+    {
+      "action": "cast-not-timestamp",
+      "message": "timestamp() comparison requires a column mapped to java.time.Instant or java.time.OffsetDateTime, but 'request.resource.attr.createdBy' maps to String. Other temporal representations (LocalDateTime, java.util.Date, String) are ambiguous about the absolute instant they store; remap the column or register an OperatorFunction override for 'lt'."
+    },
+    {
+      "action": "cast-string-double",
+      "message": "Unexpected string() expression in leaf operand of eq"
+    },
+    {
+      "action": "concat-f2f",
+      "message": "Arithmetic comparison requires numeric operands, got String"
+    },
+    {
+      "action": "eq-list",
+      "message": "eq comparison against a list of 1 element constant is not supported for attribute request.resource.attr.tagNames. Whole-list equality is not translatable to a scalar column comparison; map the attribute as a Relation and use in/hasIntersection, or compare elements individually."
+    },
+    {
+      "action": "hasint-map-element",
+      "message": "Unsupported hasIntersection operand shape: VARIABLE 'request.resource.attr.tagNames' / EXPRESSION list(). Supported shapes are hasIntersection(collection-attribute, [values...]) and hasIntersection(map(collection, lambda), [values...])."
+    },
+    {
+      "action": "hier-empty-delim",
+      "message": "hierarchy delimiter must be a non-empty string: an empty delimiter splits the path per character, and the prefix LIKE this adapter emits would also match the path itself"
+    },
+    {
+      "action": "id-concat",
+      "message": "Arithmetic comparison requires numeric operands, got String"
+    },
+    {
+      "action": "in-nested-list",
+      "message": "Unsupported in operand combination: VARIABLE 'request.resource.attr.aString' / EXPRESSION list()"
+    },
+    {
+      "action": "map-eq-list",
+      "message": "Direct comparison of map(...) to a value is not supported (operator: eq). Wrap the map() expression in hasIntersection(map(...), [...]) instead."
+    },
+    {
+      "action": "ne-list",
+      "message": "ne comparison against a list of 1 element constant is not supported for attribute request.resource.attr.tagNames. Whole-list equality is not translatable to a scalar column comparison; map the attribute as a Relation and use in/hasIntersection, or compare elements individually."
+    },
+    {
+      "action": "ne-map",
+      "message": "Unexpected struct() expression in leaf operand of ne"
+    },
+    {
+      "action": "pv-exists-one",
+      "message": "exists_one over a literal collection value is not supported. Only exists() and all() can be folded into a flat filter."
+    },
+    {
+      "action": "pv-filter",
+      "message": "Unsupported size(filter(...)) expression"
+    },
+    {
+      "action": "pv-map",
+      "message": "Unsupported in operand combination: VARIABLE 'request.resource.attr.aOptionalString' / EXPRESSION map()"
+    },
+    {
+      "action": "regex-eq-true",
+      "message": "Unexpected matches() expression in leaf operand of eq"
+    },
+    {
+      "action": "temporal-raw-eq",
+      "message": "Bare temporal comparison cannot preserve CEL string equality; use timestamp() explicitly"
+    }
+  ]
+}

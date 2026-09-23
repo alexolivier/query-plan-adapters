@@ -1,0 +1,123 @@
+{
+  "adapter": "pgx",
+  "mechanisms": [
+    {
+      "message": "unsupported operator: index",
+      "when": [
+        "nest:eq>index"
+      ],
+      "reason": "Ordered list indexing has no SQL relation lowering; a relation has no positional order or CEL out-of-bounds/error semantics.",
+      "matchesToday": 12
+    },
+    {
+      "message": "unsupported operator: matches. CEL's regex dialect (RE2) is not the dialect any SQL engine implements, so a translated pattern would accept or reject different strings than the PDP",
+      "when": [
+        "root:matches"
+      ],
+      "reason": "The translator has no matches lowering: the SQL engines do not share CEL RE2 semantics.",
+      "matchesToday": 11
+    },
+    {
+      "message": "unsupported operator: except",
+      "when": [
+        "op:except"
+      ],
+      "reason": "The two-list except function has no list-difference lowering in this translator.",
+      "matchesToday": 4
+    },
+    {
+      "message": "unsupported operator: matches",
+      "when": [
+        "op:matches"
+      ],
+      "reason": "Regex matches() has no lowering: CEL uses RE2 and SQL regex dialects do not preserve its matching/error semantics, including through boolean equality.",
+      "matchesToday": 13
+    },
+    {
+      "message": "unsupported operator: list",
+      "when": [
+        "op:list"
+      ],
+      "reason": "The computed list constructor has no SQL scalar lowering in this translator.",
+      "matchesToday": 7
+    },
+    {
+      "message": "unsupported operator: struct",
+      "when": [
+        "exprarg:struct"
+      ],
+      "reason": "A struct constructor is not a scalar SQL operand and has no lowering in this translator.",
+      "matchesToday": 6
+    },
+    {
+      "message": "'exists' requires a collection attribute or a literal list",
+      "when": [
+        "nest:exists>list"
+      ],
+      "reason": "The planner emits list/struct/set-field constructors for principal objects; the macro fold accepts literal value lists or mapped relations, not constructor expressions.",
+      "matchesToday": 2
+    }
+  ],
+  "pins": [
+    {
+      "action": "arith-mod",
+      "message": "'int()' cannot be lowered to SQL CAST: CAST reads a numeric prefix where CEL requires the whole string and raises otherwise, and PostgreSQL and MySQL round where CEL truncates toward zero"
+    },
+    {
+      "action": "cast-not-double",
+      "message": "'double()' cannot be lowered to SQL CAST"
+    },
+    {
+      "action": "cast-not-int",
+      "message": "'int()' cannot be lowered to SQL CAST"
+    },
+    {
+      "action": "cast-not-timestamp",
+      "message": "timestamp() over a column requires that column to be mapped with a timestamp value type"
+    },
+    {
+      "action": "div-by-division",
+      "message": "conditional value used where a plain expression is required"
+    },
+    {
+      "action": "eq-list",
+      "message": "attribute \"request.resource.attr.tagNames\" maps to a collection and cannot be used as a scalar value"
+    },
+    {
+      "action": "hasint-map-element",
+      "message": "hasIntersection between two stored collections requires a set-valued join that SQL cannot express as a row filter; one side must be a literal list"
+    },
+    {
+      "action": "hier-empty-delim",
+      "message": "hierarchy() delimiter must be a non-empty string"
+    },
+    {
+      "action": "in-list-element",
+      "message": "membership with a list-valued element cannot be represented by scalar SQL equality"
+    },
+    {
+      "action": "map-eq-list",
+      "message": "'map' produces a collection rather than a plain value; it only translates inside size() or hasIntersection(), which give the collection a scalar meaning"
+    },
+    {
+      "action": "ne-list",
+      "message": "attribute \"request.resource.attr.tagNames\" maps to a collection and cannot be used as a scalar value"
+    },
+    {
+      "action": "pv-exists-one",
+      "message": "exists_one over a literal collection value is not supported; only exists() and all() can be folded into a flat filter"
+    },
+    {
+      "action": "pv-filter",
+      "message": "'filter' requires a collection attribute"
+    },
+    {
+      "action": "pv-map",
+      "message": "'map' requires a collection attribute"
+    },
+    {
+      "action": "temporal-raw-eq",
+      "message": "bare temporal attributes compare RFC 3339 strings in CEL; stored timestamps lose the original spelling; use timestamp() on both operands"
+    }
+  ]
+}

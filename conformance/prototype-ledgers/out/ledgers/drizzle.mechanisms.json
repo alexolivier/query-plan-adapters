@@ -1,0 +1,170 @@
+{
+  "adapter": "drizzle",
+  "mechanisms": [
+    {
+      "message": "'matches' is not supported because SQL regex dialects do not guarantee CEL/RE2 semantics",
+      "when": [
+        "op:matches"
+      ],
+      "reason": "SQL filters cannot preserve CEL semantics for this expression; the translator rejects it at this boundary: 'matches' is not supported because SQL regex dialects do not guarantee CEL/RE2 semantics",
+      "matchesToday": 13
+    },
+    {
+      "message": "Unsupported value-expression operator: struct",
+      "when": [
+        "exprarg:struct"
+      ],
+      "reason": "The drizzle adapter refuses this planner shape at its existing lowering boundary: Unsupported value-expression operator: struct.",
+      "matchesToday": 6
+    },
+    {
+      "message": "Collection operand must be a field reference",
+      "when": [
+        "nest:exists>list"
+      ],
+      "reason": "The drizzle adapter refuses this planner shape at its existing lowering boundary: Collection operand must be a field reference.",
+      "matchesToday": 2
+    },
+    {
+      "message": "Cannot translate string concatenation",
+      "when": [
+        "nest:eq>add",
+        "val:str"
+      ],
+      "reason": "CEL's + over strings has no dialect-independent SQL spelling: || concatenates on SQLite and PostgreSQL but is logical OR on MySQL, which spells it CONCAT(). The numeric + the adapter emits for arithmetic is silently wrong rather than a syntax error \u2014 SQLite and MySQL coerce 'prefix:' to 0, so the comparison matched nothing",
+      "matchesToday": 4
+    },
+    {
+      "message": "'size' operator requires a field reference or filter expression",
+      "when": [
+        "nest:size>except"
+      ],
+      "reason": "The drizzle adapter refuses this planner shape at its existing lowering boundary: 'size' operator requires a field reference or filter expression.",
+      "matchesToday": 2
+    },
+    {
+      "message": "Cannot translate string(): no SQL CAST target spells it on every store this adapter supports \u2014 TEXT and VARCHAR are syntax errors on MySQL, which spells it CHAR, and CHAR is character(1) on PostgreSQL, where the cast would silently match nothing. The adapter does not know its dialect by design, so it rejects the shape instead of emitting a filter that is correct on one store only",
+      "when": [
+        "depth>=3",
+        "nest:eq>string"
+      ],
+      "reason": "SQL filters cannot preserve CEL semantics for this expression; the translator rejects it at this boundary: Cannot translate string(): no SQL CAST target spells it on every store this adapter supports \u2014 TEXT and VARCHAR are syntax errors on MySQL, which spells it CHAR, and CHAR is character(1) on PostgreSQL, where the cast would silently match nothing. The adapter does not know its dialect by design, so it rejects the shape instead of emitting a filter that is correct on one store only",
+      "matchesToday": 2
+    },
+    {
+      "message": "Index access requires a constant non-negative 32-bit integer position",
+      "when": [
+        "attr:R.aNumber",
+        "attr:R.tagNames"
+      ],
+      "reason": "Declared indexed storage only accepts constant non-negative 32-bit integer positions; this position is invalid and must not be coerced into a valid array access.",
+      "matchesToday": 2
+    },
+    {
+      "message": "Segmented hierarchy expressions are not supported by the Drizzle adapter",
+      "when": [
+        "exprarg:hierarchy"
+      ],
+      "reason": "The drizzle adapter refuses this planner shape at its existing lowering boundary: Segmented hierarchy expressions are not supported by the Drizzle adapter.",
+      "matchesToday": 2
+    },
+    {
+      "message": "Comparison operator missing value operand",
+      "when": [
+        "exprarg:in"
+      ],
+      "reason": "The drizzle adapter refuses this planner shape at its existing lowering boundary: Comparison operator missing value operand.",
+      "matchesToday": 2
+    },
+    {
+      "message": "Cannot translate string concatenation: CEL's + over strings has no dialect-independent SQL spelling \u2014 || concatenates on SQLite and PostgreSQL but is logical OR on MySQL, which spells it CONCAT() \u2014 and the numeric + this adapter emits for arithmetic would coerce the operands to 0 rather than fail",
+      "when": [
+        "sig:add(var,val:str)"
+      ],
+      "reason": "The drizzle adapter refuses this planner shape at its existing lowering boundary: Cannot translate string concatenation: CEL's + over strings has no dialect-independent SQL spelling \u2014 || concatenates on SQLite and PostgreSQL but is logical OR on MySQL, which spells it CONCAT() \u2014 and the numeric + this adapter emits for arithmetic would coerce the operands to 0 rather than fail.",
+      "matchesToday": 2
+    }
+  ],
+  "pins": [
+    {
+      "action": "arith-mod",
+      "message": "Cannot translate int(): SQL CAST does not reproduce CEL conversion semantics"
+    },
+    {
+      "action": "cast-not-double",
+      "message": "Cannot translate double(): SQL CAST does not reproduce CEL conversion semantics \u2014 it reads a numeric prefix where CEL requires the whole string and raises otherwise, and PostgreSQL and MySQL round where CEL truncates toward zero. The adapter rejects the shape instead of returning rows the PDP denies"
+    },
+    {
+      "action": "cast-not-int",
+      "message": "Cannot translate int(): SQL CAST does not reproduce CEL conversion semantics \u2014 it reads a numeric prefix where CEL requires the whole string and raises otherwise, and PostgreSQL and MySQL round where CEL truncates toward zero. The adapter rejects the shape instead of returning rows the PDP denies"
+    },
+    {
+      "action": "cast-not-timestamp",
+      "message": "'timestamp' field 'request.resource.attr.createdBy' requires a mapping with valueType: \"timestamp\""
+    },
+    {
+      "action": "cast-string-double",
+      "message": "Cannot translate string(): no SQL CAST target spells it on every store this adapter supports"
+    },
+    {
+      "action": "div-by-division",
+      "message": "Nested division cannot be lowered safely: SQL may evaluate an inner zero divisor before the outer non-finite comparison guards"
+    },
+    {
+      "action": "eq-list",
+      "message": "Whole-list comparison is not supported: a relation mapping exposes element rows, not an ordered list value"
+    },
+    {
+      "action": "except-eq",
+      "message": "Unsupported value-expression operator: except"
+    },
+    {
+      "action": "except-root",
+      "message": "'except' lambda operand must be a lambda expression"
+    },
+    {
+      "action": "hasint-map-element",
+      "message": "'hasIntersection' requires a literal list as one of its operands"
+    },
+    {
+      "action": "hier-empty-delim",
+      "message": "Hierarchy delimiter must be a non-empty string: an empty delimiter splits the path per character, and the prefix LIKE this adapter emits would also match the path itself"
+    },
+    {
+      "action": "in-list-element",
+      "message": "List-element membership is not supported: a scalar relation mapping cannot compare a list value with one element"
+    },
+    {
+      "action": "map-eq-list",
+      "message": "Unsupported value-expression operator: map"
+    },
+    {
+      "action": "ne-list",
+      "message": "Whole-list comparison is not supported: a relation mapping exposes element rows, not an ordered list value"
+    },
+    {
+      "action": "pv-exists-one",
+      "message": "'exists_one' over a literal collection value is not supported. Only exists() and all() can be folded into a flat filter."
+    },
+    {
+      "action": "pv-filter",
+      "message": "Collection operand must be a field reference"
+    },
+    {
+      "action": "regex-eq-true",
+      "message": "Unsupported value-expression operator: matches"
+    },
+    {
+      "action": "temporal-raw-eq",
+      "message": "Bare temporal field comparison cannot preserve CEL string equality: SQL timestamp columns discard the original lexical spelling; compare timestamp(...) values instead"
+    },
+    {
+      "action": "ts-vf",
+      "message": "Timestamp value exceeds millisecond precision"
+    },
+    {
+      "action": "ts-window",
+      "message": "Timestamp value exceeds millisecond precision"
+    }
+  ]
+}
