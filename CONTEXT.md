@@ -9,14 +9,24 @@ that adapter's own `CONTEXT.md` (currently only `spring-data/CONTEXT.md`).
 ### Proving an adapter correct
 
 **Conformance corpus**:
-The shared set of deliberately hostile policy shapes, seed rows, and per-adapter classifications
-that every adapter is proved against. Lives in `conformance/`.
+The shared set of deliberately hostile policy shapes, seed rows, and action groups that every
+adapter is proved against. Lives in `conformance/`. How each adapter is classified against it is
+that adapter's conformance ledger, not part of the corpus.
 _Avoid_: adversarial corpus, test corpus, shared fixtures
 
 **Conformance harness**:
 An adapter's implementation of the conformance corpus against its own store, built from the
 adapter's source rather than its published package. One per adapter.
 _Avoid_: adversarial suite, differential test, integration test
+
+**Conformance ledger**:
+One adapter's classification against the corpus: the actions it refuses, each with a reason and the
+message it must throw, the reference-refused shapes it translates anyway, and its throw message for
+every shape it must reject. Lives in `<adapter>/conformance-ledger.json`, beside the adapter, and is
+checked against the corpus by `validate-corpus.sh`. See
+[ADR 0010](docs/adr/0010-each-adapter-owns-its-conformance-ledger.md).
+_Avoid_: classification ledger (the old name, from when it was one file under `conformance/`),
+adapterUnsupported list
 
 **Wire fixture**:
 One golden `PlanResources` response per corpus action, captured against the pinned PDP and stored
@@ -34,8 +44,9 @@ _Avoid_: unit test, filter test, shape test
 
 **Golden asset**:
 A static file a translator unit test reads rather than constructing in code. Shared golden assets
-live in `conformance/` — the wire fixtures, the seeds, the classification ledger; per-adapter
-golden expectations live with the adapter that owns them and never under `conformance/`. Adapters
+live in `conformance/` — the wire fixtures, the seeds, the action groups; per-adapter golden
+expectations and conformance ledgers live with the adapter that owns them and never under
+`conformance/`. Adapters
 share this data; the code that loads it is duplicated per adapter on purpose — see
 [ADR 0007](docs/adr/0007-adapters-share-data-not-code.md).
 _Avoid_: golden file, snapshot, test data

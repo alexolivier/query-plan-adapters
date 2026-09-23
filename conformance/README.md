@@ -44,32 +44,45 @@ Common tasks:
 | `policies/adversarial.yaml` | The hostile policy suite. One resource kind (`adversarial`), one role (`USER`), one action per shape, one rule per action except the `compose-*` family (see "Rule composition"). `adversarial-compose-roles.yaml` holds that family's derived role. |
 | `seeds.json` | Hostile seed rows (NULLs, empty strings and collections, negatives, LIKE metacharacters `% _ \`, unicode, near-duplicate names) and the fixed principal. Every key except `note` must be consumed by every harness. |
 | `derived-fields.json` | Six attributes derived per seed (`createdBy`, `aDouble`, `createdAt`, `updatedAt`, `scope`, `labels`). Harnesses read it; never recompute. |
-| `actions.json` | The classification ledger (below). |
+| `actions.json` | The shared classification: which group each action is in (below). How each adapter is classified against it is in that adapter's `conformance-ledger.json`. |
 | `wire-fixtures/`, `wire-fixtures-strict/` | One golden `PlanResources` response per action, captured from the pinned PDP in default and strict evaluation mode. Each set is captured independently, never copied. |
 | `CERBOS_VERSION`, `CERBOS_IMAGE_DIGEST` | The PDP tag and the digest it resolves to. Everything composes `ghcr.io/cerbos/cerbos:$CERBOS_VERSION@$CERBOS_IMAGE_DIGEST`; never hardcode either. |
 | `scripts/` | `validate-corpus.sh`, `regenerate-wire-fixtures.sh`, `check-evaluation-modes.sh`, `verify-cerbos-digest.sh`. |
 | `evaluation-modes/` | Engine probes (see "Evaluation modes and the 0.55 baseline"). |
 
-The per-adapter filters are **not** here — they live in each adapter's `golden/expectations.json`.
+Nothing per-adapter is here. Each adapter's pinned filters live in its `golden/expectations.json`,
+and its classification lives in its `conformance-ledger.json`
+([ADR 0010](../docs/adr/0010-each-adapter-owns-its-conformance-ledger.md)).
 
 `actions.json` groups every action:
 
-- `adapters` — the roster every per-adapter key is checked against.
-- `conformance` — must match the `check()` oracle exactly.
-- `adapterUnsupported` — per adapter, conformance actions its query language genuinely cannot express.
-  The adapter must throw; the harness asserts the throw.
+- `adapters` — the roster. Every adapter in it must have a `<adapter>/conformance-ledger.json`, and
+  every ledger must belong to an adapter in it.
+- `conformance` — must match the `check()` oracle exactly, unless the adapter's ledger refuses it.
 - `expectedUnsupported` — shapes the Spring reference adapter rejects. Every adapter must fail loudly
-  unless listed in `adapterSupportedExpected`.
-- `adapterSupportedExpected` — per-adapter exceptions that translate a reference-unsupported shape
-  through a documented database capability.
+  unless its ledger promotes the shape.
 - `nullRepresentationOmitted` — `== null` probes every adapter must reject (see "NULL conventions").
 - `degenerateOracles` — actions whose oracle is empty or total by construction (see "The degeneracy
   guard").
 - `knownDivergences` — upstream planner bugs, excluded from the oracle run. Currently only `p-has`.
 
-`validate-corpus.sh` keeps these schemas closed: unknown keys, missing fields, `null` for an optional
-`relatedIssue`, or an off-roster adapter all fail. When you move an action between groups, use the
-destination group's fields.
+`<adapter>/conformance-ledger.json` classifies that adapter against those groups:
+
+- `adapterUnsupported` — `conformance` actions its query language genuinely cannot express, each with
+  a `reason` and a pinned `message`. The adapter must throw; the harness asserts the throw.
+- `adapterSupportedExpected` — `expectedUnsupported` shapes this adapter translates through a
+  documented database capability, so they are oracle-compared instead.
+- `expectedUnsupportedMessages`, `nullRepresentationOmittedMessages` — the message this adapter
+  raises for each shape it must reject (see "Pinned throw messages").
+
+The ledger sits in the adapter's directory, not here, so a reclassification runs that adapter's
+workflow alone: every workflow triggers on `conformance/**`. `validate-corpus.sh` runs in every
+workflow and checks every ledger against this file, so a ledger cannot drift from the corpus either.
+
+`validate-corpus.sh` keeps all these schemas closed: unknown keys, missing fields, `null` for an
+optional `relatedIssue`, a ledger naming an action outside its group, or a ledger for an off-roster
+adapter all fail. When you move an action between groups, use the destination group's fields and
+update every ledger.
 
 ## The oracle recipe
 
@@ -80,7 +93,7 @@ Each harness implements this against its own ORM:
 3. **Oracle**: `check()` each seed row against the same PDP and action, with attributes mirroring
    the row exactly.
 4. **Compare**: the two id sets must be equal. `expectedUnsupported` actions must throw (unless the
-   adapter is in `adapterSupportedExpected`), and every throw must carry the pinned message (see
+   adapter's ledger lists them in `adapterSupportedExpected`), and every throw must carry the pinned message (see
    "Pinned throw messages").
 
 The sections below describe the hazards the corpus probes and what each adapter learned from them.
@@ -493,11 +506,12 @@ adapter; never copy another harness's** (#324).
 A bare "it threw" is satisfied by a mapper typo or transport error (#326). So every throwing
 classification pins a substring the adapter's error must contain:
 
-- `adapterUnsupported[<adapter>][].message`
-- `expectedUnsupported[].messages[<adapter>]` — keys exactly the roster minus `adapterSupportedExpected`
-- `nullRepresentationOmitted[].messages[<adapter>]` — keys exactly the roster
+- `adapterUnsupported[].message`
+- `expectedUnsupportedMessages` — keys exactly `expectedUnsupported` minus the ledger's
+  `adapterSupportedExpected`
+- `nullRepresentationOmittedMessages` — keys exactly `nullRepresentationOmitted`
 
-`validate-corpus.sh` checks the key sets, and every harness fails the run if a message is missing. The
+All three are in `<adapter>/conformance-ledger.json`. `validate-corpus.sh` checks the key sets, and every harness fails the run if a message is missing. The
 assertion is `contains`, since some messages carry runtime values. One message may cover many actions
 (Chroma answers most refusals with "Nested expressions are not supported by ChromaDB filters").
 
@@ -560,12 +574,14 @@ translated").
 1. Add the action to `policies/adversarial.yaml`, with a comment saying what it probes and which
    seeds discriminate it.
 2. Add it to `actions.json` — `conformance`, `expectedUnsupported`, or `nullRepresentationOmitted`.
+   An `expectedUnsupported` or `nullRepresentationOmitted` action also needs a message in every
+   adapter's ledger (after step 5, not before).
 3. If it needs new seed data, add a seed with a `note` and its `derived-fields.json` entry in the same
    commit. A new seed *field* or principal attribute must also be added to every harness's declared
    key set.
 4. Run `scripts/regenerate-wire-fixtures.sh` and confirm the diff adds only the new action.
 5. Run every adapter's harness and triage each divergence into a fix, an `adapterUnsupported` entry
-   or a `knownDivergences` entry — never a special case in a harness. Pin the message the adapter
+   in that adapter's ledger, or a `knownDivergences` entry — never a special case in a harness. Pin the message the adapter
    actually raises.
 6. Bump the tripwires: every harness pins corpus size and throwing count; convex, langchain-chromadb
    and elasticsearch-java also pin oracle counts, and convex pins which actions its filter engine
@@ -628,8 +644,8 @@ part of the value; a Node version changes nothing.
 
 ### Rules for the file
 
-- **A throwing action carries no entry** — its message is already in `actions.json`, and the unit
-  test asserts it from there.
+- **A throwing action carries no entry** — its message is already in the adapter's
+  `conformance-ledger.json`, and the unit test asserts it from there.
 - **Completeness:** golden keys ∪ throwing actions == `wire-fixtures/*.json`, with no overlap. Add
   per-group count tripwires beside it.
 - **CI never regenerates.** A translator change fails CI until someone regenerates, and the diff is
@@ -643,12 +659,13 @@ is how a translatable shape gets permanently skipped.
 
 1. **Implement translation.** Spring Data is the reference; its behaviour decides ambiguous shapes
    and `conformance` versus `expectedUnsupported`.
-2. **Write the differential harness** from the oracle recipe. Derive the classification from
-   `actions.json` at runtime (the adapter's key is its directory name):
+2. **Write the differential harness** from the oracle recipe. Derive the classification at runtime
+   from `actions.json` and the adapter's own `conformance-ledger.json` (`ledger` below). Assert the
+   ledger's `adapter` is the adapter's directory name:
 
    ```
-   oracleActions   = conformance - adapterUnsupported[me] + adapterSupportedExpected[me]
-   throwingActions = adapterUnsupported[me] + (expectedUnsupported - adapterSupportedExpected[me])
+   oracleActions   = conformance - ledger.adapterUnsupported + ledger.adapterSupportedExpected
+   throwingActions = ledger.adapterUnsupported + (expectedUnsupported - ledger.adapterSupportedExpected)
    nullOmitted     = nullRepresentationOmitted            (translated with the option flipped)
    skipped         = knownDivergences where adapters contains me
    ```
@@ -664,8 +681,10 @@ is how a translatable shape gets permanently skipped.
    inexpressible shape (`adapterUnsupported` with a reason naming the mechanism — "emits LIKE without
    an ESCAPE clause", not "cannot express faithfully" — and a throw), or an upstream planner bug
    (`knownDivergences`). Never degrade one operator into a weaker one to pass.
-6. **Register in `actions.json`**: add the adapter to `adapters` and give every `expectedUnsupported`
-   entry it does not promote a `messages` key.
+6. **Register the adapter**: add it to `adapters` in `actions.json` and create
+   `<adapter>/conformance-ledger.json` with all six keys (copy an existing one's shape). Give every
+   `expectedUnsupported` action it does not promote an `expectedUnsupportedMessages` entry, and every
+   `nullRepresentationOmitted` action a `nullRepresentationOmittedMessages` entry.
 7. **Write the example application** against the packed artifact
    ([ADR 0002](../docs/adr/0002-examples-install-the-packed-artifact.md)); `validate-demo.sh` fails for
    a rostered adapter without `<adapter>/example/run.sh`. There is no opt-out

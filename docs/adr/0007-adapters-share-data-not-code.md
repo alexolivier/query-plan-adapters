@@ -3,6 +3,11 @@
 Accepted. Recorded in
 [#397](https://github.com/cerbos/query-plan-adapters/issues/397).
 
+Amended by [ADR 0010](0010-each-adapter-owns-its-conformance-ledger.md): the per-adapter half of the
+classification ledger has moved out of `conformance/` into each adapter's `conformance-ledger.json`,
+on this ADR's own argument for expectations ("Per-adapter expectations must not live under
+`conformance/`").
+
 ## Context
 
 `conformance/` is shared by every adapter: one hostile policy suite, one set of seed rows, one

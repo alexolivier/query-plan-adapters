@@ -184,8 +184,8 @@ Both Java adapters have a **translator unit test** that reads its plans from
 `SpringDataTranslatorTest` needs no database — its persistence unit carries no JDBC connection at
 all, and Hibernate is told the dialect rather than discovering it. On elasticsearch-java,
 `ElasticsearchTranslatorTest` needs no Elasticsearch, and reads as mostly-throws: more than half of
-the corpus's shapes are fail-closed there, each asserted against the message
-`conformance/actions.json` pins (the README's `Conformance contract` table carries the count).
+the corpus's shapes are fail-closed there, each asserted against the message its
+`conformance-ledger.json` pins (the README's `Conformance contract` table carries the count).
 
 Two suites on elasticsearch-java need Docker, and they need different things:
 `ElasticsearchAdversarialConformanceTest` starts a pinned PDP and Elasticsearch;
@@ -221,15 +221,19 @@ Some adapters need additional services:
 ## Conformance
 
 `conformance/` is the shared adversarial corpus every adapter is proved against: one hostile policy
-suite, one set of hostile seed rows, one derived-field table, one classification ledger, and golden
+suite, one set of hostile seed rows, one derived-field table, one shared action classification, and golden
 planner wire fixtures.
 It exists because the same semantic bug — value-first operand inversion, LIKE metacharacter leaks,
 three-valued logic under negation — has historically shipped identically to more than one adapter.
 
 **The invariant: a shape an adapter cannot express must throw, never emit a filter.** A wrong
 filter is an authorization bug that returns rows the PDP denies; a throw is a bug report. Every
-per-adapter limitation is declared in `conformance/actions.json` and asserted as a throw by that
-adapter's harness.
+per-adapter limitation is declared in that adapter's own `<adapter>/conformance-ledger.json` and
+asserted as a throw by its harness. `conformance/actions.json` holds only what every adapter shares —
+the roster and which group each action is in — and `validate-corpus.sh`, which every workflow runs,
+checks every ledger against it
+([ADR 0010](docs/adr/0010-each-adapter-owns-its-conformance-ledger.md)). The ledger lives in the
+adapter's directory so that reclassifying one adapter runs that adapter's CI alone.
 
 Each harness plans against a real PDP, executes the translated query against its real store, and
 compares the returned ids with per-row `check()` decisions — the PDP is the oracle for both sides,
@@ -364,7 +368,8 @@ So when you add, fix, or change the handling of any shape:
 1. **Add the shape to `conformance/policies/adversarial.yaml`** as a new action, with seed data
    that discriminates it (see `conformance/README.md`, "Adding a new hostile shape"). If it needs a
    principal attribute or column that does not exist yet, add it to `conformance/seeds.json`.
-2. **Classify it in `conformance/actions.json` for every adapter** — but only *after* running
+2. **Add it to a group in `conformance/actions.json`, and classify it in every adapter's
+   `conformance-ledger.json`** — but only *after* running
    the harnesses. The classification is an output of the run, not an input: declaring an action
    unsupported before watching it fail is how a translatable shape gets permanently skipped.
 3. **Regenerate the wire fixtures** (`conformance/scripts/regenerate-wire-fixtures.sh`) and confirm
@@ -374,8 +379,8 @@ So when you add, fix, or change the handling of any shape:
    translation bug (fix it), a shape that adapter's query language genuinely cannot express (add
    to `adapterUnsupported` with a reason naming the real mechanism, and make it throw), or an
    upstream planner bug (`knownDivergences`). A fail-closed classification also needs the message
-   that adapter actually raises pinned next to it — `message` on an `adapterUnsupported` entry,
-   `messages.<adapter>` on an `expectedUnsupported` one. Every harness refuses to run with one
+   that adapter actually raises pinned in its ledger — `message` on an `adapterUnsupported` entry,
+   `expectedUnsupportedMessages.<action>` for an `expectedUnsupported` one. Every harness refuses to run with one
    missing, and `validate-corpus.sh` checks the key sets. Pin what the adapter says, then check it
    names the mechanism the `reason` declares; when the two disagree, the reason is usually naming a
    limitation the walk never reaches.
@@ -404,7 +409,7 @@ nothing about whether that filter was ever right.
 What a unit test *pins*, though, is broader than the filter. A translator unit test pins whatever
 the adapter can be asked **without a store**, and that is a real
 list: the emitted filter, the plan kind the planner folds to, the refusal message
-`conformance/actions.json` pins *and where in the walk it is raised*, the distribution of those
+the adapter's `conformance-ledger.json` pins *and where in the walk it is raised*, the distribution of those
 refusal sites, which half of a split output answers a query, the caller-supplied contracts
 (mapper forms, operator overrides, `allowPostFilter`), and the golden asset's own invariants — the
 generator it declares, the command that rewrites it, that no library type ever reached it. Some of
@@ -422,8 +427,8 @@ Three kinds of material legitimately live only in a unit test, and they are not 
    proof: `dyn()` defers the check to runtime and the planner drops the wrapper, which is how
    `size(x) != dyn(1.5)` reaches a fractional `size()` equality long recorded as unreachable
    (`size-frac-ne-not`). Try the `dyn()` spelling before calling a shape kind 1. Permanent.
-2. **A caller-supplied argument the corpus structurally cannot vary.** `actions.json` classifies
-   each action against *one* mapping per adapter, so an `OperatorFunction` override, a second mapper
+2. **A caller-supplied argument the corpus structurally cannot vary.** An adapter's ledger classifies
+   each action against *one* mapping, so an `OperatorFunction` override, a second mapper
    form, `allowPostFilter`, a per-call `nullAttributeRepresentation`, or `maxMacroDepth` has no
    corpus spelling — the corpus asks what a policy produces, not what a caller passes. Permanent.
 3. **A corpus gap wearing a unit test** — policy-reachable, and the corpus simply does not carry it
@@ -460,11 +465,11 @@ never recompute them in a harness.
 - `demo/` likewise re-runs every adapter's example job, and adding a usage shape means implementing it in every example — there is no classification bucket to opt out with
 - Adding a seed row means adding its `conformance/derived-fields.json` entry in the same commit; adding a seed *field* also means widening every harness's declared key set — both are enforced, not optional
 - Adapters share data, not code: the corpus loader each adapter carries (`prisma/src/corpus.ts`, `mongoose/src/corpus.ts`, `drizzle/src/corpus.ts`, `convex/src/corpus.ts`, `langchain-chromadb/src/corpus.ts`, `sqlalchemy/tests/corpus.py`, `activerecord/spec/support/conformance_corpus.rb`, `spring-data/src/test/java/dev/cerbos/queryplan/springdata/Corpus.java`, `elasticsearch-java/src/test/java/dev/cerbos/queryplan/elasticsearch/Corpus.java`, `ent/corpus_test.go`, `pgx/corpus_test.go`, …) is duplicated **deliberately**, so every adapter stays standalone. Do not extract a shared loader, and do not add a drift check between the copies — they are allowed to differ. That is the opposite of the byte-identical rule on the vendored Go *translator* trees, which keeps its exact current scope. See [ADR 0007](docs/adr/0007-adapters-share-data-not-code.md)
-- A per-adapter **golden expectation** — the filter one adapter is pinned to emit for one corpus action — lives in that adapter's own `golden/expectations.json`, never under `conformance/`; a throwing action carries no entry, because its message is already pinned in `conformance/actions.json`. Schema and rationale: `conformance/README.md`, "Golden expectations"
+- A per-adapter **golden expectation** — the filter one adapter is pinned to emit for one corpus action — lives in that adapter's own `golden/expectations.json`, never under `conformance/`; a throwing action carries no entry, because its message is already pinned in that adapter's `conformance-ledger.json`. Schema and rationale: `conformance/README.md`, "Golden expectations"
 - Write "every adapter" / "every harness" / "every example" wherever prose spans the roster — in docs, test-file comments and JSON `description`s alike. `conformance/actions.json` declares `adapters`, so the phrasing stays true when the roster changes and nothing else has to count them. Genuine counts of something else (corpus actions, seed rows) go in digits
 - Regenerate build artifacts in the same commit as source changes
-- Changing what an adapter can translate means updating its `conformance/actions.json` entry and its README contract table in the same commit
-- When an adapter cannot express a shape, make it throw with a message naming the real mechanism — never emit a best-effort filter. That message is pinned in `conformance/actions.json` and asserted, so changing it is a deliberate corpus edit
+- Changing what an adapter can translate means updating its `conformance-ledger.json` and its README contract table in the same commit
+- When an adapter cannot express a shape, make it throw with a message naming the real mechanism — never emit a best-effort filter. That message is pinned in the adapter's `conformance-ledger.json` and asserted, so changing it is a deliberate ledger edit
 
 ## Agent skills
 

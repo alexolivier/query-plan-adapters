@@ -19,22 +19,15 @@ if ! jq -e '
     type == "object"
     and (($required - keys) | length == 0)
     and ((keys - ($required + $optional)) | length == 0)
-    and all(to_entries[] | select(.key != "messages" and .key != "adapters"); .value | text);
+    and all(to_entries[] | select(.key != "adapters"); .value | text);
   def entries($required; $optional):
     type == "array" and all(.[]; entry($required; $optional));
-  def per_adapter($required):
-    type == "object" and all(.[]; entries($required; []));
   def check($bucket; $valid):
     if $valid then true else error("invalid " + $bucket + " entry schema") end;
   check("conformance"; .conformance | type == "array" and all(.[]; text))
-  and check("adapterUnsupported"; .adapterUnsupported | per_adapter(["action", "reason", "message"]))
-  and check("adapterSupportedExpected"; .adapterSupportedExpected | per_adapter(["action", "reason"]))
-  and check("expectedUnsupported";
-    (.expectedUnsupported | entries(["action", "shape", "messages"]; ["reason"]))
-    and all(.expectedUnsupported[]; .messages | type == "object" and all(.[]; text)))
+  and check("expectedUnsupported"; .expectedUnsupported | entries(["action", "shape"]; ["reason"]))
   and check("nullRepresentationOmitted";
-    (.nullRepresentationOmitted | entries(["action", "reason", "messages"]; ["relatedIssue"]))
-    and all(.nullRepresentationOmitted[]; .messages | type == "object" and all(.[]; text)))
+    .nullRepresentationOmitted | entries(["action", "reason"]; ["relatedIssue"]))
   and check("knownDivergences";
     (.knownDivergences | entries(["action", "reason", "adapters"]; ["relatedIssue"]))
     and all(.knownDivergences[]; .adapters | type == "array" and all(.[]; text)))
@@ -123,114 +116,79 @@ if ! jq -e '
   exit 1
 fi
 
-if ! jq -e '
-  .adapters as $adapters
-  | ((.adapterUnsupported // {}) | keys) + ((.adapterSupportedExpected // {}) | keys)
-  | all(. as $adapter | $adapters | index($adapter) != null)
-' actions.json >/dev/null; then
-  echo "adapterUnsupported / adapterSupportedExpected name an adapter missing from the roster"
-  exit 1
-fi
+# Each adapter's classification lives in its own <adapter>/conformance-ledger.json (ADR 0010), so
+# a reclassification runs that adapter's workflow alone. Every workflow runs this script, which is
+# what keeps the ledgers consistent with the corpus they classify against.
+REPO_ROOT="$(cd "${CONFORMANCE_DIR}/.." && pwd)"
+LEDGER_NAME="conformance-ledger.json"
 
-# Each refusal pins the message its adapter must raise, so a harness proves the declared mechanism
-# threw rather than an unrelated error (cerbos/query-plan-adapters#326).
-if ! jq -e '
-  all((.adapterUnsupported // {})[][];
-    (.message | type) == "string" and (.message | length) > 0
-    and (.reason | type) == "string" and (.reason | length) > 0)
-' actions.json >/dev/null; then
-  echo "Every adapterUnsupported entry must carry a non-empty reason and message"
-  exit 1
-fi
-
-# expectedUnsupported `messages` must name exactly the adapters that reject the shape: every
-# adapter that has not promoted it.
-messages_drift="$(jq -r '
-  .adapters as $adapters
-  | (.adapterSupportedExpected // {}) as $promoted
-  | .expectedUnsupported[]
-  | . as $entry
-  | ($adapters | map(select(. as $a | ($promoted[$a] // []) | any(.action == $entry.action) | not))) as $expected
-  | (($entry.messages // {}) | keys) as $got
-  | (($expected - $got) | map("missing " + .)) + (($got - $expected) | map("unexpected " + .)) as $drift
-  | select(($drift | length) > 0)
-  | "  \($entry.action): \($drift | join(", "))"
-' actions.json)"
-if [[ -n "${messages_drift}" ]]; then
-  echo "expectedUnsupported messages must name exactly the adapters that reject the shape:"
-  echo "${messages_drift}"
-  exit 1
-fi
-
-if ! jq -e '
-  all(.expectedUnsupported[]; all(.messages[]; type == "string" and length > 0))
-' actions.json >/dev/null; then
-  echo "Every expectedUnsupported message must be a non-empty string"
-  exit 1
-fi
-
-# A nullRepresentationOmitted action is rejected by every adapter, so it pins a message for each.
-null_messages_drift="$(jq -r '
-  .adapters as $adapters
-  | .nullRepresentationOmitted[]
-  | . as $entry
-  | (($entry.messages // {}) | keys) as $got
-  | ((($adapters - $got) | map("missing " + .)) + (($got - $adapters) | map("unexpected " + .))) as $drift
-  | select(($drift | length) > 0)
-  | "  \($entry.action): \($drift | join(", "))"
-' actions.json)"
-if [[ -n "${null_messages_drift}" ]]; then
-  echo "nullRepresentationOmitted messages must name every adapter in the roster:"
-  echo "${null_messages_drift}"
-  exit 1
-fi
-
-if ! jq -e '
-  all(.nullRepresentationOmitted[]; all(.messages[]; type == "string" and length > 0))
-' actions.json >/dev/null; then
-  echo "Every nullRepresentationOmitted message must be a non-empty string"
-  exit 1
-fi
-
-jq -r '.conformance[]' actions.json | sort -u >"${VALIDATION_TMP}/conformance-actions"
-jq -r '.expectedUnsupported[].action' actions.json | sort -u >"${VALIDATION_TMP}/expected-unsupported-actions"
-jq -r '.adapterUnsupported | to_entries[] | .key as $adapter | .value[] | [$adapter, .action] | @tsv' \
-  actions.json | sort >"${VALIDATION_TMP}/adapter-unsupported"
-
-if duplicates="$(uniq -d "${VALIDATION_TMP}/adapter-unsupported")" && [[ -n "${duplicates}" ]]; then
-  echo "Duplicate adapterUnsupported entries:"
-  echo "${duplicates}"
-  exit 1
-fi
-
-while IFS=$'\t' read -r adapter action; do
-  if ! grep -Fqx "${action}" "${VALIDATION_TMP}/conformance-actions"; then
-    echo "adapterUnsupported.${adapter} references non-conformance action: ${action}"
+# A ledger outside the roster would be read by nothing and drift unnoticed.
+while IFS= read -r ledger; do
+  adapter="$(basename "$(dirname "${ledger}")")"
+  if ! jq -e --arg a "${adapter}" '.adapters | index($a) != null' actions.json >/dev/null; then
+    echo "${adapter}/${LEDGER_NAME} belongs to no adapter in the actions.json roster"
     exit 1
   fi
-done <"${VALIDATION_TMP}/adapter-unsupported"
+done < <(find "${REPO_ROOT}" -mindepth 2 -maxdepth 2 -name "${LEDGER_NAME}" -not -path '*/node_modules/*')
 
-jq -r '
-  (.adapterSupportedExpected // {})
-  | to_entries[]
-  | .key as $adapter
-  | .value[]
-  | [$adapter, .action]
-  | @tsv
-' actions.json | sort >"${VALIDATION_TMP}/adapter-supported-expected"
-
-if duplicates="$(uniq -d "${VALIDATION_TMP}/adapter-supported-expected")" && [[ -n "${duplicates}" ]]; then
-  echo "Duplicate adapterSupportedExpected entries:"
-  echo "${duplicates}"
-  exit 1
-fi
-
-while IFS=$'\t' read -r adapter action; do
-  if ! grep -Fqx "${action}" "${VALIDATION_TMP}/expected-unsupported-actions"; then
-    echo "adapterSupportedExpected.${adapter} references non-expectedUnsupported action: ${action}"
+while IFS= read -r adapter; do
+  ledger="${REPO_ROOT}/${adapter}/${LEDGER_NAME}"
+  if [[ ! -f "${ledger}" ]]; then
+    echo "${adapter} is in the actions.json roster but has no ${adapter}/${LEDGER_NAME}"
     exit 1
   fi
-done <"${VALIDATION_TMP}/adapter-supported-expected"
+
+  # Closed schema, so a misspelled key cannot be silently ignored. Each refusal pins the message its
+  # adapter must raise, so a harness proves the declared mechanism threw rather than an unrelated
+  # error (cerbos/query-plan-adapters#326).
+  if ! jq -e --arg adapter "${adapter}" '
+    def text: type == "string" and length > 0;
+    def closed($required; $optional):
+      type == "object"
+      and (($required - keys) | length == 0)
+      and ((keys - ($required + $optional)) | length == 0)
+      and all(.[]; text);
+    def messages: type == "object" and all(.[]; text);
+    type == "object"
+    and (keys == (["description", "adapter", "adapterUnsupported", "adapterSupportedExpected",
+                   "expectedUnsupportedMessages", "nullRepresentationOmittedMessages"] | sort))
+    and .adapter == $adapter
+    and (.description | text)
+    and (.adapterUnsupported | type == "array" and all(.[]; closed(["action", "reason", "message"]; [])))
+    and (.adapterSupportedExpected | type == "array" and all(.[]; closed(["action", "reason"]; [])))
+    and (.expectedUnsupportedMessages | messages)
+    and (.nullRepresentationOmittedMessages | messages)
+  ' "${ledger}" >/dev/null 2>&1; then
+    echo "${adapter}/${LEDGER_NAME} must declare exactly description, adapter (\"${adapter}\")," \
+      "adapterUnsupported [{action, reason, message}], adapterSupportedExpected [{action, reason}]," \
+      "expectedUnsupportedMessages and nullRepresentationOmittedMessages, with non-empty strings"
+    exit 1
+  fi
+
+  ledger_drift="$(jq -r -n --slurpfile corpus actions.json --slurpfile ledger "${ledger}" '
+    $corpus[0] as $c | $ledger[0] as $l
+    | ([$l.adapterUnsupported[].action]) as $unsupported
+    | ([$l.adapterSupportedExpected[].action]) as $promoted
+    | ([$c.expectedUnsupported[].action]) as $expected
+    | ([$c.nullRepresentationOmitted[].action]) as $omitted
+    | ($expected - $promoted) as $rejected
+    | ($l.expectedUnsupportedMessages | keys) as $eum
+    | ($l.nullRepresentationOmittedMessages | keys) as $nrm
+    | ($unsupported | group_by(.) | map(select(length > 1) | "adapterUnsupported lists \(.[0]) more than once")[]),
+      ($promoted | group_by(.) | map(select(length > 1) | "adapterSupportedExpected lists \(.[0]) more than once")[]),
+      (($unsupported - $c.conformance)[] | "adapterUnsupported names non-conformance action \(.)"),
+      (($promoted - $expected)[] | "adapterSupportedExpected names non-expectedUnsupported action \(.)"),
+      (($rejected - $eum)[] | "expectedUnsupportedMessages is missing \(.)"),
+      (($eum - $rejected)[] | "expectedUnsupportedMessages has unexpected \(.) (not expectedUnsupported, or promoted)"),
+      (($omitted - $nrm)[] | "nullRepresentationOmittedMessages is missing \(.)"),
+      (($nrm - $omitted)[] | "nullRepresentationOmittedMessages has unexpected \(.)")
+  ')"
+  if [[ -n "${ledger_drift}" ]]; then
+    echo "${adapter}/${LEDGER_NAME} disagrees with actions.json:"
+    sed 's/^/  /' <<<"${ledger_drift}"
+    exit 1
+  fi
+done < <(jq -r '.adapters[]' actions.json)
 
 for fixture_dir in wire-fixtures wire-fixtures-strict; do
   find "${fixture_dir}" -type f -name '*.json' -exec basename {} .json \; |
@@ -283,7 +241,6 @@ done
 # digest reads as pinned and is not (cerbos/query-plan-adapters#322).
 pinned_version="$(tr -d '[:space:]' <CERBOS_VERSION)"
 pinned_digest="$(tr -d '[:space:]' <CERBOS_IMAGE_DIGEST)"
-REPO_ROOT="$(cd "${CONFORMANCE_DIR}/.." && pwd)"
 
 if [[ ! "${pinned_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
   echo "conformance/CERBOS_IMAGE_DIGEST must hold a sha256:<64 hex> digest, got '${pinned_digest}'"
