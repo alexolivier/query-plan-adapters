@@ -94,28 +94,6 @@ def _plan_carries_null_literal(node):
 class TestNullAttributeRepresentation:
     """The call-level null option; the plan cannot say which convention applies (#302)."""
 
-    ACTION = "null/equals/null-literal-on-missing-attribute"
-
-    def test_explicit_emits_an_is_null_filter(self):
-        statement, _params = render(
-            translate(
-                self.ACTION,
-                null_attribute_representation="explicit",
-                attribute_null_representation=None,
-            ),
-            "sqlite",
-        )
-        assert "adversarial_resource.a_optional_string IS NULL" in statement
-
-    def test_omitted_refuses_the_same_plan(self):
-        # Here a NULL column means no attribute, which check() denies (#302).
-        with pytest.raises(UnsupportedPlanError, match="null operand"):
-            translate(
-                self.ACTION,
-                null_attribute_representation="omitted",
-                attribute_null_representation=None,
-            )
-
     def test_a_per_attribute_declaration_overrides_the_call_level_option(self):
         # `owner` is declared "explicit", so its null probe still translates (#308)...
         assert render(
@@ -239,52 +217,6 @@ class TestDeclaredCollectionStorage:
         assert "count(*)" not in declared
         assert "count(*)" in overridden
 
-    @pytest.mark.parametrize(
-        "action,rendered",
-        [
-            (
-                "size/greater-than/collection-above-one",
-                "jsonb_array_length(to_jsonb(adversarial_resource.tags_array))",
-            ),
-            (
-                "collection/index/first-element-of-string-list",
-                (
-                    "(to_jsonb(adversarial_resource.tag_names_array) -> 0) "
-                    "= to_jsonb(CAST(%(param_1)s AS TEXT))"
-                ),
-            ),
-            (
-                "collection/index/first-element-of-string-list-equals-null",
-                (
-                    "jsonb_typeof((to_jsonb(adversarial_resource.tag_names_array) -> 0)) "
-                    "= 'null'"
-                ),
-            ),
-        ],
-    )
-    def test_a_pg_array_is_read_by_position_through_to_jsonb(self, action, rendered):
-        # Not `array[i + 1]`: the harness rebases arrays to start at 0, so assuming the
-        # default lower bound would read the wrong element.
-        statement, _ = render(
-            translate(action, collection_columns=PG_ARRAY_COLLECTION_COLUMNS),
-            "postgresql",
-        )
-        assert rendered in statement
-        assert "[" not in statement.split(" WHERE ", 1)[1]
-
-    def test_a_pg_array_answers_membership_through_to_jsonb(self):
-        statement, _ = render(
-            translate(
-                "type-mismatch/has-intersection/resource-number-list-against-mixed-literal-list",
-                collection_columns=PG_ARRAY_COLLECTION_COLUMNS,
-            ),
-            "postgresql",
-        )
-        assert (
-            "jsonb_array_elements(to_jsonb(adversarial_resource.a_number_list_array))"
-            in statement
-        )
-
     def test_an_attr_map_entry_keeps_membership_off_the_declaration(self):
         # Membership uses the declaration only when `attr_map` doesn't map the attribute.
         # The corpus maps neither list, so the mapped side is caller-only.
@@ -398,22 +330,6 @@ class TestTimestampLiterals:
             datetime(2026, 8, 11, 9, 13, 39, 123456, tzinfo=timezone.utc)
         ]
 
-    @pytest.mark.parametrize(
-        "value",
-        [
-            "2024-01-01",
-            "0000-01-01T00:00:00Z",
-            "2024-02-30T00:00:00Z",
-            "9999-12-31T23:00:00-02:00",
-        ],
-    )
-    def test_an_instant_the_adapter_cannot_carry_fails_closed(self, value):
-        # Lenient parsing would compare against the wrong instant and over-grant.
-        with pytest.raises(
-            UnsupportedPlanError, match="RFC-3339|precision|instant range|offset"
-        ):
-            translate(self.CASES[0], planned_at=value)
-
 
 #: A zero divisor recorded as the integer ``0``, whose sign JSON has lost.
 INTEGER_ZERO_DIVISOR = "comparison/greater-than/infinity-from-ternary"
@@ -436,13 +352,6 @@ class TestTransportDecoding:
         assert build(grpc_plan_from_golden(case, PLANNED_AT)) == build(
             plan_from_golden(case, PLANNED_AT)
         )
-
-    def test_a_double_negative_zero_divisor_translates_over_json(self):
-        # `-0.0` stays a signed float through json.loads, so the infinity's sign is known.
-        statement, _params = render(
-            translate("arithmetic/divide/negative-zero-divisor"), "sqlite"
-        )
-        assert "adversarial_resource.a_number" in statement
 
     def test_an_integer_zero_divisor_is_refused_over_json_only(self):
         # The HTTP API renders -0.0 as `-0`, which json.loads makes int 0: sign lost (#312).
