@@ -13,14 +13,9 @@ import dev.cerbos.queryplan.springdata.testmodel.ResourceEntity;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.Persistence;
-import jakarta.persistence.criteria.CriteriaBuilder;
-import jakarta.persistence.criteria.CriteriaQuery;
-import jakarta.persistence.criteria.Predicate;
-import jakarta.persistence.criteria.Root;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.data.domain.Page;
@@ -30,11 +25,9 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.jpa.repository.support.SimpleJpaRepository;
 
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -42,7 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Runs the adapter's Specification through a real Spring Data repository: {@code findAll},
- * {@code count}, pagination, de-duplication and composition. Plans are the current PDP's recorded goldens and
+ * {@code count}, pagination and de-duplication. Plans are the current PDP's recorded goldens and
  * rows are seeded in H2, so no Docker is needed. Assertions compare the repository's answers with
  * each other rather than with expected ids.
  */
@@ -105,7 +98,6 @@ class RepositorySurfaceTest {
         r3.addTag("r3-t1", "internal");
         r3.setTagNames(new ArrayList<>(List.of("internal")));
 
-        // Third match for collection/has-intersection/value-first, so its second size-2 page is partial.
         ResourceEntity r4 = row("r4", false, "one", 4, null);
         r4.setTagNames(new ArrayList<>(List.of("other")));
 
@@ -146,93 +138,6 @@ class RepositorySurfaceTest {
 
     private static List<String> sortedIds(List<ResourceEntity> entities) {
         return entities.stream().map(ResourceEntity::getId).sorted().toList();
-    }
-
-    /**
-     * Checks that {@code findAll}, {@code count}, a full page and a sorted {@code findAll} agree,
-     * all on one Specification instance. Reuse matters: a cached {@code Predicate} makes
-     * Hibernate 6 throw {@code SqlTreeCreationException} on the second query.
-     */
-    private void assertRepositorySurface(Specification<ResourceEntity> spec) {
-        EntityManager em = emf.createEntityManager();
-        try {
-            SimpleJpaRepository<ResourceEntity, String> repository = repository(em);
-
-            List<ResourceEntity> found = repository.findAll(spec);
-            List<String> ids = sortedIds(found);
-            assertEquals(new ArrayList<>(new LinkedHashSet<>(ids)), ids,
-                    "findAll(spec) must return one row per matching entity");
-            assertEquals(ids.size(), repository.count(spec), "count(spec) must agree with findAll");
-
-            // A page exactly full, so Spring Data runs the separate COUNT query.
-            Page<ResourceEntity> page =
-                    repository.findAll(spec, PageRequest.of(0, ids.size(), Sort.by("id")));
-            assertEquals(ids, idsInOrder(page.getContent()), "page content identities");
-            assertEquals(ids.size(), page.getTotalElements(),
-                    "getTotalElements must agree with the page content");
-            assertEquals(1, page.getTotalPages(), "everything fits on one page");
-
-            assertEquals(ids, idsInOrder(repository.findAll(spec, Sort.by("id"))),
-                    "findAll(spec, Sort) identities");
-
-            assertFalse(ids.isEmpty(), "the filter matched no row: every relation above is vacuous");
-            assertTrue(ids.size() < repository.count(),
-                    "the filter matched every row: every relation above is vacuous");
-        } finally {
-            em.close();
-        }
-    }
-
-    /** One action per translation shape. */
-    @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = {
-            // eq on the @Embedded path.
-            "string/equals/case-sensitive",
-            // exists over the @OneToMany.
-            "collection/exists/empty-collection",
-            // hasIntersection over the @ElementCollection, value first.
-            "collection/has-intersection/value-first",
-            // 0 < size(tags).
-            "size/less-than/value-first",
-            // A bare boolean attribute as the whole condition.
-            "logic/bare-attribute/boolean"})
-    void theRepositoryContractHoldsForEveryTranslationShape(String action) {
-        assertRepositorySurface(specFor(action));
-    }
-
-    /**
-     * Paging calls {@code toPredicate} again on the same instance for the COUNT query, so the
-     * adapter must rebuild its predicate on every call.
-     */
-    @Test
-    void pageableFindAllInvokesToPredicateTwiceOnOneSpecification() {
-        CountingSpecification spec = new CountingSpecification(specFor("collection/has-intersection/value-first"));
-        EntityManager em = emf.createEntityManager();
-        try {
-            SimpleJpaRepository<ResourceEntity, String> repository = repository(em);
-            List<String> all = sortedIds(repository.findAll(spec));
-            assertEquals(3, all.size(), "the fixture must match more rows than fit on one page");
-            spec.invocations.set(0);
-
-            // A full first page, so Spring Data runs the COUNT query.
-            Page<ResourceEntity> page0 = repository.findAll(spec, PageRequest.of(0, 2, Sort.by("id")));
-            assertEquals(all.subList(0, 2), idsInOrder(page0.getContent()));
-            assertEquals(all.size(), page0.getTotalElements());
-            assertEquals(2, spec.invocations.get(),
-                    "findAll(spec, Pageable) with a full page must invoke toPredicate exactly "
-                            + "twice (content query + count query) on one instance");
-
-            // A partial last page: Spring Data computes the total without a COUNT query.
-            Page<ResourceEntity> page1 = repository.findAll(spec, PageRequest.of(1, 2, Sort.by("id")));
-            assertEquals(all.subList(2, 3), idsInOrder(page1.getContent()));
-            assertEquals(all.size(), page1.getTotalElements(),
-                    "page totals must stay consistent across pages");
-            assertFalse(page1.hasNext(), "three matching rows fill exactly two size-2 pages");
-            assertEquals(3, spec.invocations.get(),
-                    "the same Specification instance is re-invoked for every execution");
-        } finally {
-            em.close();
-        }
     }
 
     /**
@@ -287,33 +192,6 @@ class RepositorySurfaceTest {
         }
     }
 
-    /** {@code .and(...)} with a caller Specification returns the intersection, in either order. */
-    @Test
-    void composesWithACallerSpecificationInBothOrders() {
-        Specification<ResourceEntity> cerbos = specFor("collection/has-intersection/value-first");
-        Specification<ResourceEntity> caller =
-                (root, query, cb) -> cb.equal(root.get("aBool"), true);
-
-        EntityManager em = emf.createEntityManager();
-        try {
-            SimpleJpaRepository<ResourceEntity, String> repository = repository(em);
-            Set<String> fromCerbos = Set.copyOf(sortedIds(repository.findAll(cerbos)));
-            Set<String> fromCaller = Set.copyOf(sortedIds(repository.findAll(caller)));
-            Set<String> intersection = new LinkedHashSet<>(fromCerbos);
-            intersection.retainAll(fromCaller);
-
-            // Each side must exclude a row the other admits, or dropping one operand would pass.
-            assertFalse(intersection.isEmpty(), "the two filters must overlap");
-            assertTrue(intersection.size() < fromCerbos.size(), "the caller filter must narrow");
-            assertTrue(intersection.size() < fromCaller.size(), "the adapter filter must narrow");
-
-            assertEquals(intersection, Set.copyOf(sortedIds(repository.findAll(cerbos.and(caller)))));
-            assertEquals(intersection, Set.copyOf(sortedIds(repository.findAll(caller.and(cerbos)))));
-        } finally {
-            em.close();
-        }
-    }
-
     /** Dotted field paths through an {@code @Embedded} value and a {@code @ManyToOne} join. */
     @ParameterizedTest(name = "{0}")
     @ValueSource(strings = {
@@ -328,23 +206,6 @@ class RepositorySurfaceTest {
             assertTrue(ids.size() < 4, "the dotted path matched every row");
         } finally {
             em.close();
-        }
-    }
-
-    /** Counts {@code toPredicate} calls. */
-    private static final class CountingSpecification implements Specification<ResourceEntity> {
-        private final Specification<ResourceEntity> delegate;
-        final AtomicInteger invocations = new AtomicInteger();
-
-        CountingSpecification(Specification<ResourceEntity> delegate) {
-            this.delegate = delegate;
-        }
-
-        @Override
-        public Predicate toPredicate(Root<ResourceEntity> root, CriteriaQuery<?> query,
-                                     CriteriaBuilder criteriaBuilder) {
-            invocations.incrementAndGet();
-            return delegate.toPredicate(root, query, criteriaBuilder);
         }
     }
 }

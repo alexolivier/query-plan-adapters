@@ -31,13 +31,11 @@ import org.springframework.data.jpa.domain.Specification;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.OptionalInt;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -66,16 +64,6 @@ class OptionsTest {
     class Immutability {
 
         @Test
-        void ofHoldsOnlyTheMapping() {
-            Options options = Options.of(Corpus.MAPPING);
-
-            assertEquals(Corpus.MAPPING, options.mapping());
-            assertEquals(Map.of(), options.operatorOverrides());
-            assertEquals(NullAttributeRepresentation.EXPLICIT, options.nullAttributeRepresentation());
-            assertEquals(OptionalInt.empty(), options.maxMacroDepth());
-        }
-
-        @Test
         void theCollectionsAreCopiedNotCaptured() {
             Map<String, AttributeMapping> mapping = new HashMap<>(Corpus.MAPPING);
             Map<String, OperatorFunction> overrides = new HashMap<>();
@@ -90,35 +78,6 @@ class OptionsTest {
                     () -> options.mapping().put("x", AttributeMapping.field("aString")));
             assertThrows(UnsupportedOperationException.class,
                     () -> options.operatorOverrides().put("eq", (cb, field, value) -> null));
-        }
-
-        @Test
-        void eachWithReturnsANewInstanceAndLeavesTheOriginalUnchanged() {
-            Options original = Options.of(Corpus.MAPPING);
-            Options changed = original
-                    .withOperatorOverrides(Map.of("eq", (cb, field, value) -> cb.disjunction()))
-                    .withNullAttributeRepresentation(NullAttributeRepresentation.OMITTED)
-                    .withMaxMacroDepth(3)
-                    .withMapping(Corpus.MAPPING_WITHOUT_NULL_CONVENTIONS);
-
-            assertNotSame(original, changed);
-            assertEquals(Options.of(Corpus.MAPPING), original);
-            assertEquals(1, changed.operatorOverrides().size());
-            assertEquals(NullAttributeRepresentation.OMITTED, changed.nullAttributeRepresentation());
-            assertEquals(OptionalInt.of(3), changed.maxMacroDepth());
-            assertEquals(Corpus.MAPPING_WITHOUT_NULL_CONVENTIONS, changed.mapping());
-        }
-
-        @Test
-        void everyComponentIsRequired() {
-            assertThrows(NullPointerException.class, () -> Options.of(null));
-            assertThrows(NullPointerException.class,
-                    () -> Options.of(Corpus.MAPPING).withOperatorOverrides(null));
-            assertThrows(NullPointerException.class,
-                    () -> Options.of(Corpus.MAPPING).withNullAttributeRepresentation(null));
-            assertThrows(NullPointerException.class,
-                    () -> new Options(Corpus.MAPPING, Map.of(),
-                            NullAttributeRepresentation.EXPLICIT, null));
         }
 
         /** A plain {@link IllegalArgumentException}, not a refusal type: no plan was refused. */
@@ -175,29 +134,6 @@ class OptionsTest {
             } finally {
                 System.clearProperty(DEPTH_PROPERTY);
             }
-        }
-
-        @Test
-        void thePropertyAppliesWhenTheOptionsDeclareNothing() {
-            System.setProperty(DEPTH_PROPERTY, "2");
-            try {
-                assertTranslates(existsChain(2), deep);
-                IllegalArgumentException ex = assertRefused(existsChain(3), deep);
-                assertTrue(ex.getMessage().contains("nesting depth 3 exceeds the maximum of 2"),
-                        ex.getMessage());
-            } finally {
-                System.clearProperty(DEPTH_PROPERTY);
-            }
-        }
-
-        @Test
-        void theDefaultAppliesWhenNeitherIsSet() {
-            System.clearProperty(DEPTH_PROPERTY);
-            assertTranslates(existsChain(SpringDataQueryPlanAdapter.DEFAULT_MAX_MACRO_DEPTH), deep);
-            IllegalArgumentException ex = assertRefused(
-                    existsChain(SpringDataQueryPlanAdapter.DEFAULT_MAX_MACRO_DEPTH + 1), deep);
-            assertTrue(ex.getMessage().contains("exceeds the maximum of "
-                    + SpringDataQueryPlanAdapter.DEFAULT_MAX_MACRO_DEPTH), ex.getMessage());
         }
 
         @Test

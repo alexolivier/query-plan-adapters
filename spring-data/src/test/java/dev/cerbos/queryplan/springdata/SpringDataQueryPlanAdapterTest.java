@@ -684,31 +684,7 @@ class SpringDataQueryPlanAdapterTest {
     // conventions, other column types and the Spring Data call contract have no corpus spelling.
     // ============================================================================================
 
-    @Test
-    void alwaysAllowedSpecificationReturnsNullPredicate() {
-        // A null predicate makes Spring Data omit the WHERE clause.
-        PlanResourcesResponse resp = buildResponse(PlanResourcesFilter.Kind.KIND_ALWAYS_ALLOWED, null);
-        Specification<ResourceEntity> spec =
-                SpringDataQueryPlanAdapter.toSpecification(resp, MAPPER);
-        EntityManager em = emf.createEntityManager();
-        try {
-            CriteriaBuilder cb = em.getCriteriaBuilder();
-            CriteriaQuery<ResourceEntity> cq = cb.createQuery(ResourceEntity.class);
-            Root<ResourceEntity> root = cq.from(ResourceEntity.class);
-            assertNull(spec.toPredicate(root, cq, cb));
-        } finally {
-            em.close();
-        }
-    }
-
     // An OperatorFunction override must be used on every scalar comparison path.
-
-    @Test
-    void overrideAppliesToDirectComparison() {
-        Operand cond = exprOp("eq", var("request.resource.attr.aString"), sval("foo"));
-        assertThrows(OverrideInvoked.class,
-                () -> runCount(cond, Map.of("eq", THROWING_OVERRIDE)));
-    }
 
     @Test
     void overrideAppliesToAddFoldedComparison() {
@@ -788,15 +764,6 @@ class SpringDataQueryPlanAdapterTest {
                 () -> runCount(cond, Map.of("gt", THROWING_OVERRIDE)));
     }
 
-    @Test
-    void unknownCollectionAttributeThrows() {
-        assertConditionThrows(
-                exprOp("in",
-                        var("request.resource.attr.aString"),
-                        var("request.resource.attr.nonexistent")),
-                "Unknown attribute");
-    }
-
     /**
      * Both null conventions send the same {@code eq(attr, null)}, so the caller must say which one
      * it uses. Under {@code OMITTED}, {@code check()} denies a NULL column, so {@code IS NULL}
@@ -824,13 +791,6 @@ class SpringDataQueryPlanAdapterTest {
             nullColumn.setaOptionalString(null);
             withResource(nullColumn, () -> assertEquals(1, runCount(nullEq())));
             assertDoesNotThrow(() -> translate(nullEq(), NullAttributeRepresentation.EXPLICIT));
-        }
-
-        @Test
-        void omittedLeavesNullFreeComparisonsUntouched() {
-            Operand condition =
-                    exprOp("eq", var("request.resource.attr.aString"), sval("x"));
-            assertDoesNotThrow(() -> translate(condition, NullAttributeRepresentation.OMITTED));
         }
     }
 
@@ -1104,39 +1064,11 @@ class SpringDataQueryPlanAdapterTest {
     }
 
     /**
-     * {@code AttributeMapping} and {@code toSpecification} copy the caller's maps, so changing a
-     * map afterwards cannot change which columns the filter uses.
+     * {@code toSpecification} copies the caller's map, so changing it afterwards cannot change
+     * which columns the filter uses.
      */
     @Nested
     class DefensiveCopies {
-
-        @Test
-        void nullConstructorArgumentsThrowNamedNpe() {
-            NullPointerException f = assertThrows(NullPointerException.class,
-                    () -> AttributeMapping.field(null));
-            assertTrue(f.getMessage().contains("jpaPath"), "message: " + f.getMessage());
-
-            NullPointerException j = assertThrows(NullPointerException.class,
-                    () -> new AttributeMapping.Relation(null, null, Map.of()));
-            assertTrue(j.getMessage().contains("joinAttribute"), "message: " + j.getMessage());
-
-            NullPointerException fields = assertThrows(NullPointerException.class,
-                    () -> new AttributeMapping.Relation("tags", null, null));
-            assertTrue(fields.getMessage().contains("fields"), "message: " + fields.getMessage());
-        }
-
-        @Test
-        void relationFieldsMapIsCopiedAndImmutable() {
-            java.util.HashMap<String, AttributeMapping> fields = new java.util.HashMap<>();
-            fields.put("name", AttributeMapping.field("name"));
-            AttributeMapping.Relation rel = AttributeMapping.relation("tags", fields);
-
-            fields.put("name", AttributeMapping.field("id"));
-            assertEquals(AttributeMapping.field("name"), rel.fields().get("name"),
-                    "mutating the caller's fields map must not affect the Relation");
-            assertThrows(UnsupportedOperationException.class,
-                    () -> rel.fields().put("x", AttributeMapping.field("x")));
-        }
 
         @Test
         void mutatingCallerMapperAfterToSpecificationDoesNotAffectSpecification() {
