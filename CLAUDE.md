@@ -107,6 +107,20 @@ compared per token), since a harness only ever sees the refusal, never the mecha
 
 ## Testing
 
+These rules come first. The rest of this section, and "What a translator unit test may pin", say
+how they apply here.
+
+- **Never write unit tests after you write code.** A test written to fit code that already exists
+  pins what the code does, not what it should do.
+- **Strongly prefer E2E tests as the only testing mechanism.** Use them to prove complex features
+  work. In this repository the E2E suites are each adapter's conformance harness and its `example/`
+  run against `demo/`. An E2E test must end by producing an artifact that can be checked and
+  reproduced, like the goldens under `conformance/golden/` or `demo/expected.json`. A pass/fail
+  line alone doesn't count.
+- **If you must test a system in isolation, write down every way it could fail first, then write
+  the code.** Each unit test then covers one of those failure modes, and each must be one the E2E
+  suites cannot catch.
+
 Every adapter has two kinds of suite:
 
 - **The conformance harness** replays the shared corpus against the adapter's real store
@@ -300,6 +314,10 @@ state. Three kinds of material live only there, and they are not equal:
    ([#509](https://github.com/cerbos/query-plan-adapters/issues/509)), and be deleted when the case
    lands. `ElasticsearchQueryPlanAdapterTest` and `SpringDataQueryPlanAdapterTest` are the worked
    examples: a `KIND 3` banner over the block and a `Corpus gap.` lead on every test under it.
+
+Any unit test outside these three kinds gets deleted, not repaired. Even inside them, the rules at
+the top of "Testing" still hold: write the failure modes down before the code, never add the test
+afterwards to cover code that already exists.
 
 ## Working with Adapters
 
