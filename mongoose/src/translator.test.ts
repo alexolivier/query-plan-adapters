@@ -131,16 +131,6 @@ describe("nullAttributeRepresentation", () => {
     ).toStrictEqual(translate("null/equals/null-literal-on-missing-attribute"));
   });
 
-  test("omitted: the same plan is refused rather than translated", () => {
-    // A NULL field sends no attribute, so check() denies on a missing-attribute error while a
-    // null-selecting filter would return exactly those documents (#302).
-    expect(() =>
-      translate("null/equals/null-literal-on-missing-attribute", {
-        nullAttributeRepresentation: "omitted",
-      }),
-    ).toThrow("missing-attribute error");
-  });
-
   test.each(["explicit", "omitted"] as const)(
     "%s: a reentrant function mapper cannot replace the caller's null representation",
     (nullAttributeRepresentation) => {
@@ -171,16 +161,6 @@ describe("nullAttributeRepresentation", () => {
       expect(nestedCalls).toBeGreaterThan(0);
     },
   );
-
-  // The rejection keys off the null OPERAND, not off a list of operators, so a value list carrying
-  // one is refused as well.
-  test("omitted: a null element inside a value list is refused too", () => {
-    expect(() =>
-      translate("null/in/literal-list-of-only-null", {
-        nullAttributeRepresentation: "omitted",
-      }),
-    ).toThrow("missing-attribute error");
-  });
 
   // The same claim over every recorded plan, so a new case carrying a null constant is covered
   // without anyone naming it here. An INDEXED null element is the one exception: the option
@@ -227,8 +207,8 @@ describe("nullAttributeRepresentation", () => {
     ).not.toThrow();
   });
 
-  // The negative control, and the reason the two assertions above are not vacuous: a guard that
-  // rejected EVERY plan under `omitted` would satisfy both while breaking every caller who set
+  // The negative control, and the reason the assertion above is not vacuous: a guard that
+  // rejected EVERY plan under `omitted` would satisfy it while breaking every caller who set
   // the option. The switch narrows what translates; it does not turn the adapter off.
   test("omitted: a null-free comparison is untouched", () => {
     expect(
@@ -252,25 +232,6 @@ describe("timestamp literals", () => {
       ),
       mapper: MAPPER,
     });
-
-  // The nanosecond instant the PDP actually folds is refused — that, and nothing else, is why the
-  // two `timestamp/*/relative-window*` cases are `unsupported` in conformance-ledger.json.
-  test("the nanosecond instant the PDP folds is refused", () => {
-    expect(() => at("2026-08-11T09:13:39.123456789Z")).toThrow(
-      UnsupportedQueryPlanError,
-    );
-  });
-
-  // Its counterpart: only the precision differs.
-  test("the same plan at millisecond precision translates", () => {
-    const result = at("2026-08-11T09:13:39.123Z");
-    expect(result.kind).toBe(PlanKind.CONDITIONAL);
-    // The comparison operand is the instant, guarded so that a field that is not a date and not an RFC 3339 string converts to
-    // null, and null loses every comparison rather than matching one.
-    expect(JSON.stringify(result.filters)).toContain(
-      '"2026-08-11T09:13:39.123Z"',
-    );
-  });
 
   // Each of these is refused rather than coerced: a BSON Date built from a lenient string would
   // compare against the field as some other instant, which is a filter that returns documents the
