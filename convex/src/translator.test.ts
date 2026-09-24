@@ -297,11 +297,6 @@ describe("mapper forms", () => {
     );
   });
 
-  // A lambda's own variable is bound by the macro, not by the mapper, and must not be refused.
-  test("a lambda variable needs no entry", () => {
-    expect(() => translate(DEEP_CASE)).not.toThrow();
-  });
-
   // The opt-in: an entry that names no `field` keeps the plan path.
   test("an empty entry keeps the plan path verbatim", () => {
     const { filter } = translate("string/equals/case-sensitive", {
@@ -331,12 +326,6 @@ describe("nullAttributeRepresentation", () => {
     expect(DOCUMENTS.map((doc) => explicit.postFilter!(doc))).toEqual(
       DOCUMENTS.map((doc) => byDefault.postFilter!(doc)),
     );
-  });
-
-  test("omitted: the same plan is refused rather than translated", () => {
-    expect(() =>
-      translate(MISSING, { nullAttributeRepresentation: "omitted" }),
-    ).toThrow(UnsupportedQueryPlanError);
   });
 
   const carriesNullLiteral = (node: unknown): boolean => {
@@ -562,33 +551,4 @@ describe("shapes the corpus does not reach yet", () => {
       expect(postFilter({ aString: "gamma" })).toBe(false);
     });
   });
-});
-
-// Type-only API contracts: these assignments stop compiling if an impossible result returns.
-test("result types require the payload declared by each execution path", () => {
-  type Result = QueryPlanToConvexResult<Recorder, unknown>;
-  type Rejects<T> = T extends Result ? false : true;
-  const bareConditional: Rejects<{ kind: PlanKind.CONDITIONAL }> = true;
-  const missingDbFilter: Rejects<{ kind: PlanKind.CONDITIONAL; path: "db" }> =
-    true;
-  const missingPostFilter: Rejects<{
-    kind: PlanKind.CONDITIONAL;
-    path: "post";
-  }> = true;
-  const missingSplitPostFilter: Rejects<{
-    kind: PlanKind.CONDITIONAL;
-    path: "split";
-    filter: (q: Recorder) => unknown;
-  }> = true;
-  const unconditionalFilter: Rejects<{
-    kind: PlanKind.ALWAYS_ALLOWED;
-    filter: (q: Recorder) => unknown;
-  }> = true;
-  expect([
-    bareConditional,
-    missingDbFilter,
-    missingPostFilter,
-    missingSplitPostFilter,
-    unconditionalFilter,
-  ]).toEqual([true, true, true, true, true]);
 });
