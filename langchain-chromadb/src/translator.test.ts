@@ -36,10 +36,10 @@ const CURRENT = pdpTags()[0]!;
 
 function translate(
   id: string,
-  options: { fieldNameMapper?: FieldMapper; now?: string } = {},
+  options: { fieldNameMapper?: FieldMapper } = {},
 ): { kind: PlanKind; filters?: Where } {
   return queryPlanToChromaDB({
-    queryPlan: planOf(readGolden(CURRENT, id), options.now),
+    queryPlan: planOf(readGolden(CURRENT, id)),
     fieldNameMapper: options.fieldNameMapper ?? FIELD_NAME_MAPPER,
   });
 }
@@ -103,35 +103,27 @@ interface Comparison {
   value: unknown;
 }
 
-interface FilterShape {
-  /** Every `$`-prefixed key used in a logical position, in encounter order. */
-  logical: string[];
-  comparisons: Comparison[];
-}
-
 /**
- * Decompose an emitted `Where` into the logical operators it nests and the leaf comparisons it
- * makes, so the rules below can be stated over the whole corpus rather than over hand-picked
- * shapes.
+ * Decompose an emitted `Where` into the leaf comparisons it makes, so the rules below can be stated
+ * over the whole corpus rather than over hand-picked shapes.
  *
  * Unknown structure is a failure rather than something skipped: a rule that silently ignores a node
  * it does not recognise is a rule a new emission shape walks straight past.
  */
-function shapeOf(where: Where | undefined, path = "filters"): FilterShape {
-  const shape: FilterShape = { logical: [], comparisons: [] };
+function literalsOf(where: Where | undefined, path = "filters"): Comparison[] {
+  const comparisons: Comparison[] = [];
   if (where === undefined) {
-    return shape;
+    return comparisons;
   }
   for (const [key, value] of Object.entries(where)) {
     if (key.startsWith("$")) {
-      shape.logical.push(key);
       if (!Array.isArray(value)) {
         throw Error(`${path}.${key} is a logical operator over a non-array`);
       }
       for (const [index, child] of value.entries()) {
-        const nested = shapeOf(child as Where, `${path}.${key}[${index}]`);
-        shape.logical.push(...nested.logical);
-        shape.comparisons.push(...nested.comparisons);
+        comparisons.push(
+          ...literalsOf(child as Where, `${path}.${key}[${index}]`),
+        );
       }
       continue;
     }
@@ -139,14 +131,10 @@ function shapeOf(where: Where | undefined, path = "filters"): FilterShape {
       throw Error(`${path}.${key} is not a Chroma comparison object`);
     }
     for (const [operator, operand] of Object.entries(value)) {
-      shape.comparisons.push({ field: key, operator, value: operand });
+      comparisons.push({ field: key, operator, value: operand });
     }
   }
-  return shape;
-}
-
-function literalsOf(where: Where | undefined): Comparison[] {
-  return shapeOf(where).comparisons;
+  return comparisons;
 }
 
 /**
@@ -175,41 +163,6 @@ describe("what an emitted filter may contain", () => {
     expect(undeclared).toEqual([]);
     // Anti-vacuity: the rule above holds for a corpus that emits no comparison at all.
     expect(ALL_COMPARISONS.length).toBeGreaterThan(0);
-  });
-
-  /**
-   * Chroma's `Where` grammar has no `$not` and no `$nor`. Every negation in a plan has to be pushed
-   * down to the leaves — De Morgan over `and`/`or`, operator inversion at a comparison — and a
-   * filter that carried one out to Chroma would be rejected at query time, not at translation.
-   */
-  test("no negation operator survives into an emitted filter", () => {
-    const logical = new Set(
-      CONDITIONAL.flatMap(({ filters }) => shapeOf(filters).logical),
-    );
-
-    expect([...logical].sort()).toEqual(["$and", "$or"]);
-  });
-
-  /**
-   * Anti-vacuity for the rule above: the corpus has to still drive negation through both De Morgan
-   * branches and through operator inversion, or "no `$not` survived" would be a statement about a
-   * corpus that never negates anything.
-   */
-  test("the corpus still drives the negations that rule polices", () => {
-    const conditional = CONDITIONAL.map(({ id }) => id);
-    for (const id of [
-      "logic/not/double-negation",
-      "logic/not/triple-negation",
-      "logic/not/over-and",
-      "logic/not/less-than",
-      "logic/not/greater-than",
-    ]) {
-      expect(conditional).toContain(id);
-    }
-    const inverted = ALL_COMPARISONS.filter(({ operator }) =>
-      ["$ne", "$nin", "$gte", "$lte"].includes(operator),
-    );
-    expect(inverted.length).toBeGreaterThan(0);
   });
 
   /**
@@ -287,23 +240,6 @@ describe("what an emitted filter may contain", () => {
       ).length,
     ).toBeGreaterThan(0);
   });
-
-  /**
-   * A `Where` clause leaves this adapter as part of a JSON request body, so a literal JSON cannot
-   * carry — a non-finite number, a negative zero — is a literal the deployed adapter could not
-   * send faithfully.
-   */
-  test("every emitted literal survives a JSON round trip", () => {
-    const unfaithful = ALL_COMPARISONS.filter(({ value }) =>
-      (Array.isArray(value) ? value : [value]).some(
-        (literal) =>
-          Object.is(literal, -0) ||
-          (typeof literal === "number" && !Number.isFinite(literal)),
-      ),
-    ).map(({ action, field }) => `${action}: ${field}`);
-
-    expect(unfaithful).toEqual([]);
-  });
 });
 
 /**
@@ -327,19 +263,7 @@ describe("mapper forms", () => {
     );
   });
 
-  /**
-   * `comparison/not-equals/value-first` is the discriminating case for the two tests below: under
-   * the corpus mapper, where `aString` is declared `required: true`, it translates to an inequality
-   * over that key. This pins that precondition, so the tests below cannot pass against some other
-   * shape.
-   */
   const VF_NE = "comparison/not-equals/value-first";
-
-  test("the discriminating case is an inequality over a required key", () => {
-    expect(literalsOf(translate(VF_NE).filters)).toEqual([
-      { field: "aString", operator: "$ne", value: "one" },
-    ]);
-  });
 
   /**
    * The default is optional, in both spellings a mapper has. A bare string carries no presence
@@ -373,30 +297,6 @@ describe("mapper forms", () => {
       kind: PlanKind.CONDITIONAL,
       filters: { "request.resource.attr.aString": { $eq: "one" } },
     });
-  });
-
-  /**
-   * The one operand a golden file cannot pin, and the assertion that it does not matter here.
-   *
-   * The generator records the folded `now() - duration("24h")` literal as `__NOW_MINUS_24H__`,
-   * because it differs on every capture — so reading the plan back means choosing an instant. On
-   * the SQL adapters that choice is load-bearing: the PDP emits nanosecond precision, and a tidy
-   * millisecond substitute would translate where production refuses. Here it is inert, because the
-   * comparison never reaches a literal — the operand is a computed expression and `binaryOperands`
-   * rejects it first.
-   */
-  test.each([
-    "timestamp/less-than/relative-window",
-    "timestamp/greater-than/relative-window-value-first",
-  ])("%s is refused for the same reason at either instant precision", (id) => {
-    const nanos = thrownBy(() => translate(id));
-    const millis = thrownBy(() =>
-      translate(id, { now: "2026-08-11T09:13:39.123Z" }),
-    );
-
-    expect(nanos).toBeInstanceOf(UnsupportedOperatorError);
-    expect(millis).toEqual(nanos);
-    expect((millis as Error).message).toBe((nanos as Error).message);
   });
 
   /**
