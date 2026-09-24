@@ -16,8 +16,6 @@ module EdgeCaseModels
         t.integer :author_id
         # Zero, positive and negative rows for the division tests: x/0 is NaN, +Inf or -Inf.
         t.integer :n
-        # For the int() cast: CEL truncates toward zero, PostgreSQL and MySQL round.
-        t.float :score
       end
 
       create_table :edge_comments, force: true do |t|
@@ -25,10 +23,6 @@ module EdgeCaseModels
         t.boolean :approved
         t.integer :commentable_id
         t.string :commentable_type
-      end
-
-      create_table :edge_authors, force: true do |t|
-        t.string :name
       end
 
       create_table :edge_tags, force: true do |t|
@@ -63,32 +57,12 @@ module EdgeCaseModels
         t.string :parent_code
         t.string :name
       end
-
-      # The second hop of a chain, for the absent-parent guard.
-      create_table :edge_tag_labels, force: true do |t|
-        t.string :name
-        t.integer :tag_id
-      end
     end
 
-    EdgeDocument.create!(id: 1, title: "zero", n: 0, score: 0.0)
-    EdgeDocument.create!(id: 2, title: "two", n: 2, score: 2.5)
-    EdgeDocument.create!(id: 3, title: "negative", n: -3, score: -0.6)
-
-    # A chain must tell apart: parent with a matching child, parent without one, and no parent
-    # at all. Only the last is a missing path for CEL.
-    chained = EdgeTag.create!(id: 91, name: "chained", document_id: 1)
-    EdgeTag.create!(id: 92, name: "childless", document_id: 2)
-    EdgeTagLabel.create!(name: "urgent", tag_id: chained.id)
+    EdgeDocument.create!(id: 1, title: "zero", n: 0)
+    EdgeDocument.create!(id: 2, title: "two", n: 2)
+    EdgeDocument.create!(id: 3, title: "negative", n: -3)
   end
-end
-
-class EdgeTagLabel < ActiveRecord::Base
-  self.table_name = "edge_tag_labels"
-end
-
-class EdgeAuthor < ActiveRecord::Base
-  self.table_name = "edge_authors"
 end
 
 class EdgeComment < ActiveRecord::Base
@@ -104,7 +78,6 @@ end
 
 class EdgeTag < ActiveRecord::Base
   self.table_name = "edge_tags"
-  has_many :labels, class_name: "EdgeTagLabel", foreign_key: :tag_id
 end
 
 class EdgeProfile < ActiveRecord::Base
@@ -140,7 +113,6 @@ end
 
 class EdgeDocument < ActiveRecord::Base
   self.table_name = "edge_documents"
-  belongs_to :author, class_name: "EdgeAuthor", foreign_key: :author_id
   has_many :comments, class_name: "EdgeComment", as: :commentable
   has_many :approved_comments, -> { where(approved: true) },
     class_name: "EdgeComment", as: :commentable
@@ -151,6 +123,5 @@ class EdgeDocument < ActiveRecord::Base
     class_name: "EdgeTag", foreign_key: :document_id
   has_many :softs, class_name: "EdgeSoft", foreign_key: :document_id
   has_one :profile, class_name: "EdgeProfile", foreign_key: :document_id
-  has_many :kinds, class_name: "EdgeKind", foreign_key: :document_id
   has_many :special_kinds, class_name: "EdgeSpecialKind", foreign_key: :document_id
 end

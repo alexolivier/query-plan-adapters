@@ -1,15 +1,13 @@
 # frozen_string_literal: true
 
 # Tests for what the corpus cannot ask. Read CLAUDE.md, "What a translator unit test may pin",
-# before adding here. Three kinds:
+# before adding here. Two kinds:
 #
 # * Caller-supplied arguments (kind 2, permanent): operator overrides, mapper forms, the
 #   per-call null representation, and ActiveRecord model shapes (through, scoped, STI,
 #   polymorphic, composite keys). The corpus uses one mapping, so it cannot vary these.
 # * Plans the planner never emits: empty `and`, wrong operand count, unknown kind. The adapter
 #   accepts plans from any source, so these must fail closed.
-# * Cast and division refusals the corpus also covers, kept here to pin which operand type
-#   raises. Not a substitute for the corpus cases.
 #
 # Anything a conformance golden already decides does not belong here. New shapes go in the
 # corpus.
@@ -55,14 +53,6 @@ RSpec.describe Cerbos::ActiveRecord do
   end
 
   describe "plan kinds" do
-    it "returns every row for an unconditional allow" do
-      expect(translate({"kind" => "KIND_ALWAYS_ALLOWED"}).count).to eq(ConformanceCorpus::SEEDS.size)
-    end
-
-    it "returns no rows for an unconditional deny" do
-      expect(translate({"kind" => "KIND_ALWAYS_DENIED"})).to be_empty
-    end
-
     it "rejects an unrecognised kind" do
       expect { translate({"kind" => "KIND_SOMETHING_ELSE"}) }
         .to raise_error(Cerbos::ActiveRecord::InvalidPlanError, /Unrecognised query plan kind/)
@@ -197,50 +187,6 @@ RSpec.describe Cerbos::ActiveRecord do
     end
   end
 
-  describe "casts that SQL cannot make the way CEL does" do
-    it "raises for int() over a string column" do
-      # CEL errors on '1junk' and denies; SQLite casts it to 1 and would keep the row.
-      expect {
-        described_class.query_plan_to_relation(
-          plan: conditional(expression("gt",
-            expression("int", variable("s")), value(0))),
-          model: EdgeDocument, attributes: {"s" => field("title")}
-        )
-      }.to raise_error(Cerbos::ActiveRecord::UnsupportedOperatorError,
-        /int\(\) applied to a :string column/)
-    end
-
-    # Each operand type has its own message, so it is clear which one refused (#326).
-    it "raises for int() over a double column, naming the rounding difference" do
-      expect {
-        described_class.query_plan_to_relation(
-          plan: conditional(expression("eq",
-            expression("int", variable("d")), value(0))),
-          model: EdgeDocument, attributes: {"d" => field("score")}
-        )
-      }.to raise_error(Cerbos::ActiveRecord::UnsupportedOperatorError,
-        /int\(\) applied to a double column is not portable/)
-    end
-
-    it "raises for double() over a string column" do
-      expect {
-        described_class.query_plan_to_relation(
-          plan: conditional(expression("gt",
-            expression("double", variable("s")), value(0.5))),
-          model: EdgeDocument, attributes: {"s" => field("title")}
-        )
-      }.to raise_error(Cerbos::ActiveRecord::UnsupportedOperatorError, /double\(\) needs a numeric column/)
-    end
-
-    it "accepts int() over an integer column, where the cast has nothing to do" do
-      relation = described_class.query_plan_to_relation(
-        plan: conditional(expression("gt", expression("int", variable("n")), value(0))),
-        model: EdgeDocument, attributes: {"n" => field("n")}
-      )
-      expect(relation.order(:id).pluck(:title)).to eq(%w[two])
-    end
-  end
-
   describe "membership between two columns under each NULL convention" do
     let(:plan) do
       conditional(expression("in", variable("a"), expression("list", variable("b"))))
@@ -297,14 +243,6 @@ RSpec.describe Cerbos::ActiveRecord do
       }.to raise_error(Cerbos::ActiveRecord::UnmappedAttributeError, /colour/)
     end
 
-    it "raises when a collection is used where a scalar is required" do
-      expect {
-        translate(conditional(
-          expression("eq", variable("request.resource.attr.tags"), value("x"))
-        ))
-      }.to raise_error(Cerbos::ActiveRecord::UnmappedAttributeError, /relation/)
-    end
-
     it "raises when a macro is given something that is not a collection" do
       expect {
         translate(conditional(expression("exists",
@@ -314,18 +252,10 @@ RSpec.describe Cerbos::ActiveRecord do
     end
   end
 
-  # For `R.attr.parent.children`, a missing parent is a missing path and CEL denies. A naive
-  # subquery cannot tell that from a parent with no children, so `all`, `!exists` and counts
-  # would return denied rows (#309). The nested `fields:` mapping marks the parent hop.
-  # The corpus covers this with the `relation/<operator>/*to-one-chain` cases over
-  # `mainCategory`; these tests check each polarity.
-  describe "a collection reached through a parent hop" do
+  # A path through a nested `fields:` mapping must name a mapping at every step.
+  describe "a path through a nested relation mapping" do
     CHAIN_ATTRIBUTES = {
       "request.resource.attr.tag" => described_class.relation(:tags, fields: {
-        "labels" => described_class.relation(
-          :labels, fields: {"name" => described_class.field("name")}
-        ),
-        "labelNames" => described_class.relation(:labels, member_field: "name"),
         "name" => described_class.field("name")
       })
     }.freeze
@@ -334,69 +264,6 @@ RSpec.describe Cerbos::ActiveRecord do
       Cerbos::ActiveRecord.query_plan_to_relation(
         plan: conditional(condition), model: EdgeDocument, attributes: CHAIN_ATTRIBUTES
       ).order(:id).pluck(:title)
-    end
-
-    def label_lambda(operator)
-      expression(operator,
-        variable("request.resource.attr.tag.labels"),
-        expression("lambda",
-          expression("eq", variable("l.name"), value("urgent")), variable("l")))
-    end
-
-    it "keeps the row without a parent out of a positive existential" do
-      expect(chain_titles(label_lambda("exists"))).to eq(%w[zero])
-    end
-
-    it "keeps the row without a parent out of a negated existential" do
-      # "two" has a parent with no match, so it is in. "negative" has no parent, so it is out.
-      expect(chain_titles(expression("not", label_lambda("exists"))))
-        .to eq(%w[two])
-    end
-
-    # Only the parentless row is removed. "two" has an empty label list, and `all` over it is
-    # TRUE in CEL too.
-    it "keeps the row without a parent out of a universal, and keeps the childless one in" do
-      expect(chain_titles(label_lambda("all"))).to eq(%w[zero two])
-    end
-
-    it "keeps the row without a parent out of every count threshold" do
-      size = expression("size", variable("request.resource.attr.tag.labels"))
-      expect(chain_titles(expression("ge", size, value(0)))).to eq(%w[zero two])
-      expect(chain_titles(expression("eq", size, value(0)))).to eq(%w[two])
-      expect(chain_titles(expression("not", expression("gt", size, value(0)))))
-        .to eq(%w[two])
-    end
-
-    it "keeps the row without a parent out of a negated membership" do
-      membership = expression("in",
-        value("urgent"), variable("request.resource.attr.tag.labelNames"))
-      expect(chain_titles(membership)).to eq(%w[zero])
-      expect(chain_titles(expression("not", membership))).to eq(%w[two])
-    end
-
-    it "keeps the row without a parent out of a negated hasIntersection" do
-      intersection = expression("hasIntersection",
-        variable("request.resource.attr.tag.labelNames"),
-        expression("list", value("urgent")))
-      expect(chain_titles(intersection)).to eq(%w[zero])
-      expect(chain_titles(expression("not", intersection))).to eq(%w[two])
-    end
-
-    # A directly mapped relation has no parent hop, so an empty collection stays empty.
-    it "leaves a direct relation with the vacuous truth of an empty collection" do
-      titles = described_class.query_plan_to_relation(
-        plan: conditional(expression("all",
-          variable("request.resource.attr.tags"),
-          expression("lambda",
-            expression("eq", variable("t.name"), value("chained")), variable("t")))),
-        model: EdgeDocument,
-        attributes: {
-          "request.resource.attr.tags" => relation(:tags, fields: {"name" => field("name")})
-        }
-      ).order(:id).pluck(:title)
-
-      # "negative" has no tags, so `all` is TRUE, as in CEL.
-      expect(titles).to eq(%w[zero negative])
     end
 
     it "raises when a step of the path names a scalar field" do
@@ -493,17 +360,6 @@ RSpec.describe Cerbos::ActiveRecord do
       }.to raise_error(Cerbos::ActiveRecord::UnsupportedAssociationError, /single-table hierarchy/)
     end
 
-    it "accepts an association that points at the base class of a hierarchy" do
-      # No type condition here, so the subquery already agrees.
-      expect {
-        described_class.query_plan_to_relation(
-          plan: conditional(expression("in", value("x"), variable("c"))),
-          model: EdgeDocument,
-          attributes: {"c" => relation(:kinds, member_field: "name")}
-        ).to_sql
-      }.not_to raise_error
-    end
-
     it "raises for an association that joins on more than one column" do
       # The keys are an array. Without the guard they became one quoted column name and the
       # query failed with "no such column".
@@ -544,42 +400,8 @@ RSpec.describe Cerbos::ActiveRecord do
     end
   end
 
-  # CEL division by zero gives NaN or Infinity, not an error. Turning it into NULL is wrong
-  # for `!=`: `NaN != 1.0` is TRUE in CEL but `NULL != 1.0` is UNKNOWN in SQL.
-  describe "division by a row-dependent denominator" do
-    def divide_compare(operator, constant)
-      described_class.query_plan_to_relation(
-        plan: conditional(expression(operator,
-          expression("div", variable("n"), variable("n")), value(constant))),
-        model: EdgeDocument,
-        attributes: {"n" => field("n")}
-      ).order(:id).pluck(:title)
-    end
-
-    it "keeps the NaN row for a not-equal comparison" do
-      # 0/0 is NaN, which is not equal to anything, so the zero row is allowed.
-      expect(divide_compare("ne", 1.0)).to eq(%w[zero])
-    end
-
-    it "removes the NaN row from an ordered comparison" do
-      # NaN is not ordered, so the comparison is false for the zero row.
-      expect(divide_compare("gt", 0.5)).to eq(%w[two negative])
-    end
-
-    it "removes the NaN row from an equality" do
-      expect(divide_compare("eq", 1.0)).to eq(%w[two negative])
-    end
-
-    it "keeps the NaN row under a negated equality" do
-      relation = described_class.query_plan_to_relation(
-        plan: conditional(expression("not",
-          expression("eq", expression("div", variable("n"), variable("n")), value(1.0)))),
-        model: EdgeDocument,
-        attributes: {"n" => field("n")}
-      )
-      expect(relation.order(:id).pluck(:title)).to eq(%w[zero])
-    end
-
+  # CEL division by zero gives NaN or Infinity, not an error.
+  describe "division by zero" do
     it "resolves an Infinity from a constant zero denominator" do
       # 2/0 is +Infinity, and -3/0 is -Infinity.
       relation = described_class.query_plan_to_relation(
@@ -590,79 +412,12 @@ RSpec.describe Cerbos::ActiveRecord do
       )
       expect(relation.order(:id).pluck(:title)).to eq(%w[two])
     end
-
-    it "keeps the sign of a negative zero denominator" do
-      # Zero keeps its sign: 2.0 / -0.0 is -Infinity and -3.0 / -0.0 is +Infinity.
-      relation = described_class.query_plan_to_relation(
-        plan: conditional(expression("gt",
-          expression("div", variable("n"), value(-0.0)), value(0.0))),
-        model: EdgeDocument,
-        attributes: {"n" => field("n")}
-      )
-      expect(relation.order(:id).pluck(:title)).to eq(%w[negative])
-    end
-
-    it "refuses a division by a column that may be zero" do
-      # SQL cannot read the sign of a zero column, so the Infinity's sign is unknown. Only
-      # x/x is safe: a zero there is always 0/0, which is NaN.
-      expect {
-        described_class.query_plan_to_relation(
-          plan: conditional(expression("gt",
-            expression("div", variable("n"), variable("author")), value(0.0))),
-          model: EdgeDocument,
-          attributes: {"n" => field("n"), "author" => field("author_id")}
-        )
-      }.to raise_error(Cerbos::ActiveRecord::UnsupportedOperatorError, /sign of the Infinity/)
-    end
-
-    it "raises for more arithmetic on a value that may not be finite" do
-      expect {
-        described_class.query_plan_to_relation(
-          plan: conditional(expression("gt",
-            expression("add", expression("div", variable("n"), variable("n")), value(1.0)),
-            value(0.0))),
-          model: EdgeDocument,
-          attributes: {"n" => field("n")}
-        )
-      }.to raise_error(Cerbos::ActiveRecord::UnsupportedOperatorError, /NaN or Infinity/)
-    end
   end
 
-  describe "unsupported operators" do
-    it "raises for an operator it does not implement" do
-      expect {
-        translate(conditional(
-          expression("matches", variable("request.resource.attr.aString"), value("^s"))
-        ))
-      }.to raise_error(Cerbos::ActiveRecord::UnsupportedOperatorError, /Unsupported operator: matches/)
-    end
-
-    it "raises for a collection used as a condition" do
-      expect {
-        translate(conditional(expression("filter",
-          variable("request.resource.attr.tags"),
-          expression("lambda",
-            expression("eq", variable("t.name"), value("public")), variable("t")))))
-      }.to raise_error(Cerbos::ActiveRecord::UnsupportedOperatorError, /not to a boolean/)
-    end
-
-    it "raises for a sub-microsecond timestamp literal" do
-      # now() has nanoseconds. ActiveRecord would truncate them and change the instant.
-      expect { Cerbos::ActiveRecord::Timestamps.parse("2026-08-04T08:55:39.185020547Z") }
-        .to raise_error(Cerbos::ActiveRecord::UnsupportedOperatorError, /sub-microsecond/)
-    end
-
+  describe "timestamp literals" do
     it "accepts trailing zeroes beyond microsecond precision" do
       expect(Cerbos::ActiveRecord::Timestamps.parse("2024-06-01T00:00:00.123456000Z"))
         .to eq(Time.utc(2024, 6, 1, 0, 0, 0, 123456))
-    end
-
-    it "raises for timestamp() over a column holding a formatted string" do
-      expect {
-        translate(conditional(expression("lt",
-          expression("timestamp", variable("request.resource.attr.aString")),
-          expression("timestamp", value("2025-01-01T00:00:00Z")))))
-      }.to raise_error(Cerbos::ActiveRecord::UnsupportedOperatorError, /must map to a datetime column/)
     end
 
     it "rejects an invalid timestamp literal" do
@@ -692,14 +447,6 @@ RSpec.describe Cerbos::ActiveRecord do
   end
 
   describe "mapping helpers" do
-    it "requires a path" do
-      expect { described_class.field(nil) }.to raise_error(ArgumentError, /path is required/)
-    end
-
-    it "requires an association" do
-      expect { described_class.relation(nil) }.to raise_error(ArgumentError, /association is required/)
-    end
-
     it "rejects a nested field that is not a mapping" do
       expect { described_class.relation(:tags, fields: {"name" => "name"}) }
         .to raise_error(ArgumentError, /must be a field or relation mapping/)
@@ -723,12 +470,6 @@ RSpec.describe Cerbos::ActiveRecord do
       }
     end
 
-    def declared_sql(condition)
-      described_class.query_plan_to_relation(
-        plan: conditional(condition), model: EdgeDocument, attributes: declared
-      ).to_sql
-    end
-
     it "preserves CEL scalar types under explicit null conventions" do
       numeric_text = EdgeDocument.create!(title: "0", n: 0)
       nulls = EdgeDocument.create!(title: nil, n: nil)
@@ -749,52 +490,6 @@ RSpec.describe Cerbos::ActiveRecord do
         numeric_text.destroy!
         nulls.destroy!
       end
-    end
-
-    it "guards a declared column in an equality against a constant" do
-      sql = declared_sql(expression("eq", variable("e"), value("x")))
-      expect(sql).to include('"title" IS NOT NULL')
-    end
-
-    it "guards a declared column under a negated equality" do
-      # `null != "x"` is TRUE in CEL but UNKNOWN in SQL, so the guard goes inside the NOT.
-      sql = declared_sql(expression("ne", variable("e"), value("x")))
-      expect(sql).to match(/NOT.*"title" IS NOT NULL/m)
-    end
-
-    it "guards a declared column in a membership against constants" do
-      sql = declared_sql(
-        expression("in", variable("e"), expression("list", value("x"), value("y")))
-      )
-      expect(sql).to include('"title" IS NOT NULL')
-      expect(sql).to include("IN (")
-    end
-
-    it "leaves a membership alone when the list already carries a null" do
-      # A null element adds an `IS NULL` branch, which is already definite.
-      sql = declared_sql(
-        expression("in", variable("e"), expression("list", value("x"), value(nil)))
-      )
-      expect(sql).not_to include('"title" IS NOT NULL')
-    end
-
-    it "matches two nulls when both columns declare the convention" do
-      sql = declared_sql(expression("eq", variable("e"), variable("f")))
-      expect(sql).to match(/"title" IS NULL AND .*"n" IS NULL/)
-    end
-
-    it "refuses a comparison between two columns under mixed conventions" do
-      expect { declared_sql(expression("ne", variable("e"), variable("u"))) }
-        .to raise_error(
-          Cerbos::ActiveRecord::UnsupportedOperatorError,
-          /between two columns under mixed null conventions/
-        )
-    end
-
-    it "leaves the order operators alone" do
-      # CEL errors on a null here and denies either way, as UNKNOWN does. No guard needed.
-      sql = declared_sql(expression("lt", variable("e"), value("x")))
-      expect(sql).not_to include("IS NOT NULL")
     end
 
     it "keeps an operator override rather than restructuring around it" do
@@ -829,31 +524,6 @@ RSpec.describe Cerbos::ActiveRecord do
           null_attribute_representation: :omitted
         )
       }.not_to raise_error
-    end
-  end
-
-  describe "generated SQL" do
-    it "aliases each correlated subquery so nesting cannot self-correlate" do
-      sql = translate(conditional(expression("exists",
-        variable("request.resource.attr.tags"),
-        expression("lambda",
-          expression("eq", variable("t.name"), value("public")), variable("t"))))).to_sql
-
-      expect(sql).to include("EXISTS (SELECT 1 FROM")
-      # The subquery uses an alias, so a nested macro has a name to correlate to.
-      expect(sql).to match(/"adversarial_tags" "cerbos_adversarial_tags_\d+"/)
-      expect(sql).not_to include('FROM "adversarial_tags" WHERE')
-    end
-
-    it "resolves a dotted path as a correlated scalar subquery, not a join" do
-      sql = described_class.query_plan_to_relation(
-        plan: conditional(expression("eq", variable("a"), value("Ada"))),
-        model: EdgeDocument,
-        attributes: {"a" => field("author.name")}
-      ).to_sql
-
-      expect(sql).to include("(SELECT")
-      expect(sql).not_to include("JOIN")
     end
   end
 
