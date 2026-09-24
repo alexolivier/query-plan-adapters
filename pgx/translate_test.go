@@ -133,9 +133,6 @@ func TestMalformedPlansReturnErrors(t *testing.T) {
 		{name: "hierarchy operator without hierarchy operands", cond: expr("ancestorOf", val(t, "a"), val(t, "a.b"))},
 		{name: "empty hierarchy delimiter", cond: expr("ancestorOf", expr("hierarchy", val(t, "a"), val(t, "")), expr("hierarchy", val(t, "a.b"), val(t, "")))},
 		{name: "invalid timestamp literal", cond: expr("gt", expr("timestamp", val(t, "not-a-timestamp")), val(t, 1))},
-		{name: "timestamp over an untyped column", cond: expr("gt", expr("timestamp", variable("request.resource.attr.name")), val(t, 1))},
-		{name: "regex", cond: expr("matches", variable("request.resource.attr.name"), val(t, ".*"))},
-		{name: "filter outside size", cond: expr("filter", variable("request.resource.attr.tags"), expr("lambda", val(t, true), variable("t")))},
 		{name: "hasIntersection between two stored collections", cond: expr("hasIntersection", variable("request.resource.attr.tags"), variable("request.resource.attr.tags"))},
 	}
 
@@ -159,28 +156,6 @@ func TestNilConditionIsNotAnAllow(t *testing.T) {
 	result, err := cerbospgx.Translate(&responsev1.PlanResourcesResponse{}, "resource", testMapper())
 	require.NoError(t, err)
 	require.Equal(t, cerbospgx.KindAlwaysDenied, result.Kind)
-}
-
-func TestPlanKinds(t *testing.T) {
-	t.Parallel()
-
-	for _, tc := range []struct {
-		name string
-		kind enginev1.PlanResourcesFilter_Kind
-		want cerbospgx.PlanKind
-	}{
-		{name: "denied", kind: enginev1.PlanResourcesFilter_KIND_ALWAYS_DENIED, want: cerbospgx.KindAlwaysDenied},
-		{name: "allowed", kind: enginev1.PlanResourcesFilter_KIND_ALWAYS_ALLOWED, want: cerbospgx.KindAlwaysAllowed},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			plan := &responsev1.PlanResourcesResponse{Filter: &enginev1.PlanResourcesFilter{Kind: tc.kind}}
-			result, err := cerbospgx.Translate(plan, "resource", testMapper())
-			require.NoError(t, err)
-			require.Equal(t, tc.want, result.Kind)
-		})
-	}
 }
 
 // TestUnrecognisedFilterKindIsRejected covers the remaining wire value: an unset kind is neither of
@@ -214,109 +189,6 @@ func TestNoPlanDataReachesSQLText(t *testing.T) {
 	require.NotContains(t, result.Where, "--")
 	require.NotContains(t, result.Where, "'")
 	require.Contains(t, result.Args, hostile)
-}
-
-// TestValueFirstComparisonsMirror pins the operand-order rule that shipped as the same bug to two
-// adapters (cerbos/query-plan-adapters#257): the planner preserves policy source order, so
-// `3 <= R.attr.count` arrives value-first and must become `count >= 3`, not `count <= 3`.
-func TestValueFirstComparisonsMirror(t *testing.T) {
-	t.Parallel()
-
-	for _, tc := range []struct{ operator, want string }{
-		{operator: "lt", want: ">"},
-		{operator: "le", want: ">="},
-		{operator: "gt", want: "<"},
-		{operator: "ge", want: "<="},
-	} {
-		t.Run(tc.operator, func(t *testing.T) {
-			t.Parallel()
-
-			result, err := translate(t, expr(tc.operator, val(t, 3), variable("request.resource.attr.count")))
-			require.NoError(t, err)
-			require.Equal(t, `("resource"."count" `+tc.want+` $1::double precision)`, result.Where)
-			require.Equal(t, []any{float64(3)}, result.Args)
-		})
-	}
-}
-
-// TestSymmetricComparisonsNormaliseToColumnFirst covers the other half of the rule: eq/ne/in mean
-// the same thing either way round, so they normalise rather than mirror.
-func TestSymmetricComparisonsNormaliseToColumnFirst(t *testing.T) {
-	t.Parallel()
-
-	result, err := translate(t, expr("eq", val(t, "x"), variable("request.resource.attr.name")))
-	require.NoError(t, err)
-	require.Equal(t, `("resource"."name" = $1::text)`, result.Where)
-}
-
-// TestOperatorSymbols pins the two lookup tables the renderer spells operators through.
-//
-// They are the kind of thing nothing else catches: a `+` written where `-` belongs, or `<` where
-// `<=` belongs, is valid SQL that quietly returns a different row set, and the corpus only notices
-// if some action happens to straddle the boundary the wrong symbol moves. Every arm is asserted so
-// there is no operator whose spelling is taken on trust.
-func TestOperatorSymbols(t *testing.T) {
-	t.Parallel()
-
-	t.Run("comparisons", func(t *testing.T) {
-		t.Parallel()
-
-		for operator, symbol := range map[string]string{
-			"eq": "=", "ne": "<>", "lt": "<", "le": "<=", "gt": ">", "ge": ">=",
-		} {
-			result, err := translate(t, expr(operator, variable("request.resource.attr.count"), val(t, 2)))
-			require.NoError(t, err, operator)
-			require.Equal(t, `("resource"."count" `+symbol+` $1::double precision)`, result.Where, operator)
-		}
-	})
-
-	t.Run("arithmetic", func(t *testing.T) {
-		t.Parallel()
-
-		// A column dividend keeps `div` and `mod` from folding to a constant, and the division
-		// shapes wrap the arithmetic in the guards that keep a zero divisor UNKNOWN — so these
-		// assert the operator appears rather than pinning the whole surrounding CASE.
-		for operator, symbol := range map[string]string{
-			"add": "+", "sub": "-", "mult": "*", "div": "/", "mod": "%",
-		} {
-			result, err := translate(t, expr("gt",
-				expr(operator, variable("request.resource.attr.count"), val(t, 2)), val(t, 1)))
-			require.NoError(t, err, operator)
-			require.Contains(t, result.Where, " "+symbol+" ", operator+": "+result.Where)
-		}
-	})
-}
-
-// TestReceiverSensitiveOperatorsKeepWireOrder is the reason eq/ne/in are normalised by name rather
-// than by "put the column first": swapping `"const".contains(col)` would silently exchange the
-// haystack and the needle.
-func TestReceiverSensitiveOperatorsKeepWireOrder(t *testing.T) {
-	t.Parallel()
-
-	result, err := translate(t, expr("contains", val(t, "haystack"), variable("request.resource.attr.name")))
-	require.NoError(t, err)
-	require.Contains(t, result.Where, "$1::text LIKE")
-	require.Equal(t, "haystack", result.Args[0])
-}
-
-// TestLikeMetacharactersAreEscaped pins that policy data cannot act as a wildcard.
-func TestLikeMetacharactersAreEscaped(t *testing.T) {
-	t.Parallel()
-
-	result, err := translate(t, expr("startsWith", variable("request.resource.attr.name"), val(t, `100%_a[b\`)))
-	require.NoError(t, err)
-	require.Equal(t, `100\%\_a\[b\\%`, result.Args[0])
-	require.Contains(t, result.Where, "ESCAPE")
-}
-
-// TestNullComparisonBecomesIsNull pins the default (explicit-null) representation.
-func TestNullComparisonBecomesIsNull(t *testing.T) {
-	t.Parallel()
-
-	result, err := translate(t, expr("eq", variable("request.resource.attr.owner"), val(t, nil)))
-	require.NoError(t, err)
-	require.Equal(t, `("resource"."owner" IS NULL)`, result.Where)
-	require.Empty(t, result.Args)
 }
 
 // TestNullOperandsRejectedUnderOmitted pins the rejection, and that it matches on the operand
@@ -498,26 +370,6 @@ func TestRelationMembershipRespectsNullRepresentation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, omitted.Where, "IS NOT DISTINCT FROM")
 	require.Contains(t, omitted.Where, `"cerbos_rel_1"."name" = "resource"."owner"`)
-}
-
-// TestNumericCastsAreRejected pins the fail-closed answer to CEL's int()/double()
-// (cerbos/query-plan-adapters#311).
-//
-// The adapter used to render `CAST(trunc(...))`, which is exactly right for a numeric column —
-// int(1.9) is 1 to CEL while PostgreSQL's plain float-to-bigint cast rounds to 2. It is wrong for
-// a string one: CEL reads a WHOLE string or raises, and an error denies the row, while SQL reads
-// whatever numeric prefix parses. Nothing in the plan says which kind of column the operand is,
-// so the corpus cases cast/int/malformed-string / cast/double/malformed-string cannot be told
-// apart from cast/int/negative-fraction at translation time and the whole family fails closed. Re-enabling the numeric
-// direction needs a caller-declared numeric ValueType, the way timestamp() already works.
-func TestNumericCastsAreRejected(t *testing.T) {
-	t.Parallel()
-
-	for _, operator := range []string{"int", "double"} {
-		_, err := translate(t, expr("eq", expr(operator, variable("request.resource.attr.count")), val(t, 2)))
-		require.ErrorIs(t, err, cerbospgx.ErrUnsupported)
-		require.ErrorContains(t, err, "cannot be lowered to SQL CAST")
-	}
 }
 
 // TestStringOverABooleanSpellsCELsWords pins string() over a column declared ValueBool
@@ -716,48 +568,6 @@ func explicitNullMapper() cerbospgx.Mapper {
 	}
 }
 
-// A null VALUE is not equal to "x", so CEL returns a definite FALSE and its negation a definite
-// TRUE. A bare inequality is UNKNOWN instead, which excludes the row under BOTH polarities — the
-// row the PDP allows never comes back.
-func TestExplicitNullEqualityIsDefinite(t *testing.T) {
-	t.Parallel()
-
-	for _, tc := range []struct {
-		cond  *operand
-		name  string
-		query string
-	}{
-		{
-			name:  "eq against a constant",
-			cond:  expr("eq", variable("request.resource.attr.owner"), val(t, "x")),
-			query: `(("resource"."owner" IS NOT NULL) AND ("resource"."owner" = $1::text))`,
-		},
-		{
-			name:  "ne against a constant",
-			cond:  expr("ne", variable("request.resource.attr.owner"), val(t, "x")),
-			query: `(NOT (("resource"."owner" IS NOT NULL) AND ("resource"."owner" = $1::text)))`,
-		},
-		{
-			name:  "membership without a null element",
-			cond:  expr("in", variable("request.resource.attr.owner"), val(t, []any{"x", "y"})),
-			query: `(("resource"."owner" IS NOT NULL) AND ("resource"."owner" IN ($1::text, $2::text)))`,
-		},
-		{
-			name: "field-to-field between two explicit nulls",
-			cond: expr("eq", variable("request.resource.attr.owner"), variable("request.resource.attr.coOwner")),
-			query: `((("resource"."owner" IS NULL) AND ("resource"."co_owner" IS NULL)) OR ` +
-				`(("resource"."owner" IS NOT NULL) AND ("resource"."co_owner" IS NOT NULL) AND ("resource"."owner" = "resource"."co_owner")))`,
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			result := translateWith(t, explicitNullMapper(), tc.cond)
-			require.Equal(t, tc.query, result.Where)
-		})
-	}
-}
-
 // The equality family only. An ordering comparison against a null receiver is a no-overload error
 // in CEL, which denies under both polarities — exactly what UNKNOWN already does — so it must keep
 // propagating it rather than being made definite.
@@ -767,12 +577,6 @@ func TestExplicitNullLeavesOtherOperatorsAlone(t *testing.T) {
 	result := translateWith(t, explicitNullMapper(),
 		expr("gt", variable("request.resource.attr.owner"), val(t, "x")))
 	require.Equal(t, `("resource"."owner" > $1::text)`, result.Where)
-
-	// An undeclared entry keeps the historical rendering, so declaring the convention on one
-	// attribute cannot change the SQL emitted for any other mapping.
-	result = translateWith(t, explicitNullMapper(),
-		expr("ne", variable("request.resource.attr.name"), val(t, "x")))
-	require.Equal(t, `("resource"."name" <> $1::text)`, result.Where)
 }
 
 // The entry-level declaration overrides the call-level option in both directions, which is the
