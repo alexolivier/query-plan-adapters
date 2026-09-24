@@ -116,8 +116,8 @@ The four suites under [`../src/test`](../src/test) compile against the adapter's
 POM and Gradle module metadata, dependency scopes included, are exercised nowhere else. This example
 resolves `dev.cerbos:cerbos-elasticsearch` from mavenLocal as a real Maven coordinate
 ([ADR 0002](../../docs/adr/0002-examples-install-the-packed-artifact.md)). It is also the only place
-the Elasticsearch client parses an emitted clause: `ElasticsearchTranslatorTest` compares maps to a
-golden asset, and `ElasticsearchAdversarialConformanceTest` posts raw JSON over a bare `HttpClient`.
+the Elasticsearch client parses an emitted clause: `ElasticsearchTranslatorTest` only inspects emitted maps
+without a client, and `ElasticsearchAdversarialConformanceTest` posts raw JSON over a bare `HttpClient`.
 
 It is **not a Gradle composite build**. `includeBuild("..")` would substitute the local project for
 the coordinate and resolve neither the POM nor the module metadata, so wrong scopes would still

@@ -594,8 +594,8 @@ JDK 17+; sources compile with `options.release = 17`. Gradle comes from the comm
 | Suite | What it asserts | Needs |
 |---|---|---|
 | `ElasticsearchAdversarialConformanceTest` | the conformance harness: every recorded golden plan, for both pinned PDPs, returns exactly the documents `check()` allowed, or throws `UnsupportedPlanShapeException` where the ledger says `unsupported` | Elasticsearch (Testcontainers); no PDP |
-| `ElasticsearchTranslatorTest` | what can be asked without a store: the null-convention and timestamp-precision refusals, that an unmapped field is not a refusal, and rules over every emitted query (fields mapped, nested scopes, no null literal, escaped wildcards, plain JDK values) | nothing — plans come from `conformance/golden/` |
-| `ElasticsearchSurfaceTest` | what a real server does with emitted clauses, and the store facts the corpus reasons cite — unindexed empty arrays (nested and flat), JSON nulls and null elements, an indexed empty string, analyzed fields, Lucene regex including whole-field alternation, wildcard escaping, `date` vs `date_nanos` precision | Elasticsearch (Testcontainers) |
+| `ElasticsearchTranslatorTest` | what can be asked without a store: the null-convention and timestamp-precision refusals, and that every emitted query holds only plain JDK values | nothing — plans come from `conformance/golden/` |
+| `ElasticsearchSurfaceTest` | the store facts the corpus reasons cite, measured on a real server — unindexed empty arrays (nested and flat), JSON nulls and null elements, term coercion, an indexed empty string, analyzed fields, Lucene regex including whole-field alternation, `date` vs `date_nanos` precision | Elasticsearch (Testcontainers) |
 | `ElasticsearchQueryPlanAdapterTest` | shapes no policy can produce — malformed operands, caller-supplied arguments, literal validation — plus a few labelled shapes the corpus does not carry yet | nothing |
 
 The server is pinned in [`ELASTICSEARCH_IMAGE`](ELASTICSEARCH_IMAGE) (`repo:tag@sha256:...`), read
